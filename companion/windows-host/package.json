@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Outbound-only Windows companion for WFL Codex Desktop.",
+  "description": "Outbound-only Windows companion for WFL Codex Web Workspace.",
   "files": [
     "README.zh-CN.md",
     "npm-shrinkwrap.json",

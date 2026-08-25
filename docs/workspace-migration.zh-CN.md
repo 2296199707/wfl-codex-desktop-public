@@ -1,7 +1,7 @@
 # 工作区迁移
 
 工作区迁移用于把拥有者选中的工程文件和关联对话复制到另一台
-WFL Codex Desktop 服务器。源服务器只读取并生成快照；迁移完成后，
+WFL Codex Web Workspace 服务器。源服务器只读取并生成快照；迁移完成后，
 源服务器与目标服务器彼此独立，均可继续使用。
 
 ## 源服务器
@@ -33,7 +33,7 @@ WFL Codex Desktop 服务器。源服务器只读取并生成快照；迁移完�
 - 选中工程的活动对话和归档对话。
 - 可选的 Git 历史和 `.env` 文件。
 - 安装目录工程会以 `Codex-Desktop-workspace` 作为目标工程名导入，不会覆盖
-  目标服务器自己的 WFL Codex Desktop 安装目录。
+  目标服务器自己的 WFL Codex Web Workspace 安装目录。
 
 不包含：
 

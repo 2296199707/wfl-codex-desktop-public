@@ -104,7 +104,7 @@ test("bounds reviewed browser request payloads and refuses non-browser requests"
 test("uses protocol-shaped safe rejections for dynamic and legacy requests", () => {
   assert.deepEqual(safeCodexServerRequestRejection("item/tool/call"), {
     success: false,
-    contentItems: [{ type: "inputText", text: "当前 WFL Codex Desktop 未启用此动态工具。" }],
+    contentItems: [{ type: "inputText", text: "当前 WFL Codex Web Workspace 未启用此动态工具。" }],
   });
   assert.deepEqual(
     safeCodexServerRequestRejection("item/permissions/requestApproval"),
@@ -117,7 +117,7 @@ test("uses protocol-shaped safe rejections for dynamic and legacy requests", () 
   assert.deepEqual(rejectedCodexServerRequest("account/chatgptAuthTokens/refresh"), {
     error: {
       code: -32601,
-      message: "WFL Codex Desktop does not use externally managed ChatGPT tokens.",
+      message: "WFL Codex Web Workspace does not use externally managed ChatGPT tokens.",
     },
   });
   assert.deepEqual(rejectedCodexServerRequest("future/unknown"), {

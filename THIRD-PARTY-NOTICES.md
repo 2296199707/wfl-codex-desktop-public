@@ -1,9 +1,9 @@
 # Third-party notices
 
 This is an attribution index for the open-source components identified in the
-WFL Codex Desktop source tree and dependency locks. It does not replace the
+WFL Codex Web Workspace source tree and dependency locks. It does not replace the
 license text shipped by an upstream project and it does not relicense
-third-party code. The WFL Codex Desktop code itself is MIT-licensed.
+third-party code. The WFL Codex Web Workspace code itself is MIT-licensed.
 
 The repository does not commit node_modules, Flutter caches, Gradle caches, or
 Playwright browser binaries. When those dependencies are installed, retain

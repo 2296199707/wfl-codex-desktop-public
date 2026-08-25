@@ -62,7 +62,7 @@
   const showRecovery = (kind) => {
     runtimeFailed = kind === "运行异常" || runtimeFailed;
     const message = document.getElementById("bootRecoveryMessage");
-    if (message) message.textContent = `${kind} · WFL Codex Desktop v${version}`;
+    if (message) message.textContent = `${kind} · WFL Codex Web Workspace v${version}`;
     recoveryBar.hidden = false;
   };
 
@@ -91,7 +91,7 @@
       applicationLoaded = true;
       if (!runtimeFailed) recoveryBar.hidden = true;
     } catch (error) {
-      console.error("Unable to start WFL Codex Desktop:", error);
+      console.error("Unable to start WFL Codex Web Workspace:", error);
       attempt += 1;
       if (connectionText) connectionText.textContent = "正在恢复连接";
       showRecovery("主界面启动失败");

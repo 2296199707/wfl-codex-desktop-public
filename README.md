@@ -1,9 +1,9 @@
-# WFL Codex Desktop
+# WFL Codex Web Workspace
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A local desktop-style browser interface backed by the installed Codex
-`app-server`. It uses Codex's own thread, model, configuration, and approval
+A browser-based workspace backed by the installed Codex `app-server`. It uses
+Codex's own thread, model, configuration, and approval
 protocols instead of reading the local SQLite database.
 
 Current release: `v0.44.55`. See [CHANGELOG.md](CHANGELOG.md) for release notes.
@@ -217,7 +217,7 @@ separately; administrators and members cannot read or operate server backups.
 
 ## License
 
-WFL Codex Desktop code is licensed under the MIT License; see [LICENSE](LICENSE)
+WFL Codex Web Workspace code is licensed under the MIT License; see [LICENSE](LICENSE)
 and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The android/ SyncVault
 client and tools/wfl-codex-drive/ Android client are separate components with
 their own BSD-3-Clause and GPL-3.0 licenses. Fonts and dependencies retain the

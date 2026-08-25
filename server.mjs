@@ -1718,7 +1718,7 @@ class CodexBridge extends EventEmitter {
       const result = await this.request("initialize", {
         clientInfo: {
           name: "wfl-codex-desktop",
-          title: "WFL Codex Desktop",
+          title: "WFL Codex Web Workspace",
           version: APP_VERSION,
         },
         capabilities: {
@@ -8770,7 +8770,7 @@ app.use(async (request, response, next) => {
       return;
     }
   }
-  response.setHeader("WWW-Authenticate", 'Basic realm="WFL Codex Desktop", charset="UTF-8"');
+  response.setHeader("WWW-Authenticate", 'Basic realm="WFL Codex Web Workspace", charset="UTF-8"');
   response.setHeader("Cache-Control", "no-store");
   response.status(401).type("text/plain").send("Authentication required");
 });
@@ -32133,7 +32133,7 @@ async function migrationEligibleProjects() {
       ? {
           ...project,
           name: "Codex-Desktop-workspace",
-          displayName: "Codex Desktop",
+          displayName: "WFL Codex Web Workspace",
           applicationWorkspace: true,
         }
       : project);
@@ -37725,7 +37725,7 @@ async function authenticateWebSocketUser(request, socket) {
     rejectUpgrade(socket, 429, "Too Many Requests", { "Retry-After": String(retryAfter) });
   } else {
     rejectUpgrade(socket, 401, "Unauthorized", {
-      "WWW-Authenticate": 'Basic realm="WFL Codex Desktop"',
+      "WWW-Authenticate": 'Basic realm="WFL Codex Web Workspace"',
     });
   }
   return null;

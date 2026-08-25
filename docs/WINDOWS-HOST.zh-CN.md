@@ -1,6 +1,6 @@
 # Windows Host 与 Creator Worker
 
-Windows Host 是 WFL Codex Desktop 的可选伴随组件。它让已获授权的用户通过手机或其他浏览器，安全访问自己 Windows 个人电脑上的本地 Codex，并运行限定工作区内的结构化创作任务。
+Windows Host 是 WFL Codex Web Workspace 的可选伴随组件。它让已获授权的用户通过手机或其他浏览器，安全访问自己 Windows 个人电脑上的本地 Codex，并运行限定工作区内的结构化创作任务。
 
 第一版不提供桌面鼠标键盘接管、任意 PowerShell、任意命令执行、管理员服务、静默安装或开机自启。它也不会把 Windows 上的 Codex 登录文件、ChatGPT 会话或 API Key 上传到 WFL 服务器。
 

@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for helping improve WFL Codex Desktop.
+Thank you for helping improve WFL Codex Web Workspace.
 
 ## Before opening a change
 
@@ -42,6 +42,6 @@ tokens, account identifiers, or credentials. Use `example.test`,
   data, dependency directories, or local configuration.
 
 By submitting a contribution, you agree to license it under the MIT License,
-the license of the WFL Codex Desktop code in this repository. Components that
+the license of the WFL Codex Web Workspace code in this repository. Components that
 retain a separate upstream license are documented in `NOTICE` and
 `THIRD-PARTY-NOTICES.md`.

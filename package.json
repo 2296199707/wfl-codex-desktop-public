@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "A local desktop-style interface for Codex app-server.",
+  "description": "A browser-based workspace for the Codex app-server.",
   "scripts": {
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",

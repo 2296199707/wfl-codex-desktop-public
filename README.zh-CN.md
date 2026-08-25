@@ -1,8 +1,8 @@
-# WFL Codex Desktop
+# WFL Codex Web Workspace
 
 [简体中文](README.zh-CN.md) | [English](README.md)
 
-WFL Codex Desktop 是运行在浏览器中的 Codex 桌面界面，底层直接使用官方 Codex
+WFL Codex Web Workspace 是运行在浏览器中的 Codex 工作区界面，底层直接使用官方 Codex
 `app-server` 的对话、模型、配置和审批协议。它适合部署在专用 Debian/Ubuntu
 服务器上，通过 HTTPS 域名、Cloudflare Tunnel 或 SSH 端口转发访问。
 
@@ -244,7 +244,7 @@ CLI，再恢复后端拓扑。
 
 ## 许可证
 
-WFL Codex Desktop 自有代码采用 MIT License，详见 [LICENSE](LICENSE) 和
+WFL Codex Web Workspace 自有代码采用 MIT License，详见 [LICENSE](LICENSE) 和
 [第三方许可清单](THIRD-PARTY-NOTICES.md)。android/ 下的 SyncVault 客户端
 和 tools/wfl-codex-drive/ 下的网盘客户端是独立组件，分别保留 BSD-3-Clause
 和 GPL-3.0；字体及依赖继续适用清单中列出的原许可证。

@@ -1,6 +1,6 @@
 # Security policy
 
-WFL Codex Desktop controls local files, shell commands, account credentials,
+WFL Codex Web Workspace controls local files, shell commands, account credentials,
 browser sessions, systemd services, and optional SSH access. Treat every
 deployment as a privileged administration surface and run it only on a
 dedicated or otherwise isolated server.
@@ -47,6 +47,6 @@ documented release process.
 - Rotate exposed credentials immediately. Rewriting Git history does not make
   a credential safe again.
 
-This policy is not a guarantee of support or a warranty. The WFL Codex Desktop
+This policy is not a guarantee of support or a warranty. The WFL Codex Web Workspace
 code is provided under the terms of the MIT License. Separately licensed
 components retain the terms documented in the repository notices.

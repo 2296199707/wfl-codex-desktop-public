@@ -211,7 +211,7 @@ const IMAGE_API_ADMIN_PRESETS = Object.freeze({
   },
 });
 const PROJECT_PREVIEW_COPY_PROMPT = [
-  "当前 WFL Codex Desktop 提供内置“项目浏览器”：它会扫描工程内的 HTML，并把回复中的 HTML 相对路径变成可点击的预览入口。",
+  "当前 WFL Codex Web Workspace 提供内置“项目浏览器”：它会扫描工程内的 HTML，并把回复中的 HTML 相对路径变成可点击的预览入口。",
   "请将这个工程做成可直接预览的静态网页或游戏：HTML、CSS、JavaScript、图片、音频、地图等保持为独立文件，资源全部使用工程内相对路径；除非我明确要求单文件分享，不要把所有资源内嵌进 HTML。",
   "不要把 localhost、127.0.0.1、0.0.0.0、内网 IP、临时开发服务地址或你猜测的公开域名作为结果链接。可以在内部临时启动服务进行有界验证，但验证结束后应清理进程。",
   "完成后请在最终回复末尾给出 HTML 入口的工程相对路径 Markdown 链接，例如：[打开预览](game/index.html)。",
@@ -2676,7 +2676,7 @@ const RESOURCE_SPLIT_CONFIG = {
 };
 
 initialize().catch((error) => {
-  console.error("Unable to initialize WFL Codex Desktop:", error);
+  console.error("Unable to initialize WFL Codex Web Workspace:", error);
   window.dispatchEvent(new CustomEvent("codex-desktop:fatal-error", {
     detail: { message: error?.message || String(error) },
   }));
@@ -22236,7 +22236,7 @@ function handleClaudeEvent(payload) {
     notifyBrowser(
       "complete",
       "Claude 任务已完成",
-      session.name || "返回 WFL Codex Desktop 查看结果",
+      session.name || "返回 WFL Codex Web Workspace 查看结果",
       `claude-${session.id}`,
     );
     if (state.runtime === "claude") {
@@ -22457,7 +22457,7 @@ function handleCodexNotification(notification) {
       notifyBrowser(
         "complete",
         "Codex 任务已完成",
-        thread?.name || activeName || "返回 WFL Codex Desktop 查看结果",
+        thread?.name || activeName || "返回 WFL Codex Web Workspace 查看结果",
         `turn-${completedTurnId || params.threadId}`,
       );
     }

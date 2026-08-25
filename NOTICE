@@ -1,7 +1,7 @@
-WFL Codex Desktop
-Copyright (c) 2026 WFL Codex Desktop contributors
+WFL Codex Web Workspace
+Copyright (c) 2026 WFL Codex Web Workspace contributors
 
-The WFL Codex Desktop code is licensed under the MIT License. See LICENSE.
+The WFL Codex Web Workspace code is licensed under the MIT License. See LICENSE.
 Third-party packages, fonts, and separately maintained components retain their
 own copyright and license terms. See THIRD-PARTY-NOTICES.md.
 
@@ -16,7 +16,7 @@ Separate repository components:
 - apps/mobile/assets/fonts/ contains Noto Sans SC under the SIL Open Font
   License 1.1. See apps/mobile/assets/fonts/OFL.txt.
 
-WFL Codex Desktop is an independent project. It is not affiliated with,
+WFL Codex Web Workspace is an independent project. It is not affiliated with,
 endorsed by, or sponsored by OpenAI or Anthropic.
 
 OpenAI, Codex, ChatGPT, Anthropic, Claude, and Claude Code are names or

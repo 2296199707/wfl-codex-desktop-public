@@ -266,12 +266,12 @@ opsHtml = versionHtmlBrowserAssets(opsHtml);
 let usersHtml = await fs.readFile(usersHtmlPath, "utf8");
 usersHtml = versionAssets(usersHtml, ["users.css", "i18n.js", "users.js"], "public/users.html");
 usersHtml = versionHtmlBrowserAssets(usersHtml);
-if (!/WFL Codex Desktop <strong>v[^<]+<\/strong>/.test(usersHtml)) {
+if (!/WFL Codex Web Workspace <strong>v[^<]+<\/strong>/.test(usersHtml)) {
   throw new Error("User management footer version was not found");
 }
 usersHtml = usersHtml.replace(
-  /WFL Codex Desktop <strong>v[^<]+<\/strong>/,
-  `WFL Codex Desktop <strong>v${version}</strong>`,
+  /WFL Codex Web Workspace <strong>v[^<]+<\/strong>/,
+  `WFL Codex Web Workspace <strong>v${version}</strong>`,
 );
 
 let mobileToolHtml = await fs.readFile(mobileToolHtmlPath, "utf8");
