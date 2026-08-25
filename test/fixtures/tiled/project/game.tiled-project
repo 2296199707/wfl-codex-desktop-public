@@ -1,0 +1,45 @@
+{
+  "automappingRulesFile": "automapping/rules.txt",
+  "commands": [],
+  "compatibilityVersion": "1.12",
+  "extensionsPath": "extensions",
+  "folders": [
+    "."
+  ],
+  "propertyTypes": [
+    {
+      "color": "#ff7aa2d6",
+      "id": 1,
+      "members": [
+        {
+          "name": "targetMap",
+          "type": "file",
+          "value": ""
+        },
+        {
+          "name": "targetSpawn",
+          "type": "string",
+          "value": ""
+        }
+      ],
+      "name": "Portal",
+      "type": "class",
+      "useAs": [
+        "object"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Facing",
+      "storageType": "string",
+      "type": "enum",
+      "values": [
+        "north",
+        "east",
+        "south",
+        "west"
+      ],
+      "valuesAsFlags": false
+    }
+  ]
+}

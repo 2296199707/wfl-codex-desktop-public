@@ -1,0 +1,23 @@
+WFL Codex Desktop
+Copyright (c) 2026 WFL Codex Desktop contributors
+
+The WFL Codex Desktop code is licensed under the MIT License. See LICENSE.
+Third-party packages, fonts, and separately maintained components retain their
+own copyright and license terms. See THIRD-PARTY-NOTICES.md.
+
+Separate repository components:
+
+- android/ is derived from SyncVault and remains under the BSD 3-Clause
+  License. See android/LICENSE.md.
+- tools/wfl-codex-drive/ is derived from Round Sync/rcloneExplorer and remains
+  under GPL-3.0, with the upstream rcloneExplorer MIT notice retained. See
+  tools/wfl-codex-drive/LICENSE, LICENSE_rcloneExplorer-1.7.4, and
+  NOTICE-WFL-CODEX.md.
+- apps/mobile/assets/fonts/ contains Noto Sans SC under the SIL Open Font
+  License 1.1. See apps/mobile/assets/fonts/OFL.txt.
+
+WFL Codex Desktop is an independent project. It is not affiliated with,
+endorsed by, or sponsored by OpenAI or Anthropic.
+
+OpenAI, Codex, ChatGPT, Anthropic, Claude, and Claude Code are names or
+trademarks of their respective owners.

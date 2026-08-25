@@ -1,0 +1,26 @@
+[Unit]
+Description=WFL Codex Desktop stable gateway
+Wants=network-online.target
+After=network-online.target
+Conflicts=wfl-codex-desktop.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{SOURCE_DIR}}
+Environment=HOME={{SERVICE_HOME}}
+Environment=PATH={{SERVICE_PATH}}
+Environment=PLAYWRIGHT_BROWSERS_PATH={{PLAYWRIGHT_BROWSERS_PATH}}
+Environment=HOST=127.0.0.1
+Environment=PORT=4317
+Environment=CODEX_DESKTOP_UPSTREAM_PORTS=4318,4319
+Environment=CODEX_DESKTOP_UPSTREAM_PORT=4318
+Environment=CODEX_DESKTOP_RESCUE_PORT=4321
+Environment=CODEX_DESKTOP_ACTIVE_PORT_FILE={{RUNTIME_DIR}}/active-port
+ExecStart={{NODE_BIN}} {{SOURCE_DIR}}/gateway.mjs
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

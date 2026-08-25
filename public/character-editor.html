@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>角色动作编辑器 · WFL Codex Desktop</title>
+  <link rel="stylesheet" href="/character-editor/character-editor.css?v=0.44.55">
+</head>
+<body>
+  <main id="characterApp" data-state="loading" aria-busy="true">
+    <header class="character-topbar">
+      <div>
+        <p class="eyebrow">WFL Codex Desktop · 游戏编辑器</p>
+        <h1>角色动作编辑器</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="refreshProjectButton" type="button">刷新工程</button>
+        <button id="aiGenerateButton" type="button" disabled title="在工程内生成新的角色候选素材">AI 生图</button>
+        <button id="aiEditButton" type="button" disabled title="基于当前精灵图生成编辑候选">AI 编辑</button>
+        <button id="undoButton" type="button" disabled title="撤销（Ctrl/Cmd+Z）">撤销</button>
+        <button id="redoButton" type="button" disabled title="重做（Ctrl/Cmd+Shift+Z）">重做</button>
+        <button id="saveCharacterButton" class="primary" type="button" disabled>保存角色清单</button>
+      </div>
+    </header>
+
+    <section id="characterNotice" class="notice" role="status">正在连接工程工作区…</section>
+    <section id="conflictActions" class="conflict-actions" hidden aria-live="polite">
+      <strong>检测到远程版本冲突</strong>
+      <span id="conflictDetail">本地草稿仍保留。请选择如何恢复。</span>
+      <div class="conflict-buttons">
+        <button id="reloadRemoteButton" type="button">放弃本地并读取远程</button>
+        <button id="saveAsDraftButton" type="button">另存为新清单</button>
+        <button id="downloadDraftButton" class="danger" type="button">下载本地草稿</button>
+      </div>
+    </section>
+
+    <section class="character-workspace">
+      <aside class="panel project-panel">
+        <div class="panel-heading">
+          <h2>工程资源</h2>
+          <button id="newCharacterButton" type="button" disabled>新建</button>
+        </div>
+        <div class="project-picker">
+          <label>可用工程
+            <select id="projectSelect" disabled>
+              <option value="">正在读取工程列表…</option>
+            </select>
+          </label>
+          <div class="project-picker-actions">
+            <button id="switchProjectButton" type="button" disabled>切换工程</button>
+            <button id="refreshProjectsButton" type="button">刷新列表</button>
+          </div>
+          <p id="projectListState" class="muted" role="status">正在读取可用工程…</p>
+        </div>
+        <label>绑定项目文件（可选）
+          <select id="projectFileSelect" disabled>
+            <option value="">临时工程（不绑定 .tiled-project）</option>
+          </select>
+        </label>
+        <label>项目目录
+          <input id="projectPathInput" type="text" placeholder="从上面的工程列表选择" readonly>
+        </label>
+        <button id="openProjectButton" type="button" disabled>打开当前工程</button>
+        <p class="ai-candidate-hint">AI 结果先保存为工程内候选素材，点击结果卡片中的“加入角色候选”后才会替换当前精灵图引用。</p>
+        <label>角色清单
+          <select id="characterPathSelect" disabled><option value="">暂无 .character.json</option></select>
+        </label>
+        <label>精灵图
+          <select id="sourcePathSelect" disabled><option value="">暂无 PNG/JPG/WebP</option></select>
+        </label>
+        <p id="projectState" class="muted">尚未打开项目</p>
+      </aside>
+
+      <section class="panel preview-panel">
+        <div class="panel-heading">
+          <h2>预览</h2>
+          <div class="preview-actions">
+            <button id="previousFrameButton" type="button" disabled>上一帧</button>
+            <button id="playButton" type="button" disabled>播放</button>
+            <button id="nextFrameButton" type="button" disabled>下一帧</button>
+          </div>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="characterCanvas" width="512" height="512" aria-label="角色帧预览"></canvas>
+          <div id="canvasEmpty" class="canvas-empty">选择精灵图后显示角色</div>
+        </div>
+        <div class="spritesheet-panel">
+          <div class="section-heading">
+            <h3>精灵图网格</h3>
+            <span class="muted">点击网格选择当前帧</span>
+          </div>
+          <canvas id="spriteSheetCanvas" width="1" height="1" aria-label="精灵图网格选择"></canvas>
+        </div>
+        <div class="preview-meta">
+          <span id="imageSizeLabel">图片：—</span>
+          <span id="frameLabel">帧：—</span>
+          <span id="dirtyLabel" data-state="clean">未修改</span>
+        </div>
+      </section>
+
+      <aside class="panel inspector-panel">
+        <div class="panel-heading"><h2>角色设置</h2></div>
+        <div class="form-grid">
+          <label>名称<input id="nameInput" type="text" value="character"></label>
+          <label>类型<select id="profileSelect"></select></label>
+          <label>帧宽<input id="frameWidthInput" type="number" min="1" step="1"></label>
+          <label>帧高<input id="frameHeightInput" type="number" min="1" step="1"></label>
+          <label>列数<input id="columnsInput" type="number" min="1" step="1"></label>
+          <label>行数<input id="rowsInput" type="number" min="1" step="1"></label>
+          <label>横边距<input id="marginXInput" type="number" min="0" step="1"></label>
+          <label>竖边距<input id="marginYInput" type="number" min="0" step="1"></label>
+          <label>横间距<input id="spacingXInput" type="number" min="0" step="1"></label>
+          <label>竖间距<input id="spacingYInput" type="number" min="0" step="1"></label>
+          <label>参考高度<input id="referenceHeightInput" type="number" min="1" step="1"></label>
+          <label>锚点 X<input id="anchorXInput" type="number" step="0.5"></label>
+          <label>锚点 Y<input id="anchorYInput" type="number" step="0.5"></label>
+        </div>
+
+        <div class="section-heading">
+          <h3>动作片段</h3>
+          <div class="inline-actions">
+            <button id="moveClipUpButton" type="button" disabled title="上移动作">↑</button>
+            <button id="moveClipDownButton" type="button" disabled title="下移动作">↓</button>
+            <button id="duplicateClipButton" type="button" disabled>复制</button>
+            <button id="deleteClipButton" type="button" disabled>删除</button>
+            <button id="addClipButton" type="button" disabled>添加动作</button>
+          </div>
+        </div>
+        <label>当前动作<select id="clipSelect" disabled></select></label>
+        <div class="clip-grid">
+          <label>ID<input id="clipIdInput" type="text"></label>
+          <label>名称<input id="clipNameInput" type="text"></label>
+          <label>播放方向
+            <select id="clipDirectionSelect">
+              <option value="forward">正向</option>
+              <option value="reverse">反向</option>
+              <option value="pingpong">往返</option>
+            </select>
+          </label>
+          <label class="checkbox-label"><input id="clipLoopInput" type="checkbox"> 循环播放</label>
+        </div>
+        <div class="frame-heading">
+          <h3>时间轴帧</h3>
+          <button id="addFrameButton" type="button" disabled>添加帧</button>
+        </div>
+        <div id="frameList" class="frame-list" aria-live="polite"></div>
+        <p id="validationMessage" class="validation" role="alert"></p>
+      </aside>
+    </section>
+  </main>
+  <script type="module" src="/character-editor/character-editor.js?v=0.44.55"></script>
+</body>
+</html>

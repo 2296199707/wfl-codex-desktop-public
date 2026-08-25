@@ -1,0 +1,22 @@
+[Unit]
+Description=WFL Codex Desktop interrupted deployment recovery
+Wants=network-online.target wfl-codex-desktop-gateway.service
+After=local-fs.target network-online.target wfl-codex-desktop-gateway.service
+StartLimitIntervalSec=120s
+StartLimitBurst=45
+
+[Service]
+Type=oneshot
+TimeoutStartSec=45s
+User=root
+WorkingDirectory=/srv/wfl-codex-desktop
+Environment=HOME=/root
+Environment=PATH=/root/.local/bin:/root/.codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+Environment=CODEX_DESKTOP_SOURCE_DIR=/srv/wfl-codex-desktop
+Environment=CODEX_DESKTOP_STATE_DIR=/srv/wfl-codex-desktop/.codex-desktop
+Environment=CODEX_DESKTOP_RUNTIME_DIR=/srv/wfl-codex-desktop/.codex-runtime
+ExecStart=/usr/bin/node /srv/wfl-codex-desktop/scripts/recover-interrupted-deployment.mjs
+
+[Install]
+WantedBy=multi-user.target

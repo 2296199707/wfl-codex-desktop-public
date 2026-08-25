@@ -1,0 +1,62 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #172033;
+  background: #f4f6fb;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; }
+button, input, textarea { font: inherit; }
+button, .file-button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+
+.file-manager-shell { width: min(1440px, 100%); margin: 0 auto; padding: 28px 20px 48px; }
+.file-manager-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+.file-manager-header h1 { margin: 5px 0; font-size: clamp(24px, 4vw, 38px); }
+.file-manager-header p, .card-heading p, .security-note { color: #667085; margin: 5px 0 0; font-size: 13px; }
+.eyebrow { color: #667085; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.admin-badge { border-radius: 999px; background: #fff0e5; color: #b54708; padding: 7px 11px; white-space: nowrap; font-size: 12px; font-weight: 800; }
+.file-card { min-width: 0; background: #fff; border: 1px solid #e5e9f2; border-radius: 16px; padding: 18px; box-shadow: 0 8px 24px #263b680d; }
+.file-toolbar-card { margin-bottom: 16px; }
+.path-form { display: grid; gap: 6px; }
+.path-form label { color: #475467; font-size: 12px; font-weight: 800; }
+.path-input-row { display: flex; gap: 8px; }
+input, textarea { border: 1px solid #d0d5dd; border-radius: 8px; color: #172033; background: #fff; }
+input { min-height: 40px; width: 100%; padding: 8px 11px; }
+.path-input-row input { min-width: 0; font-family: "JetBrains Mono", ui-monospace, monospace; }
+button, .file-button { border: 0; border-radius: 8px; padding: 9px 13px; font-weight: 750; }
+.primary { color: #fff; background: #3157b7; }
+.secondary { color: #3157b7; background: #edf2ff; }
+.danger { color: #b42318; background: #ffe9e7; }
+.toolbar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.file-button { display: inline-flex; align-items: center; }
+.status-text { min-height: 18px; color: #667085; margin: 10px 0 0; font-size: 12px; }
+.file-manager-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); gap: 16px; }
+.card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.card-heading h2 { margin: 0; font-size: 17px; }
+.loading-label { color: #3157b7; font-size: 12px; font-weight: 700; }
+.table-wrap { overflow: auto; min-height: 360px; border: 1px solid #eef1f6; border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { color: #667085; background: #f8faff; font-size: 11px; text-align: left; }
+th, td { padding: 10px 11px; border-bottom: 1px solid #eef1f6; white-space: nowrap; }
+tbody tr { cursor: pointer; }
+tbody tr:hover, tbody tr.selected { background: #edf2ff; }
+tbody tr:last-child td { border-bottom: 0; }
+.entry-name { display: inline-flex; align-items: center; gap: 7px; color: #172033; font-weight: 700; }
+.entry-name.directory { color: #3157b7; }
+.entry-name.symlink { color: #b54708; }
+.entry-icon { width: 15px; color: currentColor; font-weight: 900; }
+.empty-row td { height: 160px; color: #98a2b3; text-align: center; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; color: #667085; font-size: 12px; }
+.pagination button { padding: 7px 10px; }
+#fileEditor { width: 100%; min-height: 480px; resize: vertical; padding: 12px; font: 12px/1.6 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+#fileEditor:not([readonly]) { border-color: #3157b7; outline: 3px solid #3157b71a; }
+.security-note { margin: 16px 0 0; padding: 12px 14px; border-radius: 10px; background: #eef2f8; }
+@media (max-width: 900px) {
+  .file-manager-shell { padding: 18px 12px 30px; }
+  .file-manager-header { display: block; }
+  .admin-badge { display: inline-block; margin-top: 10px; }
+  .file-manager-grid { grid-template-columns: 1fr; }
+  .file-card { padding: 14px; }
+}

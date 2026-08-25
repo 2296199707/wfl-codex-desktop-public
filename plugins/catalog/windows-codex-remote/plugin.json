@@ -1,0 +1,35 @@
+{
+  "format": 2,
+  "id": "windows-codex-remote",
+  "name": "Windows Codex Remote",
+  "version": "0.1.0",
+  "publisher": "WFL Official",
+  "summary": "通过仅出站连接安全访问个人 Windows 上的 Codex 工程和空闲 Thread。",
+  "icon": "monitor-smartphone",
+  "capability": "windows-codex-remote",
+  "permissions": [
+    "device:pair",
+    "device:connect",
+    "codex:local-app-server",
+    "thread:read",
+    "thread:resume",
+    "turn:start"
+  ],
+  "category": "remote-access",
+  "risk": "high",
+  "platforms": ["windows"],
+  "compatibility": {
+    "minAppVersion": "0.43.1",
+    "maxAppVersion": null
+  },
+  "companion": {
+    "id": "wfl-windows-host",
+    "name": "WFL Windows Host",
+    "protocolVersion": 1,
+    "minVersion": "0.1.0",
+    "install": "manual",
+    "requiresUserConfirmation": true
+  },
+  "dependencies": [],
+  "perUserAuthorization": true
+}

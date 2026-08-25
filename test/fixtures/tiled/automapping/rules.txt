@@ -1,0 +1,2 @@
+# Tiled 1.12.2 modern Automapping rule fixture
+basic.tmj

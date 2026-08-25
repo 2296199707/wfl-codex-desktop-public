@@ -1,0 +1,35 @@
+{
+  "format": 2,
+  "id": "creator-worker",
+  "name": "Creator Worker",
+  "version": "0.1.0",
+  "publisher": "WFL Official",
+  "summary": "在个人 Windows 的限定工作区运行白名单化文档、演示和媒体创作任务。",
+  "icon": "clapperboard",
+  "capability": "creator-worker",
+  "permissions": [
+    "device:pair",
+    "device:connect",
+    "workspace:read",
+    "workspace:write",
+    "job:run",
+    "tool:allowlisted"
+  ],
+  "category": "creative-production",
+  "risk": "high",
+  "platforms": ["windows"],
+  "compatibility": {
+    "minAppVersion": "0.43.1",
+    "maxAppVersion": null
+  },
+  "companion": {
+    "id": "wfl-windows-host",
+    "name": "WFL Windows Host",
+    "protocolVersion": 1,
+    "minVersion": "0.1.0",
+    "install": "manual",
+    "requiresUserConfirmation": true
+  },
+  "dependencies": [],
+  "perUserAuthorization": true
+}

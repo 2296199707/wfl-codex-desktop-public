@@ -1,0 +1,101 @@
+name: syncvault
+description: A new Flutter project.
+
+publish_to: "none"
+
+version: 0.9.3
+
+environment:
+  sdk: ">=3.12.0 <4.0.0"
+  flutter: ^3.44.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  dio: ^5.9.2
+  file_picker: ^11.0.2
+  flutter_hooks: ^0.21.3
+  flutter_svg: ^2.2.4
+  flutter_web_auth_2: ^5.0.1
+  fpdart: ^1.2.0
+  freezed_annotation: ^3.1.0
+  hooks_riverpod: ^3.3.1
+  riverpod_annotation: ^4.0.2
+  json_annotation: ^4.11.0
+  watcher: 1.2.1
+  window_manager: ^0.5.1
+  sentry_flutter: ^9.15.0
+  url_launcher: ^6.3.2
+  permission_handler: ^12.0.1
+  flutter_dotenv: ^6.0.0
+  injectable: ^3.0.0
+  get_it: ^9.2.1
+  logger: ^2.7.0
+  flutter_fancy_tree_view: ^1.6.0
+  path_provider: ^2.1.5
+  introduction_screen: ^4.0.0
+  archive: ^4.0.9
+  glob: ^2.1.3
+  hive_ce: ^2.19.3
+  hive_ce_flutter: ^2.3.4
+  ini_v2:
+    git:
+      url: https://github.com/dhzdhd/ini_v2.git
+      ref: 02e44bb
+  animated_tree_view: ^2.3.0
+  googleapis: ^16.0.0
+  google_sign_in: ^7.2.0
+  oauth2: ^2.0.5
+  googleapis_auth: ^2.0.0
+  google_fonts: ^8.0.2
+  tray_manager: ^0.5.2
+  fl_nodes: ^0.5.0+1
+  workmanager:
+    git:
+      url: https://github.com/fluttercommunity/flutter_workmanager.git
+      path: workmanager
+      ref: 4ce065135dc1b91fee918f81596b42a56850391d
+  flutter_local_notifications: ^21.0.0
+  hashlib: ^2.3.0
+  launch_at_startup: ^0.5.1
+  package_info_plus: ^9.0.0
+  path: ^1.9.1
+  http: ^1.6.0
+  connectivity_plus: ^7.0.0
+  crypto: ^3.0.7
+  microsoft_graph_api: ^0.0.14
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  mockito: ^5.6.3
+  flutter_lints: ^6.0.0
+  build_runner: ^2.13.0
+  freezed: ^3.2.5
+  json_serializable: ^6.13.0
+  riverpod_lint: ^3.1.3
+  riverpod_generator: ^4.0.3
+  flutter_launcher_icons: ^0.14.4
+  injectable_generator: ^3.0.2
+  hive_ce_generator: 1.11.2
+
+flutter:
+  uses-material-design: true
+  generate: true
+
+  shaders:
+    - packages/fl_nodes/shaders/grid.frag
+
+  assets:
+    - assets/images/
+    - assets/logos/
+    - assets/icons/
+    - assets/fonts/
+
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf

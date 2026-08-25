@@ -1,0 +1,20 @@
+[Unit]
+Description=WFL Codex Desktop interrupted Codex CLI recovery
+After=local-fs.target
+Before=wfl-codex-desktop-deployment-recovery.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=30s
+User=root
+WorkingDirectory=/srv/wfl-codex-desktop
+Environment=HOME=/root
+Environment=PATH=/root/.local/bin:/root/.codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+Environment=CODEX_DESKTOP_SOURCE_DIR=/srv/wfl-codex-desktop
+Environment=CODEX_DESKTOP_STATE_DIR=/srv/wfl-codex-desktop/.codex-desktop
+Environment=CODEX_DESKTOP_RUNTIME_DIR=/srv/wfl-codex-desktop/.codex-runtime
+ExecStart=/usr/bin/node /srv/wfl-codex-desktop/scripts/recover-codex-update.mjs
+
+[Install]
+WantedBy=multi-user.target

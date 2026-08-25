@@ -1,0 +1,94 @@
+.image-studio-dialog {
+  width: min(96vw, 1480px);
+  max-width: none;
+  height: min(94vh, 980px);
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.image-studio-dialog::backdrop { background: rgb(8 13 19 / 76%); }
+.image-studio-shell { display: grid; height: 100%; grid-template-rows: 52px minmax(0, 1fr); }
+.image-studio-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.image-studio-title { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.image-studio-title > svg { width: 18px; flex: 0 0 auto; color: var(--blue); }
+.image-studio-title > div { display: grid; min-width: 0; gap: 2px; }
+.image-studio-title strong { font-size: 13px; }
+.image-studio-title span { overflow: hidden; color: var(--ink-muted); font-family: var(--font-mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.image-studio-form { display: grid; min-height: 0; grid-template-columns: minmax(320px, 390px) minmax(0, 1fr); }
+.image-studio-controls { min-height: 0; overflow: auto; padding: 12px; border-right: 1px solid var(--line); background: var(--surface); }
+.image-studio-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 12px; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.image-studio-modes button { display: flex; min-width: 0; height: 36px; align-items: center; justify-content: center; gap: 6px; border-right: 1px solid var(--line); background: var(--surface-raised); color: var(--ink-muted); font-size: 12px; font-weight: 700; }
+.image-studio-modes button:last-child { border-right: 0; }
+.image-studio-modes button.active { background: var(--blue); color: #fff; }
+.image-studio-modes button svg { width: 15px; }
+.image-studio-modes button[hidden] { display: none; }
+.image-studio-field { display: grid; min-width: 0; gap: 5px; margin-bottom: 10px; color: var(--ink-muted); font-size: 11px; font-weight: 650; }
+.image-studio-field > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.image-studio-field small { color: var(--ink-faint); font-size: 9px; font-weight: 500; }
+.image-studio-field input:not([type="range"]), .image-studio-field select, .image-studio-field textarea, .image-studio-outpaint input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-subtle); color: var(--ink); font-size: 12px; }
+.image-studio-field input:not([type="range"]), .image-studio-field select, .image-studio-outpaint input { height: 36px; padding: 0 9px; }
+.image-studio-field select { padding-right: 26px; }
+.image-studio-field textarea { resize: vertical; min-height: 38px; padding: 8px 9px; line-height: 1.45; }
+.image-studio-prompt textarea { min-height: 104px; }
+.image-studio-field input:focus, .image-studio-field select:focus, .image-studio-field textarea:focus, .image-studio-outpaint input:focus { border-color: var(--blue); outline: 2px solid color-mix(in srgb, var(--blue) 18%, transparent); }
+.image-studio-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 9px; }
+.image-studio-outpaint { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin: 0 0 10px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+.image-studio-outpaint legend { padding: 0 5px; color: var(--ink-muted); font-size: 10px; font-weight: 700; }
+.image-studio-outpaint label { display: grid; gap: 4px; color: var(--ink-faint); font-size: 9px; text-align: center; }
+.image-studio-outpaint input { padding: 0 4px; text-align: center; }
+.image-studio-stream { justify-content: flex-start; margin: 2px 0 8px; }
+.image-studio-error { min-height: 18px; margin: 4px 0; color: var(--red); font-size: 11px; line-height: 1.45; }
+.image-studio-submit-row { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.image-studio-submit-row .primary-button, .image-studio-submit-row .secondary-button { min-width: 104px; }
+.image-studio-stage { position: relative; display: grid; min-width: 0; min-height: 0; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; background: var(--canvas); }
+.image-studio-stage-bar { display: flex; min-width: 0; min-height: 38px; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--ink-muted); font-size: 10px; }
+.image-studio-stage-bar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.image-studio-partials { display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.image-studio-partials figure { display: grid; width: 116px; flex: 0 0 116px; gap: 4px; margin: 0; }
+.image-studio-partials img { width: 116px; height: 76px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); object-fit: contain; }
+.image-studio-partials figcaption { color: var(--ink-muted); font-size: 9px; }
+.image-studio-empty { position: absolute; inset: 38px 0 0; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--ink-faint); font-size: 11px; pointer-events: none; }
+.image-studio-empty svg { width: 28px; }
+.image-studio-empty[hidden] { display: none; }
+.image-studio-results { display: grid; min-height: 0; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-content: start; gap: 10px; overflow: auto; padding: 12px; }
+.image-studio-result-card { display: grid; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.image-studio-result-preview { display: grid; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; border-bottom: 1px solid var(--line); background: var(--surface-subtle); color: var(--ink-faint); font-size: 10px; }
+.image-studio-result-preview img { width: 100%; height: 100%; object-fit: contain; }
+.image-studio-result-body { display: grid; gap: 7px; padding: 9px; }
+.image-studio-result-body > div:first-child { display: grid; gap: 3px; }
+.image-studio-result-body strong { font-size: 12px; }
+.image-studio-result-meta { color: var(--ink-muted); font-size: 9px; line-height: 1.4; }
+.image-studio-result-path, .image-studio-result-prompt { margin: 0; overflow-wrap: anywhere; color: var(--ink-muted); font-family: var(--font-mono); font-size: 9px; line-height: 1.45; }
+.image-studio-result-prompt { max-height: 4.4em; overflow: auto; font-family: inherit; }
+.image-studio-result-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.image-studio-result-actions .secondary-button { min-height: 30px; padding-inline: 9px; font-size: 10px; }
+.image-studio-dialog.busy .image-studio-stage { cursor: progress; }
+
+@media (max-width: 860px) {
+  .image-studio-form { grid-template-columns: minmax(290px, 340px) minmax(0, 1fr); }
+  .image-studio-grid { grid-template-columns: minmax(0, 1fr); }
+  .image-studio-results { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 700px) {
+  .image-studio-dialog { width: 100vw; height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+  .image-studio-shell { grid-template-rows: 48px minmax(0, 1fr); }
+  .image-studio-form { display: block; overflow: auto; }
+  .image-studio-controls { overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
+  .image-studio-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .image-studio-stage { min-height: 58vh; overflow: visible; }
+  .image-studio-results { overflow: visible; }
+  .image-studio-submit-row { position: sticky; bottom: 0; z-index: 2; margin: 0 -12px -12px; padding: 9px 12px; border-top: 1px solid var(--line); background: var(--surface); }
+  .image-studio-submit-row .primary-button, .image-studio-submit-row .secondary-button { flex: 1; }
+}
+
+@media (max-width: 380px) {
+  .image-studio-grid { grid-template-columns: minmax(0, 1fr); }
+  .image-studio-modes button { font-size: 11px; }
+  .image-studio-result-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

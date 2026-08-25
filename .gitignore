@@ -1,0 +1,19 @@
+node_modules/
+.codex-desktop/
+.codex-runtime/
+.codex-uploads/
+generated-images/
+# A manually created linked Worktree is a separate repository, not project content.
+codex-worktree/
+.codex-package.json
+backups/*.tar.gz
+backups/*.sha256
+backups/*.enc
+backups/*.recovery-key.txt
+backups/android-apk-*/
+tools/*/.wfl-apk-output/
+*.recovery-backup-*
+.env
+coverage/
+test-results/
+npm-debug.log*

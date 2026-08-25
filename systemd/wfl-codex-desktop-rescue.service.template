@@ -1,0 +1,38 @@
+[Unit]
+Description=WFL Codex Desktop independent owner rescue service
+Wants=network-online.target
+After=local-fs.target network-online.target
+StartLimitIntervalSec=120s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{RUNTIME_DIR}}/rescue
+Environment=HOME={{SERVICE_HOME}}
+Environment=PATH={{SERVICE_PATH}}
+Environment=HOST=127.0.0.1
+Environment=PORT=4321
+Environment=CODEX_DESKTOP_RESCUE_MODE=1
+Environment=CODEX_DESKTOP_RESCUE_SLOT=4321
+Environment=CODEX_DESKTOP_RELEASE_DISABLED=1
+Environment=CODEX_DESKTOP_CODEX_UPDATE_DISABLED=1
+Environment=CODEX_DESKTOP_RESCUE_PROJECT_ROOT={{RUNTIME_DIR}}/rescue-projects
+Environment=CODEX_DESKTOP_RESCUE_DEFAULT_PROJECT={{RUNTIME_DIR}}/rescue-projects/workspace
+Environment=CODEX_DESKTOP_AUTH_FILE={{RUNTIME_DIR}}/rescue-auth/auth.json
+Environment=CODEX_DESKTOP_STATE_DIR={{STATE_DIR}}
+Environment=CODEX_DESKTOP_RUNTIME_DIR={{RUNTIME_DIR}}
+Environment=CODEX_DESKTOP_RESCUE_SESSION_DIR={{RUNTIME_DIR}}/rescue-sessions
+Environment=CODEX_DESKTOP_RESCUE_AUTH_FILE={{RUNTIME_DIR}}/rescue-auth/auth.json
+Environment=CODEX_DESKTOP_RESCUE_CREDENTIAL_MIRROR={{RUNTIME_DIR}}/rescue-credentials/current.json
+Environment=CODEX_DESKTOP_SOURCE_DIR={{SOURCE_DIR}}
+Environment=CODEX_DESKTOP_MULTI_USER_ROOT={{USERS_ROOT}}
+Environment=CODEX_DESKTOP_OWNER_CODEX_HOME={{OWNER_CODEX_HOME}}
+Environment=CODEX_DESKTOP_RESCUE_CODEX_HOME={{RESCUE_CODEX_HOME_ROOT}}/4321
+ExecStart={{NODE_BIN}} {{RUNTIME_DIR}}/rescue/server.mjs
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

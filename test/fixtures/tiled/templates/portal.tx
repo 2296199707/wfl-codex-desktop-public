@@ -1,0 +1,24 @@
+{
+  "object": {
+    "class": "Portal",
+    "height": 16,
+    "id": 1,
+    "name": "Portal",
+    "properties": [
+      {
+        "name": "targetMap",
+        "type": "file",
+        "value": "../maps/world.tmj"
+      },
+      {
+        "name": "targetSpawn",
+        "type": "string",
+        "value": "Arrival"
+      }
+    ],
+    "rotation": 0,
+    "visible": true,
+    "width": 16
+  },
+  "type": "template"
+}

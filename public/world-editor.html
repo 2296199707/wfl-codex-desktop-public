@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>WFL World 编辑器</title>
+    <link rel="stylesheet" href="/map-editor/world-editor.css?v=0.44.55" />
+  </head>
+  <body>
+    <div class="world-app" id="worldApp" data-state="loading">
+      <header class="world-topbar">
+        <button class="icon-button mobile-only" id="mapsPanelButton" type="button" title="地图列表" aria-label="打开地图列表"><i data-lucide="list-tree"></i></button>
+        <div class="world-identity">
+          <span class="world-product">WFL WORLD</span>
+          <div>
+            <h1 id="worldTitle">World 编辑器</h1>
+            <p id="worldMeta">正在建立会话</p>
+          </div>
+        </div>
+        <div class="world-toolbar" role="toolbar" aria-label="World 编辑工具">
+          <button class="icon-button mobile-only" id="inspectorPanelButton" type="button" title="属性" aria-label="打开 World 属性"><i data-lucide="panel-right"></i></button>
+          <button class="icon-button" id="saveButton" type="button" title="保存 World" aria-label="保存 World" disabled><i data-lucide="save"></i></button>
+          <button class="icon-button" id="undoButton" type="button" title="撤销" aria-label="撤销" disabled><i data-lucide="undo-2"></i></button>
+          <button class="icon-button" id="redoButton" type="button" title="重做" aria-label="重做" disabled><i data-lucide="redo-2"></i></button>
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <button class="icon-button" id="addMapButton" type="button" title="添加地图" aria-label="添加地图" disabled><i data-lucide="map-pin-plus"></i></button>
+          <button class="icon-button is-danger" id="removeMapButton" type="button" title="移除地图" aria-label="从 World 移除地图" disabled><i data-lucide="trash-2"></i></button>
+          <button class="icon-button" id="openMapButton" type="button" title="打开地图" aria-label="打开所选地图" disabled><i data-lucide="arrow-up-right"></i></button>
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <button class="icon-button" id="zoomOutButton" type="button" title="缩小" aria-label="缩小" disabled><i data-lucide="zoom-out"></i></button>
+          <output id="zoomLabel" aria-label="当前缩放">100%</output>
+          <button class="icon-button" id="zoomInButton" type="button" title="放大" aria-label="放大" disabled><i data-lucide="zoom-in"></i></button>
+          <button class="icon-button" id="fitButton" type="button" title="适合窗口" aria-label="适合窗口" disabled><i data-lucide="scan"></i></button>
+          <button class="icon-button" id="closeButton" type="button" title="关闭窗口" aria-label="关闭窗口"><i data-lucide="x"></i></button>
+        </div>
+      </header>
+
+      <div class="world-workspace">
+        <aside class="world-map-panel" aria-labelledby="worldMapListTitle">
+          <header>
+            <div><h2 id="worldMapListTitle">地图</h2><span id="mapCount">0</span></div>
+            <button class="mini-icon-button" id="panelAddMapButton" type="button" title="添加地图" aria-label="添加地图" disabled><i data-lucide="plus"></i></button>
+          </header>
+          <div class="world-map-list" id="mapList" role="listbox" aria-label="World 地图列表"></div>
+        </aside>
+
+        <main class="world-stage" id="worldStage">
+          <canvas id="worldCanvas" aria-label="World 多地图预览画布"></canvas>
+          <div class="world-load-state" id="loadState" role="status" aria-live="polite">
+            <span class="world-loader" aria-hidden="true"></span>
+            <strong id="loadTitle">正在读取 World</strong>
+            <span id="loadDetail">0%</span>
+            <button class="secondary-button" id="retryButton" type="button" hidden><i data-lucide="rotate-ccw"></i><span>重试</span></button>
+          </div>
+          <div class="world-canvas-tools" role="toolbar" aria-label="画布工具">
+            <button class="tool-button is-active" id="selectToolButton" type="button" title="选择和移动地图" aria-label="选择工具" aria-pressed="true"><i data-lucide="mouse-pointer-2"></i></button>
+            <button class="tool-button" id="handToolButton" type="button" title="平移画布" aria-label="平移工具" aria-pressed="false"><i data-lucide="hand"></i></button>
+          </div>
+        </main>
+
+        <aside class="world-inspector" aria-labelledby="inspectorTitle">
+          <section class="inspector-section">
+            <header><h2 id="inspectorTitle">地图边界</h2></header>
+            <p class="selected-map-path" id="selectedMapPath">未选择地图</p>
+            <form id="mapInspectorForm" autocomplete="off">
+              <div class="field-grid">
+                <label><span>X</span><input id="mapX" type="number" step="1" disabled /></label>
+                <label><span>Y</span><input id="mapY" type="number" step="1" disabled /></label>
+                <label><span>宽</span><input id="mapWidth" type="number" min="1" step="1" disabled /></label>
+                <label><span>高</span><input id="mapHeight" type="number" min="1" step="1" disabled /></label>
+              </div>
+              <button class="secondary-button inspector-submit" id="applyBoundsButton" type="submit" disabled><i data-lucide="check"></i><span>应用边界</span></button>
+            </form>
+          </section>
+          <section class="inspector-section world-options">
+            <header><h2>World 属性</h2></header>
+            <label class="switch-line">
+              <input id="adjacentMapsToggle" type="checkbox" disabled />
+              <span class="switch-control" aria-hidden="true"></span>
+              <span>只显示相邻地图</span>
+            </label>
+          </section>
+          <section class="inspector-section navigation-section">
+            <header><h2>传送连接</h2><span id="navigationCount">-</span></header>
+            <button class="secondary-button inspector-submit" id="navigationCheckButton" type="button" disabled><i data-lucide="route"></i><span>检查引用</span></button>
+            <p class="navigation-state" id="navigationState" role="status" aria-live="polite">尚未检查</p>
+            <div class="navigation-list" id="navigationList"></div>
+          </section>
+          <section class="inspector-section patterns-section">
+            <header><h2>Patterns</h2><span id="patternCount">0</span></header>
+            <textarea id="patternsInput" spellcheck="false" aria-label="World patterns JSON" disabled></textarea>
+            <button class="secondary-button inspector-submit" id="applyPatternsButton" type="button" disabled><i data-lucide="braces"></i><span>应用 Patterns</span></button>
+            <p class="inspector-state" id="inspectorState" role="status" aria-live="polite"></p>
+          </section>
+        </aside>
+      </div>
+
+      <footer class="world-statusbar">
+        <span class="world-state" id="worldState" data-status="loading"><i data-lucide="loader-circle"></i><span>读取中</span></span>
+        <span id="coordinates">X 0 · Y 0</span>
+        <span id="selectionState">未选择</span>
+        <span class="status-spacer"></span>
+        <span id="documentState">只读</span>
+      </footer>
+    </div>
+
+    <dialog class="world-dialog" id="addMapDialog" aria-labelledby="addMapTitle">
+      <form id="addMapForm" autocomplete="off">
+        <div class="dialog-heading">
+          <i data-lucide="map-pin-plus"></i>
+          <h2 id="addMapTitle">添加地图</h2>
+          <button class="mini-icon-button dialog-close" id="addMapCloseButton" type="button" title="关闭" aria-label="关闭添加地图"><i data-lucide="x"></i></button>
+        </div>
+        <label class="dialog-field"><span>工程地图</span><input id="addMapPath" list="mapPathOptions" required placeholder="maps/area.tmj" /><datalist id="mapPathOptions"></datalist></label>
+        <div class="field-grid">
+          <label><span>X</span><input id="addMapX" type="number" step="1" value="0" required /></label>
+          <label><span>Y</span><input id="addMapY" type="number" step="1" value="0" required /></label>
+          <label><span>宽</span><input id="addMapWidth" type="number" min="1" step="1" value="1024" required /></label>
+          <label><span>高</span><input id="addMapHeight" type="number" min="1" step="1" value="1024" required /></label>
+        </div>
+        <p class="dialog-state" id="addMapState" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="addMapCancelButton" type="button"><span>取消</span></button>
+          <button class="primary-button" id="addMapSubmitButton" type="submit"><i data-lucide="plus"></i><span>添加</span></button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="world-dialog" id="closeDialog" aria-labelledby="closeTitle">
+      <div class="dialog-heading"><i data-lucide="save"></i><h2 id="closeTitle">保存 World 改动</h2></div>
+      <p>这个 World 有尚未保存的改动。</p>
+      <div class="dialog-actions close-actions">
+        <button class="secondary-button" id="closeCancelButton" type="button">取消</button>
+        <button class="secondary-button is-danger" id="discardCloseButton" type="button">放弃修改</button>
+        <button class="primary-button" id="saveCloseButton" type="button"><i data-lucide="save"></i><span>保存并关闭</span></button>
+      </div>
+    </dialog>
+
+    <script src="/vendor/lucide/lucide.min.js?v=0.44.55"></script>
+    <script type="module" src="/map-editor/world-editor.js?v=0.44.55"></script>
+  </body>
+</html>

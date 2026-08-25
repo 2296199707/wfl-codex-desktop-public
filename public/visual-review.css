@@ -1,0 +1,55 @@
+.visual-review-dialog {
+  width: min(94vw, 1040px);
+  max-width: none;
+  height: min(90vh, 760px);
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.visual-review-dialog::backdrop { background: rgb(8 13 19 / 76%); }
+.visual-review-shell { display: grid; height: 100%; grid-template-rows: 52px minmax(0, 1fr) auto; }
+.visual-review-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.visual-review-title { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.visual-review-title > span { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid color-mix(in srgb, var(--blue) 45%, var(--line)); border-radius: 50%; color: var(--blue); font-size: 20px; }
+.visual-review-title > div { display: grid; min-width: 0; gap: 2px; }
+.visual-review-title strong { font-size: 13px; }
+.visual-review-title small { overflow: hidden; color: var(--ink-muted); font-family: var(--font-mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.visual-review-body { display: grid; min-width: 0; min-height: 0; grid-template-columns: minmax(260px, 42%) minmax(0, 1fr); overflow: hidden; background: var(--canvas); }
+.visual-review-preview { display: grid; min-width: 0; min-height: 0; place-items: center; overflow: auto; padding: 14px; border-right: 1px solid var(--line); background: repeating-conic-gradient(color-mix(in srgb, var(--surface) 86%, transparent) 0 25%, color-mix(in srgb, var(--surface-subtle) 88%, transparent) 0 50%) 50% / 18px 18px; }
+.visual-review-preview img { display: block; max-width: 100%; max-height: 100%; border: 1px solid var(--line-strong); background: transparent; object-fit: contain; image-rendering: auto; }
+.visual-review-preview p { margin: 0; padding: 8px 10px; border-radius: 5px; background: color-mix(in srgb, var(--surface) 92%, transparent); color: var(--ink-muted); font-size: 11px; }
+.visual-review-report { min-width: 0; min-height: 0; overflow: auto; padding: 14px; background: var(--surface); }
+.visual-review-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }
+.visual-review-facts > div { display: grid; gap: 4px; min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-subtle); }
+.visual-review-facts > div:last-child { grid-column: 1 / -1; }
+.visual-review-facts dt { color: var(--ink-faint); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.visual-review-facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--ink); font-family: var(--font-mono); font-size: 11px; }
+.visual-review-section { margin-top: 12px; }
+.visual-review-section h3 { margin: 0 0 7px; color: var(--ink-muted); font-size: 11px; }
+.visual-review-section ul { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: var(--ink-muted); font-size: 11px; line-height: 1.5; }
+.visual-review-section li[data-severity="warning"] { color: var(--orange, #d68b2d); }
+.visual-review-error { position: absolute; right: 14px; bottom: 62px; max-width: min(440px, calc(100% - 28px)); margin: 0; color: var(--red); font-size: 11px; }
+.visual-review-footer { display: flex; min-height: 54px; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border-top: 1px solid var(--line); background: var(--surface); }
+.visual-review-footer > span { color: var(--ink-faint); font-size: 10px; }
+.visual-review-footer > div { display: flex; flex: 0 0 auto; gap: 8px; }
+.visual-review-footer button { min-width: 104px; }
+
+@media (max-width: 700px) {
+  .visual-review-dialog { width: 100vw; height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+  .visual-review-shell { grid-template-rows: 48px minmax(0, 1fr) auto; }
+  .visual-review-body { display: block; overflow: auto; }
+  .visual-review-preview { min-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  .visual-review-report { overflow: visible; }
+  .visual-review-footer { align-items: stretch; flex-direction: column; }
+  .visual-review-footer > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 400px) {
+  .visual-review-facts { grid-template-columns: minmax(0, 1fr); }
+  .visual-review-facts > div:last-child { grid-column: auto; }
+}

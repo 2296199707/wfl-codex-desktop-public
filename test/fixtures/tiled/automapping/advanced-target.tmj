@@ -1,0 +1,26 @@
+{
+  "compressionlevel": -1,
+  "height": 1,
+  "infinite": false,
+  "layers": [
+    { "data": [1, 0, 1, 2, 1, 1], "height": 1, "id": 1, "name": "OtherGround", "opacity": 1, "type": "tilelayer", "visible": true, "width": 6, "x": 0, "y": 0 },
+    { "data": [0, 0, 0, 0, 0, 0], "height": 1, "id": 2, "name": "OtherDecor", "opacity": 1, "type": "tilelayer", "visible": true, "width": 6, "x": 0, "y": 0 },
+    { "data": [1, 2147483649, 1073741825, 0, 0, 0], "height": 1, "id": 3, "name": "FlipGround", "opacity": 1, "type": "tilelayer", "visible": true, "width": 6, "x": 0, "y": 0 },
+    { "data": [0, 0, 0, 0, 0, 0], "height": 1, "id": 4, "name": "FlipDecor", "opacity": 1, "type": "tilelayer", "visible": true, "width": 6, "x": 0, "y": 0 },
+    { "data": [1, 1, 1, 1, 0, 0], "height": 1, "id": 5, "name": "OverlapGround", "opacity": 1, "type": "tilelayer", "visible": true, "width": 6, "x": 0, "y": 0 },
+    { "data": [0, 0, 0, 0, 0, 0], "height": 1, "id": 6, "name": "OverlapDecor", "opacity": 1, "type": "tilelayer", "visible": true, "width": 6, "x": 0, "y": 0 }
+  ],
+  "nextlayerid": 7,
+  "nextobjectid": 1,
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "tiledversion": "1.12.2",
+  "tileheight": 16,
+  "tilesets": [
+    { "firstgid": 1, "source": "advanced-fixture.tsj" }
+  ],
+  "tilewidth": 16,
+  "type": "map",
+  "version": "1.12",
+  "width": 6
+}

@@ -1,0 +1,400 @@
+// GENERATED CODE - DO NOT MODIFY BY HAND
+// coverage:ignore-file
+// ignore_for_file: type=lint
+// ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
+
+part of 'folder_model.dart';
+
+// **************************************************************************
+// FreezedGenerator
+// **************************************************************************
+
+// dart format off
+T _$identity<T>(T value) => value;
+FolderModel _$FolderModelFromJson(
+  Map<String, dynamic> json
+) {
+        switch (json['runtimeType']) {
+                  case 'remote':
+          return RemoteFolderModel.fromJson(
+            json
+          );
+                case 'local':
+          return LocalFolderModel.fromJson(
+            json
+          );
+        
+          default:
+            throw CheckedFromJsonException(
+  json,
+  'runtimeType',
+  'FolderModel',
+  'Invalid union type "${json['runtimeType']}"!'
+);
+        }
+      
+}
+
+/// @nodoc
+mixin _$FolderModel {
+
+ String get id; String get folderName; DateTime get createdAt; DateTime get updatedAt;
+/// Create a copy of FolderModel
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$FolderModelCopyWith<FolderModel> get copyWith => _$FolderModelCopyWithImpl<FolderModel>(this as FolderModel, _$identity);
+
+  /// Serializes this FolderModel to a JSON map.
+  Map<String, dynamic> toJson();
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FolderModel&&(identical(other.id, id) || other.id == id)&&(identical(other.folderName, folderName) || other.folderName == folderName)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode => Object.hash(runtimeType,id,folderName,createdAt,updatedAt);
+
+@override
+String toString() {
+  return 'FolderModel(id: $id, folderName: $folderName, createdAt: $createdAt, updatedAt: $updatedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $FolderModelCopyWith<$Res>  {
+  factory $FolderModelCopyWith(FolderModel value, $Res Function(FolderModel) _then) = _$FolderModelCopyWithImpl;
+@useResult
+$Res call({
+ String id, String folderName, DateTime createdAt, DateTime updatedAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$FolderModelCopyWithImpl<$Res>
+    implements $FolderModelCopyWith<$Res> {
+  _$FolderModelCopyWithImpl(this._self, this._then);
+
+  final FolderModel _self;
+  final $Res Function(FolderModel) _then;
+
+/// Create a copy of FolderModel
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? folderName = null,Object? createdAt = null,Object? updatedAt = null,}) {
+  return _then(_self.copyWith(
+id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
+as String,folderName: null == folderName ? _self.folderName : folderName // ignore: cast_nullable_to_non_nullable
+as String,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
+as DateTime,updatedAt: null == updatedAt ? _self.updatedAt : updatedAt // ignore: cast_nullable_to_non_nullable
+as DateTime,
+  ));
+}
+
+}
+
+
+/// Adds pattern-matching-related methods to [FolderModel].
+extension FolderModelPatterns on FolderModel {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( RemoteFolderModel value)?  remote,TResult Function( LocalFolderModel value)?  local,required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case RemoteFolderModel() when remote != null:
+return remote(_that);case LocalFolderModel() when local != null:
+return local(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( RemoteFolderModel value)  remote,required TResult Function( LocalFolderModel value)  local,}){
+final _that = this;
+switch (_that) {
+case RemoteFolderModel():
+return remote(_that);case LocalFolderModel():
+return local(_that);}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( RemoteFolderModel value)?  remote,TResult? Function( LocalFolderModel value)?  local,}){
+final _that = this;
+switch (_that) {
+case RemoteFolderModel() when remote != null:
+return remote(_that);case LocalFolderModel() when local != null:
+return local(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String id,  String remoteName,  String folderName,  String? parentPath,  String? folderId,  DateTime createdAt,  DateTime updatedAt)?  remote,TResult Function( String id,  String folderName,  String folderPath,  DateTime createdAt,  DateTime updatedAt)?  local,required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case RemoteFolderModel() when remote != null:
+return remote(_that.id,_that.remoteName,_that.folderName,_that.parentPath,_that.folderId,_that.createdAt,_that.updatedAt);case LocalFolderModel() when local != null:
+return local(_that.id,_that.folderName,_that.folderPath,_that.createdAt,_that.updatedAt);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String id,  String remoteName,  String folderName,  String? parentPath,  String? folderId,  DateTime createdAt,  DateTime updatedAt)  remote,required TResult Function( String id,  String folderName,  String folderPath,  DateTime createdAt,  DateTime updatedAt)  local,}) {final _that = this;
+switch (_that) {
+case RemoteFolderModel():
+return remote(_that.id,_that.remoteName,_that.folderName,_that.parentPath,_that.folderId,_that.createdAt,_that.updatedAt);case LocalFolderModel():
+return local(_that.id,_that.folderName,_that.folderPath,_that.createdAt,_that.updatedAt);}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String id,  String remoteName,  String folderName,  String? parentPath,  String? folderId,  DateTime createdAt,  DateTime updatedAt)?  remote,TResult? Function( String id,  String folderName,  String folderPath,  DateTime createdAt,  DateTime updatedAt)?  local,}) {final _that = this;
+switch (_that) {
+case RemoteFolderModel() when remote != null:
+return remote(_that.id,_that.remoteName,_that.folderName,_that.parentPath,_that.folderId,_that.createdAt,_that.updatedAt);case LocalFolderModel() when local != null:
+return local(_that.id,_that.folderName,_that.folderPath,_that.createdAt,_that.updatedAt);case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+@JsonSerializable()
+
+class RemoteFolderModel implements FolderModel {
+  const RemoteFolderModel({required this.id, required this.remoteName, required this.folderName, required this.parentPath, required this.folderId, required this.createdAt, required this.updatedAt, final  String? $type}): $type = $type ?? 'remote';
+  factory RemoteFolderModel.fromJson(Map<String, dynamic> json) => _$RemoteFolderModelFromJson(json);
+
+@override final  String id;
+ final  String remoteName;
+@override final  String folderName;
+ final  String? parentPath;
+ final  String? folderId;
+@override final  DateTime createdAt;
+@override final  DateTime updatedAt;
+
+@JsonKey(name: 'runtimeType')
+final String $type;
+
+
+/// Create a copy of FolderModel
+/// with the given fields replaced by the non-null parameter values.
+@override @JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$RemoteFolderModelCopyWith<RemoteFolderModel> get copyWith => _$RemoteFolderModelCopyWithImpl<RemoteFolderModel>(this, _$identity);
+
+@override
+Map<String, dynamic> toJson() {
+  return _$RemoteFolderModelToJson(this, );
+}
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is RemoteFolderModel&&(identical(other.id, id) || other.id == id)&&(identical(other.remoteName, remoteName) || other.remoteName == remoteName)&&(identical(other.folderName, folderName) || other.folderName == folderName)&&(identical(other.parentPath, parentPath) || other.parentPath == parentPath)&&(identical(other.folderId, folderId) || other.folderId == folderId)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode => Object.hash(runtimeType,id,remoteName,folderName,parentPath,folderId,createdAt,updatedAt);
+
+@override
+String toString() {
+  return 'FolderModel.remote(id: $id, remoteName: $remoteName, folderName: $folderName, parentPath: $parentPath, folderId: $folderId, createdAt: $createdAt, updatedAt: $updatedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $RemoteFolderModelCopyWith<$Res> implements $FolderModelCopyWith<$Res> {
+  factory $RemoteFolderModelCopyWith(RemoteFolderModel value, $Res Function(RemoteFolderModel) _then) = _$RemoteFolderModelCopyWithImpl;
+@override @useResult
+$Res call({
+ String id, String remoteName, String folderName, String? parentPath, String? folderId, DateTime createdAt, DateTime updatedAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$RemoteFolderModelCopyWithImpl<$Res>
+    implements $RemoteFolderModelCopyWith<$Res> {
+  _$RemoteFolderModelCopyWithImpl(this._self, this._then);
+
+  final RemoteFolderModel _self;
+  final $Res Function(RemoteFolderModel) _then;
+
+/// Create a copy of FolderModel
+/// with the given fields replaced by the non-null parameter values.
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? remoteName = null,Object? folderName = null,Object? parentPath = freezed,Object? folderId = freezed,Object? createdAt = null,Object? updatedAt = null,}) {
+  return _then(RemoteFolderModel(
+id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
+as String,remoteName: null == remoteName ? _self.remoteName : remoteName // ignore: cast_nullable_to_non_nullable
+as String,folderName: null == folderName ? _self.folderName : folderName // ignore: cast_nullable_to_non_nullable
+as String,parentPath: freezed == parentPath ? _self.parentPath : parentPath // ignore: cast_nullable_to_non_nullable
+as String?,folderId: freezed == folderId ? _self.folderId : folderId // ignore: cast_nullable_to_non_nullable
+as String?,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
+as DateTime,updatedAt: null == updatedAt ? _self.updatedAt : updatedAt // ignore: cast_nullable_to_non_nullable
+as DateTime,
+  ));
+}
+
+
+}
+
+/// @nodoc
+@JsonSerializable()
+
+class LocalFolderModel implements FolderModel {
+  const LocalFolderModel({required this.id, required this.folderName, required this.folderPath, required this.createdAt, required this.updatedAt, final  String? $type}): $type = $type ?? 'local';
+  factory LocalFolderModel.fromJson(Map<String, dynamic> json) => _$LocalFolderModelFromJson(json);
+
+@override final  String id;
+@override final  String folderName;
+ final  String folderPath;
+@override final  DateTime createdAt;
+@override final  DateTime updatedAt;
+
+@JsonKey(name: 'runtimeType')
+final String $type;
+
+
+/// Create a copy of FolderModel
+/// with the given fields replaced by the non-null parameter values.
+@override @JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$LocalFolderModelCopyWith<LocalFolderModel> get copyWith => _$LocalFolderModelCopyWithImpl<LocalFolderModel>(this, _$identity);
+
+@override
+Map<String, dynamic> toJson() {
+  return _$LocalFolderModelToJson(this, );
+}
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LocalFolderModel&&(identical(other.id, id) || other.id == id)&&(identical(other.folderName, folderName) || other.folderName == folderName)&&(identical(other.folderPath, folderPath) || other.folderPath == folderPath)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode => Object.hash(runtimeType,id,folderName,folderPath,createdAt,updatedAt);
+
+@override
+String toString() {
+  return 'FolderModel.local(id: $id, folderName: $folderName, folderPath: $folderPath, createdAt: $createdAt, updatedAt: $updatedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $LocalFolderModelCopyWith<$Res> implements $FolderModelCopyWith<$Res> {
+  factory $LocalFolderModelCopyWith(LocalFolderModel value, $Res Function(LocalFolderModel) _then) = _$LocalFolderModelCopyWithImpl;
+@override @useResult
+$Res call({
+ String id, String folderName, String folderPath, DateTime createdAt, DateTime updatedAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$LocalFolderModelCopyWithImpl<$Res>
+    implements $LocalFolderModelCopyWith<$Res> {
+  _$LocalFolderModelCopyWithImpl(this._self, this._then);
+
+  final LocalFolderModel _self;
+  final $Res Function(LocalFolderModel) _then;
+
+/// Create a copy of FolderModel
+/// with the given fields replaced by the non-null parameter values.
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? folderName = null,Object? folderPath = null,Object? createdAt = null,Object? updatedAt = null,}) {
+  return _then(LocalFolderModel(
+id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
+as String,folderName: null == folderName ? _self.folderName : folderName // ignore: cast_nullable_to_non_nullable
+as String,folderPath: null == folderPath ? _self.folderPath : folderPath // ignore: cast_nullable_to_non_nullable
+as String,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
+as DateTime,updatedAt: null == updatedAt ? _self.updatedAt : updatedAt // ignore: cast_nullable_to_non_nullable
+as DateTime,
+  ));
+}
+
+
+}
+
+// dart format on

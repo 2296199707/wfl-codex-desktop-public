@@ -1,0 +1,26 @@
+{
+  "format": 2,
+  "id": "persistent-ssh-servers",
+  "name": "持久 SSH 服务器",
+  "version": "1.1.1",
+  "publisher": "WFL Official",
+  "summary": "优先使用独立 ED25519/RSA 密钥；公钥不兼容时可由管理员明确启用加密密码模式。按服务器复用已验证连接并限次重建，减少重复 SSH 握手；每台服务器可单独关闭，关闭后不再向 AI 暴露或接受远程命令。",
+  "icon": "server-cog",
+  "capability": "persistent-ssh-servers",
+  "permissions": [
+    "network:ssh",
+    "credential:encrypted",
+    "server:profile",
+    "command:remote"
+  ],
+  "category": "remote-access",
+  "risk": "high",
+  "platforms": ["linux"],
+  "compatibility": {
+    "minAppVersion": "0.43.1",
+    "maxAppVersion": null
+  },
+  "companion": null,
+  "dependencies": [],
+  "perUserAuthorization": true
+}

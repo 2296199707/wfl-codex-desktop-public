@@ -1,0 +1,94 @@
+@font-face {
+  font-family: "Manrope";
+  src: url("/vendor/manrope/manrope-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Manrope";
+  src: url("/vendor/manrope/manrope-latin-700-normal.woff2") format("woff2");
+  font-weight: 700 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+  --bg: #edf1f3;
+  --surface: #ffffff;
+  --text: #15212a;
+  --muted: #68757e;
+  --line: #cbd5da;
+  --blue: #1264a3;
+  --blue-strong: #0b4d81;
+  --danger: #b42318;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--text);
+  background: radial-gradient(circle at top right, #dce8ed, var(--bg) 42%);
+  font-family: "Manrope", "Segoe UI", sans-serif;
+}
+
+.language-toggle {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  min-width: 38px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.language-toggle:focus-visible {
+  outline: 2px solid rgb(18 100 163 / 25%);
+  outline-offset: 2px;
+}
+
+.login-shell { width: min(100%, 420px); }
+.login-brand { display: flex; align-items: center; gap: 10px; margin: 0 0 18px 4px; }
+.brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 8px; background: var(--blue); color: #fff; font-weight: 800; }
+.login-brand strong, .login-brand span { display: block; }
+.login-brand strong { font-size: 16px; }
+.login-brand span { color: var(--muted); font-size: 11px; }
+.login-panel { padding: 26px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); box-shadow: 0 18px 50px rgb(20 38 48 / 12%); }
+.eyebrow { color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+h1 { margin: 5px 0 6px; font-size: 23px; letter-spacing: 0; }
+.panel-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+.mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 23px 0 18px; padding: 3px; border-radius: 6px; background: #e8edef; }
+.mode-tabs:has(.mode-tab[hidden]) { grid-template-columns: 1fr; }
+.mode-tab { min-height: 34px; border: 0; border-radius: 4px; color: var(--muted); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.mode-tab[hidden] { display: none; }
+.mode-tab.active { color: var(--text); background: var(--surface); box-shadow: 0 1px 4px rgb(20 38 48 / 12%); }
+label { display: grid; gap: 6px; margin: 13px 0; font-size: 12px; font-weight: 700; }
+input { width: 100%; height: 40px; padding: 0 11px; border: 1px solid var(--line); border-radius: 5px; color: var(--text); background: var(--surface); font: inherit; font-size: 13px; }
+input:focus { outline: 2px solid rgb(18 100 163 / 25%); border-color: var(--blue); }
+.form-hint, .form-error { min-height: 18px; margin: 4px 0 7px; font-size: 11px; }
+.form-hint { color: var(--muted); }
+.form-error { color: var(--danger); }
+.submit-button { width: 100%; height: 42px; margin-top: 5px; border: 1px solid var(--blue-strong); border-radius: 5px; color: #fff; background: var(--blue); font: inherit; font-weight: 800; cursor: pointer; }
+.submit-button:disabled, .mode-tab:disabled { opacity: .55; cursor: not-allowed; }
+.login-footer { margin: 22px 0 0; text-align: center; font-size: 11px; }
+.login-footer a { color: var(--blue); }
+
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121b21; --surface: #1c282f; --text: #e6edf0; --muted: #a6b4bb; --line: #3c4c55; }
+  .mode-tabs { background: #152027; }
+  .mode-tab.active { background: #25353e; }
+}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>移动 App 工作台</title>
+    <link rel="stylesheet" href="/mobile-tool.css?v=0.44.55" />
+  </head>
+  <body>
+    <main class="mobile-tool-shell">
+      <header class="mobile-tool-header">
+        <div>
+          <span class="eyebrow">WFL CODEX TOOLBOX</span>
+          <h1>移动 App 工作台</h1>
+          <p>Flutter Web 预览、按需依赖准备和 Android APK 构建。</p>
+        </div>
+        <span class="preview-badge">预览模式</span>
+      </header>
+
+      <section class="mobile-tool-card mobile-tool-config">
+        <div class="section-heading"><div><h2>文件与项目</h2><p>只配置一个总目录，工具会自动分配 Flutter、缓存、预览、APK 和签名目录。</p></div></div>
+        <form id="mobileConfigForm" class="mobile-form">
+          <label>移动 App 项目路径<input id="mobileProjectPath" required /></label>
+          <label>移动 App 文件目录<input id="mobileStorageRoot" required /></label>
+          <label>Flutter SDK 可执行文件路径（可留空自动探测）<span class="path-picker"><input id="mobileFlutterBin" list="mobileFlutterPathOptions" placeholder="例如 /www/flutter/bin/flutter" /><button id="scanFlutterButton" class="secondary" type="button">扫描可用路径</button></span><datalist id="mobileFlutterPathOptions"></datalist></label>
+          <div class="mobile-actions"><button class="primary" type="submit">保存位置</button><span id="mobileConfigStatus" role="status"></span></div>
+        </form>
+      </section>
+
+      <section class="mobile-tool-grid">
+        <article class="mobile-tool-card preview-card">
+          <div class="section-heading"><div><h2>Flutter Web 预览</h2><p>浏览器中的数据是内存演示数据，刷新页面后恢复默认内容。</p></div><span id="previewStatus" class="status">未启动</span></div>
+          <div class="phone-stage"><iframe id="mobilePreviewFrame" title="移动 App Flutter Web 预览" src="about:blank" sandbox="allow-scripts" referrerpolicy="no-referrer" credentialless></iframe><div id="previewPlaceholder" class="preview-placeholder">准备 Flutter SDK 后启动预览</div></div>
+          <div class="mobile-actions"><button id="prepareFlutterButton" class="secondary">准备 Flutter SDK</button><button id="preparePubButton" class="secondary">准备 Pub 依赖</button><button id="startPreviewButton" class="primary">启动预览</button><button id="stopPreviewButton" class="secondary" disabled>停止</button><button id="openPreviewButton" class="secondary" disabled>新窗口打开</button></div>
+          <p id="previewDetail" class="detail"></p>
+        </article>
+
+        <article class="mobile-tool-card">
+          <div class="section-heading"><div><h2>依赖状态</h2><p>所有大文件都由当前页面按需准备，不进入主安装器。</p></div></div>
+          <dl class="dependency-list"><div><dt>Flutter SDK</dt><dd><span id="flutterDependency">读取中</span><progress id="flutterDependencyProgress" max="1" value="0" hidden></progress></dd></div><div><dt>Pub 缓存</dt><dd id="pubDependency">读取中</dd></div><div><dt>Java keytool</dt><dd id="javaDependency">读取中</dd></div><div><dt>APK 输出</dt><dd id="apkDirectory">--</dd></div></dl>
+          <div class="mobile-actions"><button id="prepareJavaButton" class="secondary">准备 Java 构建依赖</button></div>
+        </article>
+      </section>
+
+      <section class="mobile-tool-card apk-card">
+        <div class="section-heading"><div><h2>Android APK 构建</h2><p>复用现有 Android Gradle 构建服务。构建前需要保存签名配置并明确确认。</p></div><span id="apkStatus" class="status">未执行</span></div>
+        <div class="apk-grid">
+          <form id="signingForm" class="mobile-form"><h3>签名配置</h3><label>配置 ID<input id="signingId" required placeholder="demo-release" /></label><label>别名<input id="signingAlias" required placeholder="Demo Release" /></label><label>密码<input id="signingPassword" type="password" required /></label><label>密钥文件（可留空）<input id="signingKeystore" placeholder="自动生成" /></label><button class="secondary" type="submit">保存签名配置</button><p id="signingStatus" class="detail"></p></form>
+          <form id="apkBuildForm" class="mobile-form"><h3>构建参数</h3><label>Gradle 任务<select id="gradleTask"><option>assembleDebug</option><option>assembleRelease</option><option>:app:assembleRelease</option></select></label><label>签名配置<select id="signingProfile"><option value="">请先保存配置</option></select></label><label>APK 输出文件名<input id="apkOutput" value="mobile-app.apk" /></label><button class="primary" type="submit">确认并构建 APK</button><button id="terminateApkButton" class="danger" type="button" hidden>终止构建</button><p id="apkDetail" class="detail"></p><a id="apkDownload" hidden download>下载 APK</a></form>
+        </div>
+      </section>
+
+      <p class="mobile-notice">预览模式：Flutter Web 中的服务器、密码、API Key 和供应商设置只存在当前页面内，不会连接或保存到真实服务。</p>
+    </main>
+    <script src="/mobile-tool.js?v=0.44.55" type="module"></script>
+  </body>
+</html>

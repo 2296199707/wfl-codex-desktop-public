@@ -1,0 +1,15 @@
+{
+  "columns": 99,
+  "image": "automap-padding.svg",
+  "imageheight": 16,
+  "imagewidth": 1584,
+  "margin": 0,
+  "name": "AutomapPadding",
+  "spacing": 0,
+  "tilecount": 99,
+  "tiledversion": "1.12.2",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "type": "tileset",
+  "version": "1.12"
+}

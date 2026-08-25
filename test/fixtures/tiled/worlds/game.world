@@ -1,0 +1,31 @@
+{
+  "maps": [
+    {
+      "fileName": "../maps/tiled-1.12.2-features.tmj",
+      "height": 32,
+      "width": 32,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "fileName": "../maps/world.tmj",
+      "height": 64,
+      "width": 64,
+      "x": 32,
+      "y": 0
+    }
+  ],
+  "onlyShowAdjacentMaps": true,
+  "patterns": [
+    {
+      "mapHeight": 64,
+      "mapWidth": 64,
+      "multiplierX": 64,
+      "multiplierY": 64,
+      "offsetX": 0,
+      "offsetY": 0,
+      "regexp": "region-(\\d+)-(\\d+)\\.tmj"
+    }
+  ],
+  "type": "world"
+}

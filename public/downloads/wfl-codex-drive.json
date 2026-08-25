@@ -1,0 +1,16 @@
+{
+  "name": "WFL Codex 网盘",
+  "version": "1.0.1",
+  "platform": "Android",
+  "architecture": "arm64-v8a",
+  "minAndroid": "7.0",
+  "license": "GPL-3.0",
+  "size": 35442378,
+  "sha256": "22f218ff6225a2ab26433c538a29ab2dc8de8c476b4cb5a91fc9403ab7505d7b",
+  "download": "/downloads/wfl-codex-drive-arm64-v1.0.1.apk",
+  "signingCertificateSha256": "89532b10148e6251b5dff77a1e89192ad53f032ec90811f442ed0dc0c58a355b",
+  "endpoint": "HTTPS WebDAV /dav（登录时填写你的服务器地址）",
+  "source": "https://github.com/newhinton/Round-Sync",
+  "modifiedSource": "/tools/wfl-codex-drive",
+  "notes": "基于 Round Sync 修改，支持账号级项目目录、上传、下载、文件管理和后台同步。支持通知栏上传进度、速度/ETA、失败提示和后台上传。"
+}

@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>WFL Codex 备用窗口</title>
+    <link rel="stylesheet" href="/rescue/assets/rescue.css?v=1.1.16" />
+  </head>
+  <body>
+    <div class="rescue-shell">
+      <header class="topbar">
+        <button class="icon-button mobile-only" id="threadToggle" type="button" title="切换对话" aria-label="切换对话">
+          <i data-lucide="panel-left-open"></i>
+        </button>
+        <div class="brand">
+          <span class="brand-icon"><i data-lucide="life-buoy"></i></span>
+          <span><strong>WFL Codex</strong><small>备用窗口 1.1.16 · 最高权限</small></span>
+        </div>
+        <span class="connection" id="connection" data-status="starting"><i data-lucide="circle"></i><span>正在连接</span></span>
+        <span class="task-status-compact" id="taskStatusBar" data-status="idle" role="status" aria-live="polite">
+          <span class="task-status-dot" aria-hidden="true"></span>
+          <strong id="taskStatusLabel">当前没有任务</strong>
+          <span class="task-status-secondary" id="taskStatusDetail">等待发送任务</span>
+          <span class="task-status-secondary task-status-time" id="taskStatusTime" aria-hidden="true">空闲</span>
+        </span>
+        <label class="toolbar-field model-field">
+          <span>模型</span>
+          <select id="modelSelect" aria-label="选择模型"></select>
+        </label>
+        <div class="topbar-actions">
+          <button class="icon-button main-tasks-button" id="mainTasksButton" type="button" title="主站任务控制" aria-label="主站任务控制">
+            <i data-lucide="activity"></i>
+            <span class="button-label">任务控制</span>
+            <span class="button-badge" id="mainTasksBadge" hidden>0</span>
+          </button>
+          <button class="icon-button main-tasks-button" id="worktreeButton" type="button" title="主站代码维护" aria-label="打开主站代码维护">
+            <i data-lucide="git-branch"></i>
+            <span class="button-label">主站维护</span>
+          </button>
+          <button class="icon-button" id="rescueUpdateButton" type="button" title="升级备用服务" aria-label="升级备用服务" hidden>
+            <i data-lucide="shield-check"></i>
+          </button>
+          <button class="icon-button danger" id="admissionRescueButton" type="button" title="清理中断写入" aria-label="清理中断写入" hidden>
+            <i data-lucide="eraser"></i>
+          </button>
+          <button class="icon-button danger" id="deploymentRescueButton" type="button" title="取消等待中的维护任务" aria-label="取消等待中的维护任务" hidden>
+            <i data-lucide="circle-stop"></i>
+          </button>
+          <button class="icon-button" id="refreshButton" type="button" title="刷新并恢复当前对话" aria-label="刷新并恢复当前对话">
+            <i data-lucide="rotate-cw"></i>
+          </button>
+          <button class="provider-status-button" id="providerButton" type="button" title="供应商设置" aria-label="供应商设置">
+            <i data-lucide="server-cog"></i>
+            <span><small>供应商</small><strong id="providerStatus">读取中</strong></span>
+          </button>
+          <button class="icon-button" type="button" data-language-toggle title="切换为英文" aria-label="切换为英文">
+            <i data-lucide="languages"></i>
+          </button>
+          <a class="icon-button" href="/" title="返回主窗口" aria-label="返回主窗口">
+            <i data-lucide="monitor-up"></i>
+          </a>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <button class="backdrop" id="backdrop" type="button" aria-label="关闭对话列表"></button>
+        <aside class="thread-pane" id="threadPane">
+          <section class="rescue-project-pane" aria-label="备用工程">
+            <div class="rescue-project-heading">
+              <div><span>工作区</span><strong>工程</strong></div>
+              <button class="rescue-new-project-button" id="newProjectButton" type="button" title="新建备用工程目录" aria-label="新建备用工程目录">
+                <i data-lucide="folder-plus"></i><span>新建</span>
+              </button>
+            </div>
+            <label class="toolbar-field rescue-project-field">
+              <span>当前工程</span>
+              <select id="projectSelect" aria-label="选择备用工程"></select>
+            </label>
+          </section>
+          <header class="pane-header">
+            <div><span>对话</span><strong id="threadCount">0</strong></div>
+            <div>
+              <button class="icon-button" id="loadThreadsButton" type="button" title="刷新对话列表" aria-label="刷新对话列表">
+                <i data-lucide="refresh-cw"></i>
+              </button>
+              <button class="icon-button" id="newThreadButton" type="button" title="新对话" aria-label="新对话">
+                <i data-lucide="square-pen"></i>
+              </button>
+            </div>
+          </header>
+          <label class="search-field">
+            <i data-lucide="search"></i>
+            <input id="threadSearch" type="search" placeholder="搜索对话或工程" autocomplete="off" />
+          </label>
+          <div class="thread-list" id="threadList" aria-live="polite"></div>
+        </aside>
+
+        <section class="chat-pane">
+          <header class="chat-header">
+            <div class="thread-heading">
+              <span id="threadProject">未选择工程</span>
+              <strong id="threadTitle">新对话</strong>
+            </div>
+            <div class="chat-actions">
+              <button class="icon-button" id="copyIdButton" type="button" title="复制对话 ID" aria-label="复制对话 ID" disabled>
+                <i data-lucide="copy"></i>
+              </button>
+              <button class="icon-button" id="referenceButton" type="button" title="添加主站只读引用" aria-label="添加主站只读引用">
+                <i data-lucide="quote"></i>
+              </button>
+              <button class="icon-button danger" id="deleteThreadButton" type="button" title="删除当前对话" aria-label="删除当前对话" disabled>
+                <i data-lucide="trash-2"></i>
+              </button>
+            </div>
+          </header>
+
+          <div class="snapshot-notice" id="snapshotNotice" role="status" hidden>
+            <i data-lucide="shield-alert"></i>
+            <span>官方聊天记录暂时无法读取，当前显示只读快照。</span>
+            <time id="snapshotSavedAt"></time>
+          </div>
+
+          <div class="reference-banner" id="referenceBanner" hidden aria-live="polite"></div>
+
+          <div class="message-stage" id="messageStage">
+            <div class="empty-state" id="emptyState">
+              <i data-lucide="square-terminal"></i>
+              <strong>新对话</strong>
+            </div>
+            <div class="message-list" id="messageList"></div>
+          </div>
+
+          <div class="approval-strip" id="approvalStrip" hidden>
+            <i data-lucide="shield-alert"></i>
+            <span id="approvalLabel">等待批准</span>
+            <button id="approvalOpenButton" type="button">处理</button>
+          </div>
+
+          <footer class="composer-wrap" id="composerWrap">
+            <div class="composer">
+              <textarea id="promptInput" rows="1" placeholder="向 Codex 发送任务" aria-label="任务内容"></textarea>
+              <div class="composer-footer">
+                <span class="turn-state" id="turnState"><i data-lucide="circle"></i><span>等待连接</span></span>
+                <button class="icon-button danger" id="stopButton" type="button" title="终止当前任务" aria-label="终止当前任务" hidden>
+                  <i data-lucide="square"></i>
+                </button>
+                <button class="send-button" id="sendButton" type="button" title="发送" aria-label="发送任务" disabled>
+                  <i data-lucide="arrow-up"></i>
+                </button>
+              </div>
+            </div>
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="provider-dialog" id="providerDialog">
+      <form class="provider-shell" id="providerForm" autocomplete="off">
+        <header class="dialog-header">
+          <div><span>连接配置</span><strong>API 供应商</strong></div>
+          <button class="icon-button" id="providerCloseButton" type="button" title="关闭" aria-label="关闭">
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <div class="provider-body">
+          <p class="provider-help">备用窗口使用独立加密的 API 供应商配置，不读取主站官方登录。切换后，新建和恢复的对话都会使用当前选择；API Key 不会返回浏览器。</p>
+          <label class="form-field">
+            <span>配置档</span>
+            <select id="providerSelect"></select>
+          </label>
+          <label class="form-field">
+            <span>名称</span>
+            <input id="providerName" required maxlength="64" />
+          </label>
+          <label class="form-field">
+            <span>Base URL</span>
+            <input id="providerBaseUrl" type="url" required placeholder="https://api.example.com/v1" />
+          </label>
+          <label class="form-field">
+            <span>初始模型（可选）</span>
+            <input id="providerModel" maxlength="128" placeholder="留空后在主页选择" />
+          </label>
+          <label class="form-field">
+            <span>API Key <small id="providerKeyState">未配置</small></span>
+            <input id="providerKey" type="password" maxlength="4096" autocomplete="new-password" placeholder="输入新的 API Key" />
+          </label>
+          <p class="form-error" id="providerError" role="alert"></p>
+        </div>
+        <footer class="dialog-footer">
+          <button class="text-button danger" id="providerDeleteButton" type="button">删除</button>
+          <button class="text-button" id="providerDefaultButton" type="button">切回原配置</button>
+          <span></span>
+          <button class="text-button" id="providerSaveButton" type="button">保存</button>
+          <button class="primary-button" id="providerActivateButton" type="submit">保存并启用</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="main-tasks-dialog" id="mainTasksDialog">
+      <section class="main-tasks-shell">
+        <header class="dialog-header">
+          <div><span>所有者最高权限</span><strong>主站运行任务</strong></div>
+          <div class="dialog-header-actions">
+            <button class="icon-button" id="mainTasksRefresh" type="button" title="刷新主站任务" aria-label="刷新主站任务"><i data-lucide="refresh-cw"></i></button>
+            <button class="icon-button" id="mainTasksClose" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+          </div>
+        </header>
+        <div class="main-tasks-body">
+          <p class="provider-help" id="mainTasksSummary">正在读取主站任务。终止操作只针对选中的对话，不会停止主站服务。</p>
+          <p class="form-error" id="mainTasksError" role="alert"></p>
+          <div class="main-tasks-list" id="mainTasksList" aria-live="polite"></div>
+          <p class="provider-help rescue-tasks-heading" id="rescueTasksSummary">备用窗口任务：正在读取。</p>
+          <div class="main-tasks-list" id="rescueTasksList" aria-live="polite"></div>
+        </div>
+      </section>
+    </dialog>
+
+    <dialog class="main-tasks-dialog rescue-worktree-dialog" id="worktreeDialog">
+      <section class="main-tasks-shell">
+        <header class="dialog-header">
+          <div><span>管理员维护</span><strong>主站独立 Worktree</strong></div>
+          <div class="dialog-header-actions">
+            <button class="icon-button" id="worktreeRefreshButton" type="button" title="刷新 Worktree 状态" aria-label="刷新 Worktree 状态"><i data-lucide="refresh-cw"></i></button>
+            <button class="icon-button" id="worktreeCloseButton" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+          </div>
+        </header>
+        <div class="main-tasks-body rescue-worktree-body">
+          <p class="provider-help" id="worktreeSummary">备用窗口只修改独立 Worktree；确认后才会把修改合并到主站源码。</p>
+          <p class="form-error" id="worktreeError" role="alert"></p>
+          <div class="worktree-actions">
+            <button class="primary-button" id="worktreeEnsureButton" type="button">创建/恢复维护 Worktree</button>
+            <button class="text-button" id="worktreeDiffButton" type="button">查看差异</button>
+            <button class="text-button" id="worktreeCheckButton" type="button">执行限定检查</button>
+          </div>
+          <div class="worktree-status-grid" id="worktreeStatus" aria-live="polite"></div>
+          <pre class="worktree-output" id="worktreeDiffOutput" hidden></pre>
+          <label class="form-field worktree-confirm-field">
+            <span>管理员确认合并</span>
+            <input id="worktreeMergeConfirmation" type="text" autocomplete="off" placeholder="合并主站维护 Worktree" />
+          </label>
+          <button class="primary-button" id="worktreeMergeButton" type="button">确认并合并到主站</button>
+        </div>
+      </section>
+    </dialog>
+
+    <dialog class="references-dialog" id="referencesDialog">
+      <section class="references-shell">
+        <header class="dialog-header">
+          <div><span>只读资料</span><strong>主站引用</strong></div>
+          <button class="icon-button" id="referencesClose" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+        </header>
+        <div class="references-body">
+          <p class="provider-help">主站历史不会进入备用对话列表。选择后只会保存一份带来源、范围和哈希的只读引用；发送任务时，AI 可以读取引用内容，但不会写回主站。</p>
+          <div class="reference-columns">
+            <div>
+              <div class="reference-section-title">主站对话</div>
+              <div class="reference-source-list" id="referenceSourceList" aria-live="polite"></div>
+            </div>
+            <div>
+              <div class="reference-section-title">消息范围</div>
+              <div class="reference-source-detail" id="referenceSourceDetail">选择一个主站对话后，可勾选要引用的消息。</div>
+              <button class="primary-button" id="referenceCreateButton" type="button" disabled>保存为只读引用</button>
+            </div>
+          </div>
+          <div class="reference-section-title">已保存引用</div>
+          <div class="reference-owned-list" id="referenceOwnedList" aria-live="polite"></div>
+          <p class="form-error" id="referencesError" role="alert"></p>
+        </div>
+      </section>
+    </dialog>
+
+    <dialog class="provider-dialog rescue-project-dialog" id="projectDialog">
+      <form class="provider-shell" id="projectForm" autocomplete="off">
+        <header class="dialog-header">
+          <div><span>备用工作区</span><strong>创建工程</strong></div>
+          <button class="icon-button" id="projectCloseButton" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+        </header>
+        <div class="provider-body">
+          <label class="form-field">
+            <span>工程名称</span>
+            <input id="projectNameInput" name="name" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,63}" placeholder="rescue-workspace" autocomplete="off" />
+          </label>
+          <div class="form-field">
+            <span>模板</span>
+            <div class="template-grid" id="templateGrid">
+              <label class="template-option selected"><input type="radio" name="template" value="empty" checked /><i data-lucide="folder"></i><strong>空工程</strong></label>
+              <label class="template-option"><input type="radio" name="template" value="node" /><i data-lucide="hexagon"></i><strong>Node.js</strong></label>
+              <label class="template-option"><input type="radio" name="template" value="web" /><i data-lucide="layout-template"></i><strong>网页</strong></label>
+            </div>
+          </div>
+          <label class="toggle-line">
+            <input id="initializeGitInput" type="checkbox" checked />
+            <span class="toggle-control"></span>
+            <span>初始化 Git 仓库</span>
+          </label>
+          <div class="path-preview"><i data-lucide="folder-tree"></i><span id="projectPathPreview"></span></div>
+          <p class="form-error" id="projectFormError" role="alert"></p>
+        </div>
+        <footer class="dialog-footer"><span></span><button class="text-button" type="button" id="projectCancelButton">取消</button><span></span><button class="primary-button" id="projectSubmitButton" type="submit">创建工程</button></footer>
+      </form>
+    </dialog>
+
+    <dialog class="approval-dialog" id="approvalDialog">
+      <div class="approval-shell">
+        <header class="dialog-header">
+          <div><span>Codex 请求</span><strong id="approvalTitle">需要批准</strong></div>
+        </header>
+        <div class="approval-body" id="approvalBody"></div>
+        <footer class="dialog-footer" id="approvalActions"></footer>
+      </div>
+    </dialog>
+
+    <dialog class="provider-dialog" id="deploymentRescueDialog">
+      <form class="provider-shell" id="deploymentRescueForm" autocomplete="off">
+        <header class="dialog-header">
+          <div><span>紧急控制</span><strong>取消维护任务</strong></div>
+          <button class="icon-button" id="deploymentRescueClose" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+        </header>
+        <div class="provider-body">
+          <p id="deploymentRescueSummary">仅能取消尚未提交切换的任务。</p>
+          <label class="form-field"><span>当前所有者密码</span><input id="deploymentRescuePassword" type="password" autocomplete="current-password" /></label>
+          <p class="form-error" id="deploymentRescueError" role="alert"></p>
+        </div>
+        <footer class="dialog-footer deployment-rescue-footer"><span></span><button class="primary-button danger" id="deploymentRescueConfirm" type="submit">确认取消</button></footer>
+      </form>
+    </dialog>
+
+    <dialog class="provider-dialog" id="admissionRescueDialog">
+      <form class="provider-shell" id="admissionRescueForm" autocomplete="off">
+        <header class="dialog-header">
+          <div><span>紧急恢复</span><strong>清理中断写入</strong></div>
+          <button class="icon-button" id="admissionRescueClose" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+        </header>
+        <div class="provider-body">
+          <p id="admissionRescueSummary">仅清理已中断且后台任务确认停止的写入记录。</p>
+          <label class="form-field"><span>当前所有者密码</span><input id="admissionRescuePassword" type="password" autocomplete="current-password" /></label>
+          <label class="form-field"><span>输入“清理中断写入”</span><input id="admissionRescueConfirmation" type="text" autocomplete="off" /></label>
+          <p class="form-error" id="admissionRescueError" role="alert"></p>
+        </div>
+        <footer class="dialog-footer deployment-rescue-footer"><span></span><button class="primary-button danger" id="admissionRescueConfirm" type="submit">确认清理</button></footer>
+      </form>
+    </dialog>
+
+    <dialog class="provider-dialog" id="rescueUpdateDialog">
+      <form class="provider-shell" id="rescueUpdateForm" autocomplete="off">
+        <header class="dialog-header">
+          <div><span>独立组件</span><strong>升级备用服务</strong></div>
+          <button class="icon-button" id="rescueUpdateClose" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+        </header>
+        <div class="provider-body">
+          <p id="rescueUpdateSummary">正在读取固定 4321 状态。</p>
+          <p class="rescue-update-warning"><strong>强制更新：</strong>不会等待备用任务结束，当前运行中的任务可能中断并丢失。候选槽验证失败时仍会保留原活动槽。</p>
+          <label class="form-field"><span>当前所有者密码</span><input id="rescueUpdatePassword" type="password" autocomplete="current-password" /></label>
+          <label class="form-field"><span>输入“升级备用服务”</span><input id="rescueUpdateConfirmation" type="text" autocomplete="off" /></label>
+          <p class="form-error" id="rescueUpdateError" role="alert"></p>
+        </div>
+        <footer class="dialog-footer deployment-rescue-footer"><span></span><button class="primary-button" id="rescueUpdateConfirm" type="submit">开始升级</button></footer>
+      </form>
+    </dialog>
+
+    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+    <script src="/rescue/assets/i18n.js?v=1.1.16"></script>
+    <script src="/rescue/assets/vendor/lucide/lucide.min.js?v=1.1.16"></script>
+    <script src="/rescue/assets/rescue.js?v=1.1.16" defer></script>
+  </body>
+</html>

@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>用户管理 · WFL Codex</title>
+    <link rel="stylesheet" href="/users.css?v=0.44.55" />
+  </head>
+  <body>
+    <div class="users-shell">
+      <header class="users-titlebar">
+        <a class="brand" href="/" aria-label="返回对话窗口">
+          <span class="brand-mark"><i data-lucide="square-terminal"></i></span>
+          <span><strong>WFL Codex</strong><small>用户管理</small></span>
+        </a>
+        <div class="mode-state"><span id="modeDot"></span><strong id="modeLabel">正在读取</strong></div>
+        <div class="title-actions">
+          <a class="icon-button" href="/ops" title="运维中心" aria-label="运维中心"><i data-lucide="server-cog"></i></a>
+          <a class="icon-button" href="/" title="返回对话" aria-label="返回对话"><i data-lucide="message-square"></i></a>
+          <button class="icon-button" id="refreshButton" type="button" title="刷新" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
+          <button class="icon-button" type="button" data-language-toggle title="切换为英文" aria-label="切换为英文"><i data-lucide="languages"></i></button>
+          <button class="icon-button" id="themeButton" type="button" title="切换主题" aria-label="切换主题"><i data-lucide="sun-moon"></i></button>
+        </div>
+      </header>
+
+      <div class="error-banner" id="errorBanner" role="alert" hidden><i data-lucide="circle-alert"></i><span id="errorMessage"></span></div>
+
+      <main>
+        <section class="summary-band">
+          <div><span>用户</span><strong id="totalUsers">0</strong></div>
+          <div><span>可用</span><strong id="activeUsers">0</strong></div>
+          <div><span>已停用</span><strong id="disabledUsers">0</strong></div>
+          <div><span>分配空间</span><strong id="allocatedStorage">0 B</strong></div>
+          <button class="secondary-button" id="modeButton" type="button"><i data-lucide="users-round"></i><span>账号模式</span></button>
+        </section>
+
+        <section class="policy-band" id="threadLimitPolicyPanel" hidden>
+          <div class="band-heading">
+            <div><span class="kicker">CODEX CONCURRENCY</span><h1>Codex 并发线程</h1></div>
+            <span class="policy-summary" id="defaultCodexThreadLimitMeta">每用户默认 8 个</span>
+          </div>
+          <div class="policy-controls">
+            <label><span>系统默认并发线程数</span><input id="defaultCodexThreadLimit" type="number" min="1" max="16" step="1" value="8" /></label>
+            <button class="primary-button" id="saveThreadLimitPolicyButton" type="button"><i data-lucide="save"></i><span>保存并发上限</span></button>
+          </div>
+        </section>
+
+        <details class="policy-band" id="policyPanel" open hidden>
+          <summary class="band-heading">
+            <div><span class="kicker">NEW USER POLICY</span><h1>新用户默认设置</h1></div>
+            <span class="policy-summary">默认套餐、供应商和权限</span>
+          </summary>
+          <div class="policy-controls">
+            <label><span>默认用户等级</span><select id="defaultTierSelect"></select></label>
+            <label><span>默认分配供应商</span><select id="defaultProviderSelect"></select></label>
+            <label class="compact-check"><input id="defaultCustomProviders" type="checkbox" /><span><strong>允许自定义供应商</strong><small>新注册普通用户可添加自己的 API</small></span></label>
+            <label class="compact-check"><input id="defaultOfficialLogin" type="checkbox" /><span><strong>允许官方登录</strong><small>新注册普通用户可登录自己的 GPT 账号</small></span></label>
+            <label class="compact-check"><input id="defaultProjectSharing" type="checkbox" /><span><strong>允许工程共享</strong><small>新注册普通用户可接收共享工程</small></span></label>
+            <label class="compact-check"><input id="defaultCodexSkills" type="checkbox" /><span><strong>允许 Codex Skills</strong><small>发现、设置并在对话中调用 Skills 和 Hooks</small></span></label>
+            <label class="compact-check"><input id="defaultCodexPlugins" type="checkbox" /><span><strong>允许 Codex Plugins</strong><small>安装和使用管理员已配置的插件；不能管理来源</small></span></label>
+            <label class="compact-check"><input id="defaultCodexApps" type="checkbox" /><span><strong>允许 Codex Apps</strong><small>使用官方 App 连接能力</small></span></label>
+            <label class="compact-check"><input id="defaultCodexMcp" type="checkbox" /><span><strong>允许 Codex MCP</strong><small>管理和调用 Codex MCP 服务器</small></span></label>
+            <label class="compact-check"><input id="defaultCodexMigration" type="checkbox" /><span><strong>允许 Agent 迁移</strong><small>从 Claude Code 安全导入配置和会话</small></span></label>
+            <label class="compact-check"><input id="defaultCodexMemory" type="checkbox" /><span><strong>允许 Codex Memories</strong><small>管理当前账号的原生本地记忆</small></span></label>
+            <label class="compact-check"><input id="defaultCodexBackground" type="checkbox" /><span><strong>允许后台任务</strong><small>创建断线可恢复的 Codex 调度任务</small></span></label>
+            <label class="compact-check"><input id="defaultCodexTerminal" type="checkbox" /><span><strong>允许 Codex Terminal</strong><small>在工程沙箱中运行终端命令</small></span></label>
+            <label class="compact-check"><input id="defaultCodexWorkspaceMessages" type="checkbox" /><span><strong>允许工作区消息</strong><small>读取官方工作区公告和额度通知</small></span></label>
+            <label class="compact-check"><input id="defaultCodexRemoteDiff" type="checkbox" /><span><strong>允许远端 Git 比较</strong><small>只读比较本地已有的远端跟踪分支</small></span></label>
+            <label class="compact-check"><input id="defaultCodexFeedback" type="checkbox" /><span><strong>允许官方反馈</strong><small>预览并上传脱敏 Codex 诊断</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeRuntime" type="checkbox" /><span><strong>允许 Claude Code</strong><small>进入 Claude 界面并执行对话任务</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeOfficialLogin" type="checkbox" /><span><strong>允许 Claude 官方登录</strong><small>登录个人 Claude 官方账号</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeProviders" type="checkbox" /><span><strong>允许 Claude API</strong><small>添加和切换个人 Claude 供应商</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeExtensions" type="checkbox" /><span><strong>允许 Claude 扩展</strong><small>管理 Skills、Agents 和 Plugins</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeMcp" type="checkbox" /><span><strong>允许 Claude MCP</strong><small>配置 MCP 服务器与 OAuth</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeHooks" type="checkbox" /><span><strong>允许 Claude Hooks</strong><small>读取和编辑 Hooks</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeMemory" type="checkbox" /><span><strong>允许 Claude Memory</strong><small>读取和编辑工程记忆</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeBackground" type="checkbox" /><span><strong>允许 Claude 后台任务</strong><small>创建和管理 Claude 原生后台 Agent</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeWorktree" type="checkbox" /><span><strong>允许 Claude Worktree</strong><small>创建独立工程 Worktree</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeProxy" type="checkbox" /><span><strong>允许 Claude 账号代理</strong><small>为官方账号配置独立代理</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeStructuredOutput" type="checkbox" /><span><strong>允许结构化输出</strong><small>为 Claude 会话设置 JSON Schema</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeUltraReview" type="checkbox" /><span><strong>允许 Ultra Review</strong><small>运行有成本上限的原生代码审查</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeProjectPurge" type="checkbox" /><span><strong>允许工程清理</strong><small>预览、备份并清理 Claude 工程状态</small></span></label>
+            <label class="compact-check"><input id="defaultClaudeBetaHeaders" type="checkbox" /><span><strong>允许 Beta Header</strong><small>为 API 供应商配置 Anthropic Beta Header</small></span></label>
+            <button class="primary-button" id="savePolicyButton" type="button"><i data-lucide="save"></i><span>保存默认设置</span></button>
+            <button class="secondary-button" id="addTierButton" type="button"><i data-lucide="badge-plus"></i><span>管理套餐</span></button>
+          </div>
+          <div class="tier-library" id="tierList" aria-label="用户套餐"></div>
+        </details>
+
+        <section class="management-layout">
+          <aside class="user-directory">
+            <header>
+              <div><span class="kicker">ACCOUNTS</span><h1>账号</h1></div>
+              <button class="icon-button" id="openInviteButton" type="button" title="生成邀请" aria-label="生成邀请"><i data-lucide="user-plus"></i></button>
+            </header>
+            <div class="directory-tools">
+              <label class="search-field"><i data-lucide="search"></i><input id="userSearch" type="search" placeholder="搜索用户" /></label>
+              <select id="statusFilter" aria-label="账号状态"><option value="">全部状态</option><option value="active">可用</option><option value="disabled">已停用</option></select>
+            </div>
+            <div class="user-list" id="userList"></div>
+          </aside>
+
+          <section class="user-detail" aria-label="用户详情">
+            <button class="drawer-close icon-button" id="closeDetailButton" type="button" title="关闭详情" aria-label="关闭详情"><i data-lucide="x"></i></button>
+            <div class="detail-empty" id="detailEmpty"><i data-lucide="user-round-search"></i><strong>选择用户</strong></div>
+            <form id="userEditor" hidden>
+              <header class="detail-header">
+                <div class="user-avatar" id="userAvatar">U</div>
+                <div><span class="kicker" id="userRoleLabel">MEMBER</span><h2 id="userDisplayName">用户</h2><p id="userIdentity">--</p></div>
+                <span class="status-badge" id="userStatusBadge">--</span>
+              </header>
+
+              <section class="assignment-status-band" aria-label="当前用户分配">
+                <div class="assignment-status" id="currentTierStatus" data-status="none">
+                  <i data-lucide="badge-check"></i>
+                  <span><small>当前套餐</small><strong id="currentTierName">自定义设置</strong><em id="currentTierMeta">未套用套餐</em></span>
+                </div>
+                <div class="assignment-status" id="currentProviderStatus" data-status="none">
+                  <i data-lucide="key-round"></i>
+                  <span><small>当前对话 API</small><strong id="currentProviderName">未分配</strong><em id="currentProviderMeta">尚未分配管理员 API</em></span>
+                </div>
+              </section>
+
+              <div class="tier-apply-bar">
+                <label><span>用户等级 / 套餐</span><select id="userTierSelect"></select></label>
+                <label><span>到期日期</span><input id="userTierExpiresAt" type="date" /></label>
+                <p id="userTierSummary">选择套餐后一键应用空间、权限、Token 和供应商</p>
+                <button class="secondary-button" id="applyTierButton" type="button"><i data-lucide="badge-check"></i><span>应用套餐</span></button>
+              </div>
+
+              <div class="form-grid account-grid">
+                <label><span>角色</span><select id="userRole"><option value="member">普通用户</option><option value="admin">管理员</option><option value="owner">所有者</option></select></label>
+                <label><span>硬盘配额</span><div class="unit-input"><input id="userQuota" type="number" min="1" max="1024" /><span>GB</span></div></label>
+                <label><span>Codex 并发线程上限</span><select id="userCodexThreadLimit"></select></label>
+                <div class="storage-reading"><span>当前活动线程</span><strong id="userCodexThreadUsage">0 / 8</strong><small id="userCodexThreadLimitMeta">使用系统默认值</small></div>
+                <div class="storage-reading"><span>空间使用</span><strong id="storageUsage">--</strong><div class="meter"><span id="storageMeter"></span></div></div>
+              </div>
+              <details class="detail-section" id="userCodexThreadDetails">
+                <summary><div><span class="kicker">ACTIVE CODEX THREADS</span><h3>当前运行线程详情</h3></div><i data-lucide="chevron-down"></i></summary>
+                <div id="userCodexThreadList" class="token-usage-grid"><p>当前没有活动线程</p></div>
+              </details>
+              <button class="secondary-button" id="saveUserThreadLimitButton" type="button"><i data-lucide="gauge"></i><span>保存此用户并发上限</span></button>
+
+              <details class="detail-section advanced-section" open>
+                <summary><div><span class="kicker">ACCOUNT SETTINGS</span><h3>账号设置与权限</h3></div><i data-lucide="chevron-down"></i></summary>
+                <div class="permission-controls">
+                  <label><input id="customProvidersPermission" type="checkbox" /><span><strong>自定义 API</strong><small>添加和切换个人供应商</small></span></label>
+                  <label><input id="officialLoginPermission" type="checkbox" /><span><strong>官方登录</strong><small>登录和切换个人 GPT 账号</small></span></label>
+                  <label><input id="projectSharingPermission" type="checkbox" /><span><strong>共享工程</strong><small>接收管理员共享的工程</small></span></label>
+                  <label><input id="codexSkillsPermission" type="checkbox" /><span><strong>Codex Skills</strong><small>查看、启用并调用 Skills 和 Hooks</small></span></label>
+                  <label><input id="codexPluginsPermission" type="checkbox" /><span><strong>Codex Plugins</strong><small>安装和使用管理员已配置的插件；不能管理市场来源</small></span></label>
+                  <label><input id="codexAppsPermission" type="checkbox" /><span><strong>Codex Apps</strong><small>使用官方 App 连接</small></span></label>
+                  <label><input id="codexMcpPermission" type="checkbox" /><span><strong>Codex MCP</strong><small>管理服务器、资源和工具</small></span></label>
+                  <label><input id="codexMigrationPermission" type="checkbox" /><span><strong>Agent 迁移</strong><small>从 Claude Code 导入配置、能力和会话</small></span></label>
+                  <label><input id="codexMemoryPermission" type="checkbox" /><span><strong>Codex Memories</strong><small>查看、控制和清理个人本地记忆</small></span></label>
+                  <label><input id="codexBackgroundPermission" type="checkbox" /><span><strong>后台任务</strong><small>创建、调度和恢复 Codex 任务</small></span></label>
+                  <label><input id="codexTerminalPermission" type="checkbox" /><span><strong>Codex Terminal</strong><small>在当前工程沙箱中运行命令</small></span></label>
+                  <label><input id="codexWorkspaceMessagesPermission" type="checkbox" /><span><strong>工作区消息</strong><small>查看官方公告、套餐和额度提醒</small></span></label>
+                  <label><input id="codexRemoteDiffPermission" type="checkbox" /><span><strong>远端 Git 比较</strong><small>查看工程与远端跟踪分支的只读差异</small></span></label>
+                  <label><input id="codexFeedbackPermission" type="checkbox" /><span><strong>官方反馈</strong><small>向 OpenAI 上传脱敏诊断摘要</small></span></label>
+                </div>
+              </details>
+
+              <details class="detail-section advanced-section" id="claudePermissionSection">
+                <summary><div><span class="kicker">CLAUDE CODE</span><h3>Claude 权限</h3></div><i data-lucide="chevron-down"></i></summary>
+                <div class="permission-controls">
+                  <label><input id="claudeRuntimePermission" type="checkbox" /><span><strong>Claude Code</strong><small>进入 Claude 界面并执行任务</small></span></label>
+                  <label><input id="claudeOfficialLoginPermission" type="checkbox" /><span><strong>官方登录</strong><small>登录个人 Claude 官方账号</small></span></label>
+                  <label><input id="claudeProvidersPermission" type="checkbox" /><span><strong>Claude API</strong><small>添加和切换个人供应商</small></span></label>
+                  <label><input id="claudeExtensionsPermission" type="checkbox" /><span><strong>扩展管理</strong><small>管理 Skills、Agents 和 Plugins</small></span></label>
+                  <label><input id="claudeMcpPermission" type="checkbox" /><span><strong>MCP</strong><small>配置 MCP 服务器与 OAuth</small></span></label>
+                  <label><input id="claudeHooksPermission" type="checkbox" /><span><strong>Hooks</strong><small>读取和编辑 Hooks</small></span></label>
+                  <label><input id="claudeMemoryPermission" type="checkbox" /><span><strong>Memory</strong><small>读取和编辑工程记忆</small></span></label>
+                  <label><input id="claudeBackgroundPermission" type="checkbox" /><span><strong>后台任务</strong><small>运行 Claude 原生后台 Agent</small></span></label>
+                  <label><input id="claudeWorktreePermission" type="checkbox" /><span><strong>Worktree</strong><small>创建独立工程 Worktree</small></span></label>
+                  <label><input id="claudeProxyPermission" type="checkbox" /><span><strong>账号代理</strong><small>配置官方账号独立代理</small></span></label>
+                  <label><input id="claudeStructuredOutputPermission" type="checkbox" /><span><strong>结构化输出</strong><small>设置并校验 JSON Schema</small></span></label>
+                  <label><input id="claudeUltraReviewPermission" type="checkbox" /><span><strong>Ultra Review</strong><small>运行原生代码审查</small></span></label>
+                  <label><input id="claudeProjectPurgePermission" type="checkbox" /><span><strong>工程清理</strong><small>备份并清理 Claude 工程状态</small></span></label>
+                  <label><input id="claudeBetaHeadersPermission" type="checkbox" /><span><strong>Beta Header</strong><small>配置 Anthropic Beta Header</small></span></label>
+                </div>
+              </details>
+
+              <details class="detail-section advanced-section" open>
+                <summary><div><span class="kicker">TOKEN USAGE</span><h3>用量与限额</h3></div><span class="section-state" id="usageSource">Codex 上报</span></summary>
+                <div class="token-usage-grid">
+                  <div><span>永久累计</span><strong id="totalUsage">--</strong></div>
+                  <div><span>近 5 小时</span><strong id="fiveHourUsage">--</strong></div>
+                  <div><span>近 7 天</span><strong id="sevenDayUsage">--</strong></div>
+                  <div><span>本月</span><strong id="monthlyUsage">--</strong></div>
+                  <div><span>今日</span><strong id="todayUsage">--</strong></div>
+                </div>
+                <div class="quota-caption">套餐限额</div>
+                <div class="quota-window-grid">
+                  <label><span>5 小时</span><div class="unit-input"><input id="fiveHourLimit" type="number" min="0.0001" max="100000000" step="any" placeholder="不限" /><span>万</span></div></label>
+                  <label><span>每周</span><div class="unit-input"><input id="weeklyLimit" type="number" min="0.0001" max="100000000" step="any" placeholder="不限" /><span>万</span></div></label>
+                  <label><span>每月</span><div class="unit-input"><input id="monthlyLimit" type="number" min="0.0001" max="100000000" step="any" placeholder="不限" /><span>万</span></div></label>
+                </div>
+              </details>
+
+              <section class="detail-section api-section">
+                <header><div><span class="kicker">API CONFIGURATION</span><h3>API 配置</h3></div></header>
+                <div class="provider-section provider-subsection">
+                  <div class="provider-subheading"><div><strong>对话 API</strong><small>决定用户的聊天模型来源</small></div><span class="section-state" id="providerState">检查中</span></div>
+                <div class="provider-controls">
+                  <select id="providerSelect" aria-label="选择供应商"></select>
+                  <button class="secondary-button" id="assignProviderButton" type="button"><i data-lucide="key-round"></i><span>分配</span></button>
+                  <button class="secondary-button danger-button" id="unassignProviderButton" type="button"><i data-lucide="unlink"></i><span>取消分配</span></button>
+                </div>
+                </div>
+
+                <div class="provider-section provider-subsection">
+                  <div class="provider-subheading"><div><strong>图片 API</strong><small>用于生图，不影响对话 API</small></div><span class="section-state" id="imageProviderState">未配置</span></div>
+                <div class="image-provider-controls" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
+                  <label><span>供应商</span><select id="imageProviderSelect" aria-label="选择图片供应商"></select></label>
+                  <label><span>图片模型</span><input id="imageModelInput" type="text" list="userImageModelPresets" maxlength="128" value="gpt-image-2" aria-label="图片模型" /></label>
+                  <datalist id="userImageModelPresets"><option value="gpt-image-2"></option></datalist>
+                  <label><span>能力预设</span><select id="imagePresetInput" aria-label="图片能力预设"><option value="generation-only">仅生成（兼容）</option><option value="openai-gpt-image-2">OpenAI GPT Image 2</option></select></label>
+                  <label><span>图片尺寸</span><input id="imageSizeInput" type="text" list="userImageSizePresets" maxlength="16" pattern="(?:auto|[0-9]{1,4}x[0-9]{1,4})" value="1024x1024" placeholder="auto 或 1024x1024" aria-label="图片尺寸" /></label>
+                  <datalist id="userImageSizePresets"><option value="auto"></option><option value="1024x1024"></option><option value="1536x1024"></option><option value="1024x1536"></option></datalist>
+                  <label><span>图片质量</span><select id="imageQualityInput" aria-label="图片质量"><option value="auto">自动</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>
+                  <label><span>输出格式</span><select id="imageOutputFormatInput" aria-label="图片输出格式"><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option></select></label>
+                  <label><span>输出压缩率</span><input id="imageOutputCompressionInput" type="number" min="0" max="100" step="1" value="100" aria-label="图片输出压缩率" /></label>
+                  <label><span>背景</span><select id="imageBackgroundInput" aria-label="图片背景"><option value="auto">自动</option><option value="opaque">不透明</option></select></label>
+                  <label><span>内容审核</span><select id="imageModerationInput" aria-label="图片内容审核"><option value="auto">自动</option><option value="low">较低限制</option></select></label>
+                  <label><span>结果数量</span><input id="imageResultCountInput" type="number" min="1" max="10" step="1" value="1" aria-label="图片结果数量" /></label>
+                  <label><span>流式预览数</span><input id="imagePartialImagesInput" type="number" min="0" max="3" step="1" value="0" aria-label="图片流式预览数" /></label>
+                  <details class="wide-field">
+                    <summary><span class="kicker">ADVANCED LIMITS</span><strong>高级请求限制</strong></summary>
+                    <div class="image-provider-controls" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); padding-inline: 0;">
+                      <label><span>请求超时（毫秒）</span><input id="imageTimeoutInput" type="number" min="1000" max="900000" step="1" placeholder="使用预设值" aria-label="图片请求超时毫秒数" /></label>
+                      <label><span>单图输入上限（字节）</span><input id="imageMaxInputBytesPerImageInput" type="number" min="1" max="536870912" step="1" placeholder="使用预设值" aria-label="单张输入图片字节上限" /></label>
+                      <label><span>输入总上限（字节）</span><input id="imageMaxInputBytesTotalInput" type="number" min="0" max="1073741824" step="1" placeholder="使用预设值" aria-label="输入图片总字节上限" /></label>
+                      <label><span>单图输出上限（字节）</span><input id="imageMaxOutputBytesPerImageInput" type="number" min="1" max="536870912" step="1" placeholder="使用预设值" aria-label="单张输出图片字节上限" /></label>
+                      <label><span>响应上限（字节）</span><input id="imageMaxResponseBytesInput" type="number" min="1" max="2147483648" step="1" placeholder="使用预设值" aria-label="图片响应字节上限" /></label>
+                    </div>
+                  </details>
+                  <button class="secondary-button" id="assignImageProviderButton" type="button"><i data-lucide="image"></i><span>分配生图</span></button>
+                  <button class="secondary-button danger-button" id="unassignImageProviderButton" type="button"><i data-lucide="image-off"></i><span>取消生图</span></button>
+                </div>
+                </div>
+              </section>
+
+              <footer class="editor-actions">
+                <button class="secondary-button danger-button" id="toggleUserStatusButton" type="button">停用账号</button>
+                <button class="primary-button" id="saveUserButton" type="submit"><i data-lucide="save"></i><span>保存用户</span></button>
+              </footer>
+              <p class="form-error" id="editorError" role="alert"></p>
+            </form>
+          </section>
+          <button class="drawer-scrim" id="drawerScrim" type="button" aria-label="关闭用户详情"></button>
+        </section>
+
+        <section class="share-band">
+          <header><div><span class="kicker">PROJECT SHARING</span><h2>工程共享</h2></div><span id="shareCount">0 项</span></header>
+          <div class="share-create">
+            <select id="shareProject" aria-label="工程"></select>
+            <select id="shareTarget" aria-label="接收用户"></select>
+            <select id="shareAccess" aria-label="共享权限"><option value="read">只读</option><option value="write">可编辑</option></select>
+            <button class="secondary-button" id="createShareButton" type="button"><i data-lucide="folder-symlink"></i><span>共享</span></button>
+          </div>
+          <div class="share-list" id="shareList"></div>
+        </section>
+      </main>
+
+      <dialog id="inviteDialog">
+        <form method="dialog" id="inviteForm">
+          <header><div><span class="kicker">NEW INVITATION</span><h2>生成邀请</h2></div><button class="icon-button" value="cancel" aria-label="关闭"><i data-lucide="x"></i></button></header>
+          <div class="dialog-body form-grid">
+            <label><span>角色</span><select id="inviteRole"><option value="member">普通用户</option><option value="admin">管理员</option></select></label>
+            <label><span>用户等级</span><select id="inviteTier"></select></label>
+            <label><span>默认供应商</span><select id="inviteProvider"></select></label>
+            <label><span>有效时间</span><select id="inviteHours"><option value="24">24 小时</option><option value="48">48 小时</option><option value="168">7 天</option></select></label>
+            <div class="package-summary" id="inviteTierSummary"></div>
+            <div class="invite-result" id="inviteResult" hidden><code id="inviteUrl"></code><button class="icon-button" id="copyInviteButton" type="button" title="复制邀请链接" aria-label="复制邀请链接"><i data-lucide="copy"></i></button></div>
+            <p class="form-error" id="inviteError" role="alert"></p>
+          </div>
+          <footer><button class="secondary-button" value="cancel">关闭</button><button class="primary-button" id="createInviteButton" type="submit">生成邀请</button></footer>
+        </form>
+      </dialog>
+
+      <dialog id="tierDialog">
+        <form method="dialog" id="tierForm">
+          <header><div><span class="kicker">USER TIER</span><h2 id="tierDialogTitle">用户套餐</h2></div><button class="icon-button" value="cancel" formnovalidate aria-label="关闭"><i data-lucide="x"></i></button></header>
+          <div class="dialog-body tier-form-grid">
+            <label class="wide-field"><span>套餐名称</span><input id="tierName" type="text" maxlength="48" required /></label>
+            <label><span>硬盘配额</span><div class="unit-input"><input id="tierQuota" type="number" min="0.25" max="1024" step="0.25" required /><span>GB</span></div></label>
+            <label><span>对话供应商</span><select id="tierProvider"></select></label>
+            <label><span>5 小时 Token</span><div class="unit-input"><input id="tierFiveHourLimit" type="number" min="0.0001" step="any" placeholder="不限" /><span>万</span></div></label>
+            <label><span>每周 Token</span><div class="unit-input"><input id="tierWeeklyLimit" type="number" min="0.0001" step="any" placeholder="不限" /><span>万</span></div></label>
+            <label><span>每月 Token</span><div class="unit-input"><input id="tierMonthlyLimit" type="number" min="0.0001" step="any" placeholder="不限" /><span>万</span></div></label>
+            <label class="compact-check"><input id="tierCustomProviders" type="checkbox" /><span><strong>自定义供应商</strong><small>允许用户添加个人 API</small></span></label>
+            <label class="compact-check"><input id="tierOfficialLogin" type="checkbox" /><span><strong>官方登录</strong><small>允许用户登录个人 GPT 账号</small></span></label>
+            <label class="compact-check"><input id="tierProjectSharing" type="checkbox" /><span><strong>工程共享</strong><small>允许接收共享工程</small></span></label>
+            <label class="compact-check"><input id="tierCodexSkills" type="checkbox" /><span><strong>Codex Skills</strong><small>允许使用 Skills 和 Hooks</small></span></label>
+            <label class="compact-check"><input id="tierCodexPlugins" type="checkbox" /><span><strong>Codex Plugins</strong><small>允许安装和使用管理员已配置插件</small></span></label>
+            <label class="compact-check"><input id="tierCodexApps" type="checkbox" /><span><strong>Codex Apps</strong><small>允许使用官方 Apps</small></span></label>
+            <label class="compact-check"><input id="tierCodexMcp" type="checkbox" /><span><strong>Codex MCP</strong><small>允许管理和调用 MCP</small></span></label>
+            <label class="compact-check"><input id="tierCodexMigration" type="checkbox" /><span><strong>Agent 迁移</strong><small>允许从 Claude Code 导入</small></span></label>
+            <label class="compact-check"><input id="tierCodexMemory" type="checkbox" /><span><strong>Codex Memories</strong><small>允许管理原生本地记忆</small></span></label>
+            <label class="compact-check"><input id="tierCodexBackground" type="checkbox" /><span><strong>后台任务</strong><small>允许创建和调度 Codex 任务</small></span></label>
+            <label class="compact-check"><input id="tierCodexTerminal" type="checkbox" /><span><strong>Codex Terminal</strong><small>允许在工程沙箱中运行命令</small></span></label>
+            <label class="compact-check"><input id="tierCodexWorkspaceMessages" type="checkbox" /><span><strong>工作区消息</strong><small>允许读取官方工作区通知</small></span></label>
+            <label class="compact-check"><input id="tierCodexRemoteDiff" type="checkbox" /><span><strong>远端 Git 比较</strong><small>允许查看远端分支只读差异</small></span></label>
+            <label class="compact-check"><input id="tierCodexFeedback" type="checkbox" /><span><strong>官方反馈</strong><small>允许预览并上传脱敏诊断</small></span></label>
+            <label class="compact-check"><input id="tierClaudeRuntime" type="checkbox" /><span><strong>Claude Code</strong><small>允许进入 Claude 并执行任务</small></span></label>
+            <label class="compact-check"><input id="tierClaudeOfficialLogin" type="checkbox" /><span><strong>Claude 官方登录</strong><small>允许登录个人官方账号</small></span></label>
+            <label class="compact-check"><input id="tierClaudeProviders" type="checkbox" /><span><strong>Claude API</strong><small>允许添加个人 Claude 供应商</small></span></label>
+            <label class="compact-check"><input id="tierClaudeExtensions" type="checkbox" /><span><strong>Claude 扩展管理</strong><small>允许管理 Skills、Agents 和 Plugins</small></span></label>
+            <label class="compact-check"><input id="tierClaudeMcp" type="checkbox" /><span><strong>Claude MCP</strong><small>允许配置 MCP 服务器与 OAuth</small></span></label>
+            <label class="compact-check"><input id="tierClaudeHooks" type="checkbox" /><span><strong>Claude Hooks</strong><small>允许管理 Hooks</small></span></label>
+            <label class="compact-check"><input id="tierClaudeMemory" type="checkbox" /><span><strong>Claude Memory</strong><small>允许管理工程记忆</small></span></label>
+            <label class="compact-check"><input id="tierClaudeBackground" type="checkbox" /><span><strong>Claude 后台任务</strong><small>允许运行原生后台 Agent</small></span></label>
+            <label class="compact-check"><input id="tierClaudeWorktree" type="checkbox" /><span><strong>Claude Worktree</strong><small>允许创建独立工程 Worktree</small></span></label>
+            <label class="compact-check"><input id="tierClaudeProxy" type="checkbox" /><span><strong>Claude 账号代理</strong><small>允许配置官方账号独立代理</small></span></label>
+            <label class="compact-check"><input id="tierClaudeStructuredOutput" type="checkbox" /><span><strong>Claude 结构化输出</strong><small>允许设置 JSON Schema</small></span></label>
+            <label class="compact-check"><input id="tierClaudeUltraReview" type="checkbox" /><span><strong>Claude Ultra Review</strong><small>允许运行原生代码审查</small></span></label>
+            <label class="compact-check"><input id="tierClaudeProjectPurge" type="checkbox" /><span><strong>Claude 工程清理</strong><small>允许备份并清理工程状态</small></span></label>
+            <label class="compact-check"><input id="tierClaudeBetaHeaders" type="checkbox" /><span><strong>Claude Beta Header</strong><small>允许配置 Anthropic Beta Header</small></span></label>
+            <p class="form-error wide-field" id="tierError" role="alert"></p>
+          </div>
+          <footer><button class="secondary-button danger-button" id="removeTierButton" type="button">删除套餐</button><span class="dialog-spacer"></span><button class="secondary-button" value="cancel" formnovalidate>取消</button><button class="primary-button" id="saveTierButton" type="submit">保存套餐</button></footer>
+        </form>
+      </dialog>
+
+      <dialog id="modeDialog">
+        <form method="dialog" id="modeForm">
+          <header><div><span class="kicker">ACCOUNT MODE</span><h2 id="modeDialogTitle">账号模式</h2></div><button class="icon-button" value="cancel" aria-label="关闭"><i data-lucide="x"></i></button></header>
+          <div class="dialog-body"><label><span>所有者密码</span><input id="modePassword" type="password" autocomplete="current-password" minlength="16" required /></label><p class="form-error" id="modeError" role="alert"></p></div>
+          <footer><button class="secondary-button" value="cancel">取消</button><button class="primary-button" id="confirmModeButton" type="submit">确认</button></footer>
+        </form>
+      </dialog>
+
+      <div class="toast" id="toast" role="status" hidden></div>
+      <footer class="page-footer"><span>WFL Codex Desktop <strong>v0.44.55</strong></span><span id="currentAccount">--</span></footer>
+    </div>
+    <script src="/i18n.js?v=0.44.55"></script>
+    <script src="/vendor/lucide/lucide.min.js?v=0.44.55"></script>
+    <script type="module" src="/users.js?v=0.44.55"></script>
+  </body>
+</html>

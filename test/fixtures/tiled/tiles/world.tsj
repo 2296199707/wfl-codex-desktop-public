@@ -1,0 +1,63 @@
+{
+  "columns": 2,
+  "grid": {
+    "height": 16,
+    "orientation": "orthogonal",
+    "width": 16
+  },
+  "image": "../images/terrain.png",
+  "imageheight": 16,
+  "imagewidth": 32,
+  "margin": 0,
+  "name": "WorldTerrain",
+  "spacing": 0,
+  "tilecount": 2,
+  "tiledversion": "1.11.2",
+  "tileheight": 16,
+  "tiles": [
+    {
+      "id": 1,
+      "objectgroup": {
+        "draworder": "index",
+        "id": 1,
+        "name": "Collision",
+        "objects": [
+          {
+            "height": 16,
+            "id": 1,
+            "name": "Solid",
+            "rotation": 0,
+            "type": "collision",
+            "visible": true,
+            "width": 16,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "opacity": 1,
+        "type": "objectgroup",
+        "visible": true,
+        "x": 0,
+        "y": 0
+      },
+      "properties": [
+        {
+          "name": "terrainCost",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    }
+  ],
+  "tilewidth": 16,
+  "transformations": {
+    "hflip": true,
+    "preferuntransformed": false,
+    "rotate": false,
+    "vflip": true
+  },
+  "transparentcolor": "#ff00ff",
+  "type": "tileset",
+  "version": "1.10",
+  "wflUnknownTilesetField": "preserve-me"
+}

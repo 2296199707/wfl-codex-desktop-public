@@ -1,0 +1,67 @@
+import 'package:flutter/material.dart';
+import 'package:fpdart/fpdart.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:syncvault/src/accounts/components/account_card.dart';
+import 'package:syncvault/src/accounts/components/local_account_card.dart';
+import 'package:syncvault/src/accounts/components/new_account_dialog.dart';
+import 'package:syncvault/src/accounts/controllers/auth_controller.dart';
+import 'package:syncvault/src/common/components/sliver_animated_app_bar.dart';
+import 'package:syncvault/src/home/models/drive_provider_model.dart';
+import 'package:syncvault/src/localization/generated/i18n/app_localizations.dart';
+
+class AccountView extends ConsumerWidget {
+  const AccountView({super.key});
+
+  static const routeName = '/accounts';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final authInfo = ref.watch(authProvider).value;
+
+    return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        tooltip: l10n.registerRemoteTitle,
+        onPressed: () async {
+          await showDialog(
+            context: context,
+            builder: (context) => const NewAccountDialogWidget(),
+          );
+        },
+        child: const Icon(Icons.add),
+      ),
+      body: CustomScrollView(
+        slivers: [
+          SliverAnimatedAppBar(
+            title: l10n.accountsTitle,
+            canExpand: authInfo?.isNotEmpty ?? false,
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.only(
+              left: 16,
+              top: 16,
+              right: 16,
+              bottom: 84,
+            ),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate.fixed([
+                LocalAccountCard(),
+                ...authInfo
+                        ?.filter(
+                          (providerModel) =>
+                              providerModel is RemoteProviderModel,
+                        )
+                        .map(
+                          (providerModel) => AccountCard(
+                            providerModel: providerModel as RemoteProviderModel,
+                          ),
+                        ) ??
+                    [],
+              ]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

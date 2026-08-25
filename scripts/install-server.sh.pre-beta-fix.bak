@@ -1,0 +1,785 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+# Installer secrets must never be expanded by a caller-provided `bash -x`.
+set +x
+
+INVOCATION_DIR="$(pwd -P)"
+SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+CHECK_ONLY=0
+SKIP_LOGIN=0
+CODEX_AUTH_MODE=""
+CONFIGURE_ACCESS_ONLY=0
+INTERACTIVE=-1
+PACKAGE_ARCHIVE=""
+PACKAGE_CHECKSUM=""
+GIT_REMOTE=""
+SOURCE_MODE=""
+PASSWORD_MODE=""
+CUSTOM_PASSWORD=""
+OWNER_USERNAME="${CODEX_DESKTOP_USERNAME:-codex}"
+OWNER_USERNAME_PLAN=""
+ACCESS_MODE=""
+ACCESS_HOSTNAME=""
+ACCESS_REVERSE_PROXY=""
+ACCESS_EMAIL=""
+PROVIDER_NAME=""
+PROVIDER_BASE_URL=""
+PROVIDER_MODEL=""
+PROVIDER_API_KEY=""
+CURRENT_STEP="initial preflight"
+
+usage() {
+  printf '%s\n' \
+    "Usage: sudo bash install.sh [options]" \
+    "" \
+    "Installs a fresh Debian/Ubuntu server from a verified Git checkout or release package." \
+    "Interactive terminals get a guided setup, including optional browser access." \
+    "The service always binds only to 127.0.0.1:4317." \
+    "" \
+    "Options:" \
+    "  --archive PATH          Verify this release .tar.gz before package installation" \
+    "  --checksum PATH         SHA-256 file (defaults to ARCHIVE.sha256)" \
+    "  --git-remote URL        Prepare package installs for future synchronized updates" \
+    "  --access-mode MODE      existing-domain, cloudflare, or local" \
+    "  --hostname HOST         Public hostname for the selected access mode" \
+    "  --reverse-proxy MODE    existing or nginx (existing-domain only)" \
+    "  --email ADDRESS         Certbot address for managed Nginx HTTPS" \
+    "  --skip-codex-login      Install now and configure Codex authorization later" \
+    "  --non-interactive       Never prompt; defaults to local-only access" \
+    "  --configure-access      Rerun only the browser-access wizard" \
+    "  --check                 Check an existing installation without changing it" \
+    "  -h, --help              Show this help"
+}
+
+while (($#)); do
+  case "$1" in
+    --archive|--checksum|--git-remote|--access-mode|--hostname|--reverse-proxy|--email)
+      option="$1"
+      (($# >= 2)) || { printf '%s requires a value.\n' "$option" >&2; exit 2; }
+      case "$option" in
+        --archive) PACKAGE_ARCHIVE="$2" ;;
+        --checksum) PACKAGE_CHECKSUM="$2" ;;
+        --git-remote) GIT_REMOTE="$2" ;;
+        --access-mode) ACCESS_MODE="$2" ;;
+        --hostname) ACCESS_HOSTNAME="$2" ;;
+        --reverse-proxy) ACCESS_REVERSE_PROXY="$2" ;;
+        --email) ACCESS_EMAIL="$2" ;;
+      esac
+      shift 2
+      ;;
+    --check) CHECK_ONLY=1; shift ;;
+    --configure-access) CONFIGURE_ACCESS_ONLY=1; shift ;;
+    --non-interactive) INTERACTIVE=0; shift ;;
+    --skip-codex-login) SKIP_LOGIN=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'Unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if ((INTERACTIVE < 0)); then
+  if [[ -t 0 && -t 1 ]]; then INTERACTIVE=1; else INTERACTIVE=0; fi
+fi
+
+if [[ -n "$PACKAGE_ARCHIVE" && "$PACKAGE_ARCHIVE" != /* ]]; then
+  PACKAGE_ARCHIVE="$INVOCATION_DIR/$PACKAGE_ARCHIVE"
+fi
+if [[ -n "$PACKAGE_CHECKSUM" && "$PACKAGE_CHECKSUM" != /* ]]; then
+  PACKAGE_CHECKSUM="$INVOCATION_DIR/$PACKAGE_CHECKSUM"
+fi
+
+export HOME="${CODEX_DESKTOP_SERVICE_HOME:-/root}"
+export PATH="$HOME/.local/bin:$HOME/.codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+cd "$SOURCE_DIR"
+
+prompt_choice() {
+  local variable="$1" prompt="$2" default="$3" answer suffix
+  shift 3
+  while true; do
+    printf '\n%s\n' "$prompt"
+    printf '%s\n' "$@"
+    if [[ -n "$default" ]]; then suffix="[$default]"; else suffix="[必选]"; fi
+    read -r -p "请选择 $suffix: " answer || return 1
+    answer="${answer:-$default}"
+    case "$answer" in
+      1|2|3) printf -v "$variable" '%s' "$answer"; return 0 ;;
+      *) printf '请输入有效编号。\n' >&2 ;;
+    esac
+  done
+}
+
+prompt_value() {
+  local variable="$1" prompt="$2" default="${3:-}" answer=""
+  if [[ -n "$default" ]]; then
+    read -r -p "$prompt [$default]: " answer || return 1
+    answer="${answer:-$default}"
+  else
+    while [[ -z "$answer" ]]; do
+      read -r -p "$prompt: " answer || return 1
+    done
+  fi
+  printf -v "$variable" '%s' "$answer"
+}
+
+prompt_yes_no() {
+  local prompt="$1" default="$2" answer suffix
+  if [[ "$default" == "yes" ]]; then suffix="Y/n"; else suffix="y/N"; fi
+  while true; do
+    read -r -p "$prompt [$suffix]: " answer || return 1
+    answer="${answer,,}"
+    if [[ -z "$answer" ]]; then [[ "$default" == "yes" ]]; return; fi
+    case "$answer" in
+      y|yes) return 0 ;;
+      n|no) return 1 ;;
+      *) printf '请输入 y 或 n。\n' >&2 ;;
+    esac
+  done
+}
+
+normalize_package_paths() {
+  if [[ -n "$PACKAGE_ARCHIVE" && "$PACKAGE_ARCHIVE" != /* ]]; then
+    PACKAGE_ARCHIVE="$INVOCATION_DIR/$PACKAGE_ARCHIVE"
+  fi
+  if [[ -n "$PACKAGE_CHECKSUM" && "$PACKAGE_CHECKSUM" != /* ]]; then
+    PACKAGE_CHECKSUM="$INVOCATION_DIR/$PACKAGE_CHECKSUM"
+  fi
+}
+
+choose_password_plan() {
+  if [[ -s .codex-desktop/auth.json ]]; then
+    PASSWORD_MODE="preserve"
+    return 0
+  fi
+  if ((!INTERACTIVE)); then PASSWORD_MODE="generate"; return 0; fi
+
+  local first second
+  if prompt_yes_no "自动生成高强度网页登录密码（安装时只显示一次）？选择 n 可自定义" yes; then
+    PASSWORD_MODE="generate"
+    return 0
+  fi
+  while true; do
+    read -r -s -p "输入新密码: " first
+    printf '\n'
+    read -r -s -p "再次输入: " second
+    printf '\n'
+    if [[ ${#first} -lt 16 ]]; then
+      printf '密码至少需要 16 个字符。\n' >&2
+    elif [[ "$first" != "$second" ]]; then
+      printf '两次输入不一致。\n' >&2
+    else
+      CUSTOM_PASSWORD="$first"
+      PASSWORD_MODE="custom"
+      return 0
+    fi
+  done
+}
+
+choose_owner_username() {
+  if [[ -s .codex-desktop/auth.json ]]; then
+    OWNER_USERNAME_PLAN="保留现有所有者"
+    return 0
+  fi
+  if ((INTERACTIVE)); then
+    prompt_value OWNER_USERNAME "所有者用户名" "${OWNER_USERNAME:-codex}"
+  fi
+  OWNER_USERNAME="${OWNER_USERNAME:-codex}"
+  [[ "$OWNER_USERNAME" =~ ^[A-Za-z0-9._-]{1,32}$ ]] || {
+    printf '所有者用户名必须为 1-32 个字母、数字、点、下划线或连字符。\n' >&2
+    return 1
+  }
+  OWNER_USERNAME_PLAN="$OWNER_USERNAME"
+}
+
+choose_access_mode() {
+  [[ -z "$ACCESS_MODE" ]] || return 0
+  if ((!INTERACTIVE)); then ACCESS_MODE="local"; return 0; fi
+  local choice
+  prompt_choice choice "安装完成后准备如何访问网页？此项必须明确选择。" "" \
+    "  1. 域名已解析到本机，现在核对或配置 80/443 与 HTTPS" \
+    "  2. 本机无法开放 80/443，现在配置 Cloudflare Tunnel" \
+    "  3. 长期仅用本机浏览器或 SSH 转发，本次不配置任何域名"
+  case "$choice" in
+    1) ACCESS_MODE="existing-domain" ;;
+    2) ACCESS_MODE="cloudflare" ;;
+    3) ACCESS_MODE="local" ;;
+  esac
+}
+
+provider_is_configured() {
+  command -v node >/dev/null 2>&1 && node scripts/configure-provider.mjs --configured >/dev/null 2>&1
+}
+
+provider_url_is_loopback() {
+  [[ "$1" =~ ^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?(/|$) ]]
+}
+
+validate_provider_plan() {
+  [[ -n "$PROVIDER_NAME" && ${#PROVIDER_NAME} -le 64 && ! "$PROVIDER_NAME" =~ [[:cntrl:]] ]] || {
+    printf '供应商名称必须为 1-64 个字符且不能包含控制字符。\n' >&2
+    return 1
+  }
+  if [[ "$PROVIDER_BASE_URL" != https://* ]] && ! provider_url_is_loopback "$PROVIDER_BASE_URL"; then
+    printf '远程 API Base URL 必须使用 HTTPS；只有本机回环地址可以使用 HTTP。\n' >&2
+    return 1
+  fi
+  [[ ! "$PROVIDER_BASE_URL" =~ [[:space:]?#] && "$PROVIDER_BASE_URL" != *"@"* ]] || {
+    printf 'API Base URL 不能包含空白、账号、查询参数或片段。\n' >&2
+    return 1
+  }
+  [[ -z "$PROVIDER_MODEL" || "$PROVIDER_MODEL" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$ ]] || {
+    printf '模型 ID 格式不正确。\n' >&2
+    return 1
+  }
+  if [[ -z "$PROVIDER_API_KEY" ]] && ! provider_url_is_loopback "$PROVIDER_BASE_URL"; then
+    printf '远程 API 供应商需要 API Key。\n' >&2
+    return 1
+  fi
+  ((${#PROVIDER_API_KEY} <= 4096)) && [[ ! "$PROVIDER_API_KEY" =~ [[:cntrl:]] ]] || {
+    printf 'API Key 格式不正确。\n' >&2
+    return 1
+  }
+}
+
+choose_codex_auth_plan() {
+  local choice
+  if provider_is_configured; then
+    CODEX_AUTH_MODE="preserve-provider"
+    SKIP_LOGIN=1
+    return 0
+  fi
+  if codex login status >/dev/null 2>&1; then
+    CODEX_AUTH_MODE="official"
+    return 0
+  fi
+  if ((!INTERACTIVE)); then
+    if ((SKIP_LOGIN)); then CODEX_AUTH_MODE="later"; else CODEX_AUTH_MODE="official"; fi
+    return 0
+  fi
+
+  prompt_choice choice "首次安装后如何授权 Codex？此项必须明确选择。" "" \
+    "  1. 安装过程中立即进行 OpenAI 官方账号设备登录" \
+    "  2. 安装过程中立即输入 Responses 兼容 API 供应商" \
+    "  3. 只部署程序，登录网页后再配置（配置前不能发送对话）"
+  case "$choice" in
+    1)
+      CODEX_AUTH_MODE="official"
+      SKIP_LOGIN=0
+      ;;
+    2)
+      CODEX_AUTH_MODE="provider"
+      SKIP_LOGIN=1
+      while true; do
+        prompt_value PROVIDER_NAME "供应商名称（例如公司 API）"
+        prompt_value PROVIDER_BASE_URL "Responses API Base URL（远程地址必须为 HTTPS）"
+        read -r -p "初始模型 ID（可留空，之后在主页选择）: " PROVIDER_MODEL
+        read -r -s -p "API Key（隐藏输入；本机无鉴权服务可留空）: " PROVIDER_API_KEY
+        printf '\n'
+        validate_provider_plan && break
+        PROVIDER_API_KEY=""
+        printf '请重新输入这组 API 供应商设置。\n' >&2
+      done
+      ;;
+    3)
+      CODEX_AUTH_MODE="later"
+      SKIP_LOGIN=1
+      ;;
+  esac
+}
+
+validate_access_mode() {
+  case "$ACCESS_MODE" in
+    existing-domain|cloudflare|local) ;;
+    *) printf 'Access mode must be existing-domain, cloudflare, or local.\n' >&2; return 1 ;;
+  esac
+}
+
+prepare_install_wizard() {
+  local version archive_default update_remote login_plan password_plan access_plan
+  version="$(tr -d '\r\n' < VERSION)"
+
+  if [[ "$SOURCE_MODE" == "package" ]]; then
+    archive_default="$(dirname "$SOURCE_DIR")/wfl-codex-desktop-v${version}.tar.gz"
+    [[ -n "$PACKAGE_ARCHIVE" ]] || PACKAGE_ARCHIVE="$archive_default"
+    if [[ ! -f "$PACKAGE_ARCHIVE" && $INTERACTIVE -eq 1 ]]; then
+      prompt_value PACKAGE_ARCHIVE "未找到同目录安装包，请输入 .tar.gz 完整路径" "$PACKAGE_ARCHIVE"
+    fi
+    [[ -n "$PACKAGE_CHECKSUM" ]] || PACKAGE_CHECKSUM="${PACKAGE_ARCHIVE}.sha256"
+    if [[ ! -f "$PACKAGE_CHECKSUM" && $INTERACTIVE -eq 1 ]]; then
+      prompt_value PACKAGE_CHECKSUM "未找到 SHA-256 文件，请输入 .sha256 完整路径" "$PACKAGE_CHECKSUM"
+    fi
+    normalize_package_paths
+
+    if [[ -z "$GIT_REMOTE" && $INTERACTIVE -eq 1 ]]; then
+      if prompt_yes_no "当前服务器已经配置独立只读 Deploy Key，并要现在启用版本中心远程同步？" no; then
+        prompt_value GIT_REMOTE "请输入已配置只读 Deploy Key 的 SSH 仓库地址（例如 git@github.com:OWNER/REPO.git）"
+      else
+        printf '将以离线包模式安装；版本中心远程同步暂不可用，之后需通过 SSH 配置。\n'
+      fi
+    fi
+  fi
+
+  choose_codex_auth_plan
+  choose_owner_username
+  choose_password_plan
+  choose_access_mode
+  validate_access_mode
+
+  if ((!INTERACTIVE)); then return 0; fi
+  case "$CODEX_AUTH_MODE" in
+    official) login_plan="OpenAI 官方账号；如未登录则安装中设备授权" ;;
+    provider)
+      if [[ -n "$PROVIDER_MODEL" ]]; then
+        login_plan="API 供应商：${PROVIDER_NAME} / ${PROVIDER_MODEL}（密钥隐藏）"
+      else
+        login_plan="API 供应商：${PROVIDER_NAME}；模型稍后在主页选择（密钥隐藏）"
+      fi
+      ;;
+    preserve-provider) login_plan="保留现有加密 API 供应商" ;;
+    later) login_plan="安装后待配置；完成前不能发送对话" ;;
+    *) printf 'Unknown Codex authorization mode: %s\n' "$CODEX_AUTH_MODE" >&2; return 1 ;;
+  esac
+  case "$PASSWORD_MODE" in
+    preserve) password_plan="保留现有密码" ;;
+    custom) password_plan="使用刚才输入的自定义密码" ;;
+    *) password_plan="自动生成并只显示一次" ;;
+  esac
+  case "$ACCESS_MODE" in
+    existing-domain) access_plan="已有域名（稍后核对/配置 HTTPS 反向代理）" ;;
+    cloudflare) access_plan="Cloudflare Tunnel（稍后隐藏输入 token）" ;;
+    local) access_plan="仅本机或 SSH 转发；本次不会配置任何域名" ;;
+    *) printf 'Unknown access mode: %s\n' "$ACCESS_MODE" >&2; return 1 ;;
+  esac
+
+  printf '\n========== 安装方案确认 ==========\n'
+  printf '版本：v%s\n源码：%s（%s）\n' "$version" "$SOURCE_DIR" "$SOURCE_MODE"
+  if [[ "$SOURCE_MODE" == "package" ]]; then
+    printf '安装包：%s\n校验文件：%s\n' "$PACKAGE_ARCHIVE" "$PACKAGE_CHECKSUM"
+    if [[ -n "$GIT_REMOTE" ]]; then
+      update_remote="$GIT_REMOTE"
+    else
+      update_remote="未启用；版本中心同步不可用，之后需 SSH 配置 Deploy Key"
+    fi
+    printf '后续更新：%s\n' "$update_remote"
+  fi
+  printf 'Codex 登录：%s\n所有者用户名：%s\n网页密码：%s\n访问方式：%s\n' "$login_plan" "${OWNER_USERNAME_PLAN:-$OWNER_USERNAME}" "$password_plan" "$access_plan"
+  printf '安装检查：快速兼容检查 + 部署后健康检查（不会运行仓库测试或浏览器冒烟）\n'
+  printf '服务端口：仅监听 127.0.0.1:4317-4321\n'
+  if [[ "$CODEX_AUTH_MODE" == "later" || "$ACCESS_MODE" == "local" || ( "$SOURCE_MODE" == "package" && -z "$GIT_REMOTE" ) ]]; then
+    printf '安装后待办：\n'
+    [[ "$CODEX_AUTH_MODE" != "later" ]] || printf '  - 登录网页，在 API 供应商中心完成授权后才能发送对话。\n'
+    [[ "$ACCESS_MODE" != "local" ]] || printf '  - 当前不会生成公网地址；需要域名时必须重新运行访问向导。\n'
+    [[ "$SOURCE_MODE" != "package" || -n "$GIT_REMOTE" ]] || printf '  - 配置独立只读 Deploy Key 前，版本中心不能远程同步。\n'
+  fi
+  printf '==================================\n'
+  prompt_yes_no "确认开始安装？" no || { printf '安装已取消，系统未被修改。\n'; exit 0; }
+}
+
+run_access_wizard() {
+  local access_args=()
+  [[ -n "$ACCESS_MODE" ]] && access_args+=(--mode "$ACCESS_MODE")
+  [[ -n "$ACCESS_HOSTNAME" ]] && access_args+=(--hostname "$ACCESS_HOSTNAME")
+  [[ -n "$ACCESS_REVERSE_PROXY" ]] && access_args+=(--reverse-proxy "$ACCESS_REVERSE_PROXY")
+  [[ -n "$ACCESS_EMAIL" ]] && access_args+=(--email "$ACCESS_EMAIL")
+  if ((!INTERACTIVE)); then access_args+=(--non-interactive); fi
+  bash scripts/configure-access.sh "${access_args[@]}"
+}
+
+check_command() {
+  command -v "$1" >/dev/null 2>&1 || {
+    printf 'Missing required command: %s\n' "$1" >&2
+    return 1
+  }
+}
+
+check_node() {
+  command -v node >/dev/null 2>&1 && node -e '
+    const major = Number(process.versions.node.split(".")[0]);
+    if (major < 22) process.exit(1);
+  ' || {
+    printf 'Node.js 22 or newer is required. Installed: %s\n' "$(node --version 2>/dev/null || printf 'missing')" >&2
+    return 1
+  }
+}
+
+detect_source_mode() {
+  if [[ -d "$SOURCE_DIR/.git" || -f "$SOURCE_DIR/.git" ]]; then
+    SOURCE_MODE="git"
+  elif [[ -s "$SOURCE_DIR/.codex-package.json" ]]; then
+    SOURCE_MODE="package"
+  else
+    printf 'Source must be a Git checkout or an official release package with .codex-package.json.\n' >&2
+    return 1
+  fi
+}
+
+check_git_checkout() {
+  test -z "$(git status --porcelain --untracked-files=all)" || {
+    printf 'The Git checkout must be clean before installation.\n' >&2
+    return 1
+  }
+  local version head tag upstream upstream_ref
+  version="$(tr -d '\r\n' < VERSION)"
+  head="$(git rev-parse HEAD)"
+  tag="$(git rev-parse "v${version}^{commit}")"
+  upstream="$(git rev-parse '@{upstream}')"
+  upstream_ref="$(git rev-parse --symbolic-full-name '@{upstream}')"
+  test "$head" = "$tag" && test "$head" = "$upstream" && test "$upstream_ref" = "refs/remotes/origin/stable" || {
+    printf 'HEAD must match pushed tag v%s and origin/stable before installation.\n' "$version" >&2
+    return 1
+  }
+}
+
+check_release_source() {
+  detect_source_mode
+  if [[ "$SOURCE_MODE" == "git" ]]; then
+    check_git_checkout
+  else
+    node scripts/verify-package-source.mjs
+  fi
+}
+
+check_package_archive() {
+  [[ "$SOURCE_MODE" == "package" ]] || return 0
+  local version archive checksum expected actual root
+  version="$(tr -d '\r\n' < VERSION)"
+  archive="$PACKAGE_ARCHIVE"
+  if [[ -z "$archive" ]]; then
+    archive="$(dirname "$SOURCE_DIR")/wfl-codex-desktop-v${version}.tar.gz"
+  fi
+  checksum="${PACKAGE_CHECKSUM:-${archive}.sha256}"
+  [[ -f "$archive" ]] || {
+    printf 'Release archive not found: %s\nUse --archive PATH to select the downloaded package.\n' "$archive" >&2
+    return 1
+  }
+  [[ -f "$checksum" ]] || {
+    printf 'Release checksum not found: %s\nDownload the matching .sha256 file before installation.\n' "$checksum" >&2
+    return 1
+  }
+  expected="$(awk 'NR == 1 { print $1 }' "$checksum")"
+  [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || {
+    printf 'Invalid SHA-256 file: %s\n' "$checksum" >&2
+    return 1
+  }
+  actual="$(sha256sum "$archive" | awk '{ print $1 }')"
+  [[ "${actual,,}" == "${expected,,}" ]] || {
+    printf 'Release archive SHA-256 mismatch; installation stopped.\n' >&2
+    return 1
+  }
+  root="wfl-codex-desktop-v${version}"
+  tar -tzf "$archive" | awk -v root="$root" '
+    BEGIN { ok = 1 }
+    /^\// || /(^|\/)\.\.($|\/)/ { ok = 0 }
+    $0 != root "/" && index($0, root "/") != 1 { ok = 0 }
+    END { exit ok ? 0 : 1 }
+  ' || {
+    printf 'Release archive contains an unexpected or unsafe path.\n' >&2
+    return 1
+  }
+  printf 'Verified package archive SHA-256: %s\n' "$actual"
+}
+
+check_disk_space() {
+  local available_kb minimum_kb=2097152
+  available_kb="$(df -Pk "$SOURCE_DIR" | awk 'NR == 2 { print $4 }')"
+  [[ "$available_kb" =~ ^[0-9]+$ ]] && ((available_kb >= minimum_kb)) || {
+    printf 'At least 2 GiB of free disk space is required for dependencies and rollback slots.\n' >&2
+    return 1
+  }
+}
+
+validate_git_remote() {
+  [[ -n "$GIT_REMOTE" ]] || return 0
+  [[ "$GIT_REMOTE" != *[$'\r\n\t ']* ]] || {
+    printf 'Git remote must not contain whitespace.\n' >&2
+    return 1
+  }
+  case "$GIT_REMOTE" in
+    ssh://*|git@*:*) ;;
+    *) printf 'Git remote must use SSH with a read-only deploy key.\n' >&2; return 1 ;;
+  esac
+}
+
+check_requested_git_remote() {
+  [[ "$SOURCE_MODE" == "git" && -n "$GIT_REMOTE" ]] || return 0
+  local configured
+  configured="$(git remote get-url origin)"
+  [[ "$configured" == "$GIT_REMOTE" ]] || {
+    printf 'Configured origin does not match --git-remote. Refusing to rewrite repository credentials.\n' >&2
+    return 1
+  }
+}
+
+install_node_if_needed() {
+  if check_node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then return; fi
+  local installer log
+  printf 'Installing Node.js 22 because a supported Node.js and npm were not found.\n'
+  installer="$(mktemp)"
+  log="$(mktemp)"
+  curl -fsSL https://deb.nodesource.com/setup_22.x -o "$installer"
+  if ! bash "$installer" >"$log" 2>&1; then
+    cat "$log" >&2
+    rm -f "$installer" "$log"
+    return 1
+  fi
+  rm -f "$installer" "$log"
+  "${APT_GET[@]}" install -y nodejs
+  hash -r
+  check_node
+  check_command npm
+}
+
+prerequisites_ready() {
+  local command_name
+  [[ -s /etc/ssl/certs/ca-certificates.crt ]] || return 1
+  for command_name in bwrap curl ffmpeg git gpg ssh tar flock timeout findmnt setquota setfacl xauth x11vnc xclip xdotool Xvfb; do
+    command -v "$command_name" >/dev/null 2>&1 || return 1
+  done
+  check_node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1
+}
+
+install_codex_if_needed() {
+  if command -v codex >/dev/null 2>&1; then
+    printf 'Official Codex CLI is already installed: %s\n' "$(codex --version 2>/dev/null || printf 'version unknown')"
+    return 0
+  fi
+
+  local installer
+  installer="$(mktemp)"
+  printf 'Downloading the official Codex installer with a bounded timeout.\n'
+  if curl --connect-timeout 5 --max-time 20 --retry 1 --retry-delay 1 --retry-max-time 25 -fsSL \
+      https://chatgpt.com/codex/install.sh -o "$installer" \
+      && CODEX_NON_INTERACTIVE=1 sh "$installer"; then
+    hash -r
+  else
+    printf 'The official download endpoint is unavailable; falling back to the official npm package.\n' >&2
+  fi
+  rm -f "$installer"
+
+  if ! command -v codex >/dev/null 2>&1; then
+    npm install --global @openai/codex@latest --no-audit --no-fund
+    hash -r
+  fi
+  check_command codex
+  printf 'Official Codex CLI is ready: %s\n' "$(codex --version)"
+}
+
+install_playwright_dependencies_if_needed() {
+  local state_dir=".codex-runtime/install" marker log
+  marker="$state_dir/playwright-dependencies-ready"
+  if [[ -s "$marker" ]]; then
+    printf 'Playwright operating-system dependencies are already ready; skipping APT.\n'
+    return 0
+  fi
+
+  printf 'Installing Playwright operating-system dependencies.\n'
+  log="$(mktemp)"
+  if ! npx playwright install-deps chromium >"$log" 2>&1; then
+    cat "$log" >&2
+    rm -f "$log"
+    return 1
+  fi
+  rm -f "$log"
+  mkdir -p "$state_dir"
+  printf 'ready\n' >"$marker"
+  printf 'Playwright operating-system dependencies are ready.\n'
+}
+
+install_playwright_browser() {
+  local timeout_seconds="${CODEX_DESKTOP_PLAYWRIGHT_TIMEOUT_SECONDS:-1200}"
+  [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 60 && timeout_seconds <= 3600)) || {
+    printf 'CODEX_DESKTOP_PLAYWRIGHT_TIMEOUT_SECONDS must be between 60 and 3600.\n' >&2
+    return 1
+  }
+  printf 'Installing Chromium without the unused headless-shell download (timeout: %s minutes).\n' "$((timeout_seconds / 60))"
+  if ! PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=30000 timeout --foreground "${timeout_seconds}s" \
+      npx playwright install --no-shell --no-progress chromium; then
+    printf 'Chromium download failed or exceeded the time limit. Fix CDN access or preseed the matching Playwright cache, then rerun the installer.\n' >&2
+    return 1
+  fi
+}
+
+configure_provider() {
+  if ! printf '%s\0' "$PROVIDER_NAME" "$PROVIDER_BASE_URL" "$PROVIDER_MODEL" "$PROVIDER_API_KEY" \
+      | node scripts/configure-provider.mjs; then
+    PROVIDER_API_KEY=""
+    return 1
+  fi
+  PROVIDER_API_KEY=""
+}
+
+bootstrap_package_git() {
+  [[ "$SOURCE_MODE" == "package" && -n "$GIT_REMOTE" ]] || return 0
+  node scripts/bootstrap-package-git.mjs --source "$SOURCE_DIR" --remote "$GIT_REMOTE"
+  SOURCE_MODE="git"
+  check_git_checkout
+  printf 'Prepared read-only Git metadata for future synchronized updates.\n'
+}
+
+installation_failed() {
+  local status=$?
+  PROVIDER_API_KEY=""
+  printf '\nInstallation stopped during: %s\n' "$CURRENT_STEP" >&2
+  if [[ "$CURRENT_STEP" == "configuring browser access" ]]; then
+    printf 'The application is already installed and remains available on http://127.0.0.1:4317.\n' >&2
+    printf 'Fix the access setting and rerun only that wizard: sudo bash install.sh --configure-access\n' >&2
+    exit "$status"
+  fi
+  printf 'The previous active service was not intentionally stopped. Fix the reported error and rerun: sudo bash install.sh\n' >&2
+  printf 'After service installation, inspect details with: journalctl -u "wfl-codex-*" --since "15 minutes ago"\n' >&2
+  exit "$status"
+}
+
+if ((CHECK_ONLY)); then
+  check_command git
+  check_command node
+  check_command npm
+  check_command systemctl
+  check_node
+  check_release_source
+  npm run setup:check
+  test -s .codex-desktop/auth.json || {
+    printf 'Password record is missing; run npm run set-password.\n' >&2
+    exit 1
+  }
+  if ((SKIP_LOGIN)); then
+    printf 'Codex authorization check skipped by request.\n'
+  elif provider_is_configured || codex login status >/dev/null 2>&1; then
+    printf 'Codex authorization: configured.\n'
+  else
+    printf 'Codex authorization: deferred; configure it in the API provider center before starting a conversation.\n'
+  fi
+  printf 'Server prerequisites are ready for v%s (%s source).\n' "$(tr -d '\r\n' < VERSION)" "$SOURCE_MODE"
+  exit 0
+fi
+
+if [[ "${EUID}" -ne 0 ]]; then
+  printf 'Run the installer as root: sudo bash install.sh\n' >&2
+  exit 1
+fi
+if [[ ! -d /run/systemd/system ]]; then
+  printf 'A systemd-based server is required.\n' >&2
+  exit 1
+fi
+if [[ ! -r /etc/os-release ]]; then
+  printf 'Unable to identify the operating system.\n' >&2
+  exit 1
+fi
+. /etc/os-release
+case "${ID:-}" in
+  debian|ubuntu) ;;
+  *) printf 'Automatic installation currently supports Debian and Ubuntu only (found %s).\n' "${ID:-unknown}" >&2; exit 1 ;;
+esac
+[[ "$SOURCE_DIR" != *[$'\r\n\t ']* ]] || {
+  printf 'The installation path must not contain spaces or control characters.\n' >&2
+  exit 1
+}
+
+if ((CONFIGURE_ACCESS_ONLY)); then
+  run_access_wizard
+  exit 0
+fi
+
+detect_source_mode
+prepare_install_wizard
+validate_git_remote
+check_disk_space
+
+exec 9>/run/lock/wfl-codex-desktop-install.lock
+flock -n 9 || {
+  printf 'Another WFL Codex Desktop installation is already running.\n' >&2
+  exit 1
+}
+trap installation_failed ERR
+
+CURRENT_STEP="installing operating-system prerequisites"
+printf '[1/10] Installing operating-system prerequisites\n'
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export APT_LISTCHANGES_FRONTEND=none
+export NO_COLOR=1
+APT_GET=(apt-get -o Dpkg::Use-Pty=0 -o APT::Color=0 -q)
+if prerequisites_ready; then
+  printf 'Required OS tools, Node.js, and npm are already ready; skipping APT.\n'
+else
+  "${APT_GET[@]}" update -qq
+  "${APT_GET[@]}" install -y acl apparmor bubblewrap ca-certificates curl ffmpeg git gnupg openssh-client quota tar util-linux x11vnc xauth xclip xdotool xvfb
+  install_node_if_needed
+fi
+
+CURRENT_STEP="verifying the release source"
+printf '[2/10] Verifying the release archive, manifest, tag, and update source\n'
+check_package_archive
+bootstrap_package_git
+check_requested_git_remote
+check_release_source
+
+CURRENT_STEP="installing the official Codex CLI"
+printf '[3/10] Installing the official Codex CLI when needed\n'
+install_codex_if_needed
+
+CURRENT_STEP="installing locked application dependencies"
+printf '[4/10] Installing locked application and browser dependencies\n'
+printf 'Installing platform-specific optional packages required by image processing.\n'
+npm ci
+install_playwright_dependencies_if_needed
+install_playwright_browser
+npm run setup:check
+
+CURRENT_STEP="configuring Codex authorization"
+printf '[5/10] Configuring Codex authorization for this server\n'
+case "$CODEX_AUTH_MODE" in
+  official)
+    if ! codex login status >/dev/null 2>&1; then codex login --device-auth; fi
+    ;;
+  provider) configure_provider ;;
+  preserve-provider) printf 'Existing encrypted API provider preserved.\n' ;;
+  later) printf 'Codex authorization deferred; configure it in the API provider center.\n' ;;
+  *) printf 'Unknown Codex authorization mode: %s\n' "$CODEX_AUTH_MODE" >&2; exit 1 ;;
+esac
+
+CURRENT_STEP="preparing password protection and services"
+printf '[6/10] Preparing password protection and portable systemd units\n'
+if [[ ! -s .codex-desktop/auth.json ]]; then
+  if [[ "$PASSWORD_MODE" == "custom" ]]; then
+    CODEX_DESKTOP_USERNAME="$OWNER_USERNAME" CODEX_DESKTOP_NEW_PASSWORD="$CUSTOM_PASSWORD" npm run set-password
+    CUSTOM_PASSWORD=""
+  else
+    CODEX_DESKTOP_USERNAME="$OWNER_USERNAME" npm run set-password
+  fi
+else
+  printf 'Existing password record preserved.\n'
+fi
+node scripts/install-service-units.mjs --install-system --main-only
+
+CURRENT_STEP="running the checked blue-green release"
+printf '[7/10] Running the durable checked release\n'
+release_args=(--wait)
+if [[ "$SOURCE_MODE" == "package" ]]; then release_args+=(--package-source); fi
+CODEX_DESKTOP_QUICK_CHECK_OFFLINE=1 npm run update:quick-check
+if [[ "$SOURCE_MODE" == "package" ]]; then
+  precheck_commit="$(node -e 'const fs=require("node:fs"); console.log(JSON.parse(fs.readFileSync(".codex-package.json", "utf8")).sourceCommit)')"
+else
+  precheck_commit="$(git rev-parse HEAD)"
+fi
+CODEX_DESKTOP_PRECHECK_COMMIT="$precheck_commit" CODEX_DESKTOP_PRECHECK_KIND=stable \
+  node scripts/release.mjs "${release_args[@]}"
+
+CURRENT_STEP="verifying gateway, backend, Codex, and authentication"
+printf '[8/10] Verifying gateway, backend, Codex, and authentication state\n'
+node scripts/server-doctor.mjs
+
+CURRENT_STEP="configuring browser access"
+printf '[9/10] Configuring browser access\n'
+run_access_wizard
+
+CURRENT_STEP="recording installation result"
+printf '[10/10] Installation completed successfully\n'
+trap - ERR
+printf '\nInstallation complete. Ports 4317-4321 remain private on loopback.\n'
+if [[ "$SOURCE_MODE" == "package" ]]; then
+  printf 'This offline package has no Git remote. Run sudo npm run server:updates later to configure a read-only Deploy Key.\n'
+fi
+printf '%s\n' \
+  'Post-install settings remain available without rerunning the installer:' \
+  '  sudo npm run server:access   # domain, Cloudflare Tunnel, or local access' \
+  '  sudo npm run server:password # single-user browser password' \
+  '  sudo npm run server:updates  # read-only Git update source'

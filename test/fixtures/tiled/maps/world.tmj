@@ -1,0 +1,142 @@
+{
+  "compressionlevel": -1,
+  "height": 4,
+  "infinite": false,
+  "layers": [
+    {
+      "data": [1, 2, 0, 0, 2, 1, 0, 0, 0, 0, 1, 2, 0, 0, 2, 1],
+      "height": 4,
+      "id": 1,
+      "name": "Ground",
+      "opacity": 1,
+      "type": "tilelayer",
+      "visible": true,
+      "width": 4,
+      "x": 0,
+      "y": 0,
+      "wflUnknownLayerField": {
+        "keep": true
+      }
+    },
+    {
+      "draworder": "topdown",
+      "id": 2,
+      "name": "Gameplay",
+      "objects": [
+        {
+          "class": "SpawnPoint",
+          "height": 0,
+          "id": 1,
+          "name": "PlayerStart",
+          "point": true,
+          "properties": [
+            {
+              "name": "facing",
+              "type": "string",
+              "value": "south"
+            }
+          ],
+          "rotation": 0,
+          "visible": true,
+          "width": 0,
+          "x": 24,
+          "y": 24
+        },
+        {
+          "class": "Portal",
+          "height": 16,
+          "id": 2,
+          "name": "ToTown",
+          "properties": [
+            {
+              "name": "destination",
+              "type": "file",
+              "value": "town.tmj"
+            },
+            {
+              "name": "destinationSpawn",
+              "type": "string",
+              "value": "FromWorld"
+            }
+          ],
+          "rotation": 0,
+          "visible": true,
+          "width": 16,
+          "x": 48,
+          "y": 32
+        }
+      ],
+      "opacity": 1,
+      "type": "objectgroup",
+      "visible": true,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 3,
+      "image": "../images/background.png",
+      "name": "Backdrop",
+      "opacity": 0.75,
+      "repeatx": true,
+      "repeaty": false,
+      "type": "imagelayer",
+      "visible": true,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 4,
+      "layers": [
+        {
+          "data": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          "height": 4,
+          "id": 5,
+          "name": "CollisionIntGrid",
+          "properties": [
+            {
+              "name": "intGridSemantics",
+              "type": "string",
+              "value": "0=empty,1=solid"
+            }
+          ],
+          "type": "tilelayer",
+          "visible": false,
+          "width": 4,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "name": "Collision",
+      "opacity": 1,
+      "type": "group",
+      "visible": true,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "nextlayerid": 6,
+  "nextobjectid": 3,
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "tiledversion": "1.11.2",
+  "tileheight": 16,
+  "tilesets": [
+    {
+      "firstgid": 1,
+      "source": "../tiles/world.tsj"
+    }
+  ],
+  "tilewidth": 16,
+  "type": "map",
+  "version": "1.10",
+  "width": 4,
+  "wflUnknownRoot": {
+    "nested": [
+      1,
+      "two",
+      {
+        "three": true
+      }
+    ]
+  }
+}

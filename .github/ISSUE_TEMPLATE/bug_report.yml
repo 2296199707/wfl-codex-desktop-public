@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible non-security defect
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not submit vulnerabilities, credentials, account data, private URLs,
+        server addresses, or unredacted logs here. Use the private security
+        reporting link instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: Latest stable version or a commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Codex
+        - Claude Code
+        - Shared UI or server
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Reproduction and observed behavior
+      description: Use example.test and documentation IP ranges in all samples.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed credentials, account data, private endpoints, prompts, and sensitive logs.
+          required: true

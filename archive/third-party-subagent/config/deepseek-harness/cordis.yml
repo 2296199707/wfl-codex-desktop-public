@@ -1,0 +1,80 @@
+# Official DeepSeek Harness composition used by the WFL host bridge.
+# The bridge owns the line protocol, so this composition deliberately does not
+# mount the SDK one-shot JSON-RPC server. SubagentRuntime owns child identity,
+# continuation, persistence, cold resume, interruption, and settlement.
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      wfl-third-party:
+        apiKeyEnv: WFL_SUBAGENT_API_KEY
+        api: !!js process.env.WFL_SUBAGENT_API
+        baseURL: !!js process.env.WFL_SUBAGENT_BASE_URL
+        models:
+          - id: !!js process.env.WFL_SUBAGENT_MODEL
+
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: !!js process.env.WFL_SUBAGENT_SANDBOX_MODE ?? 'read-only'
+    workspaceRoot: !!js process.env.DSH_CWD ?? process.cwd()
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-sandbox'
+
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    # DeepSeek's official delegated-child semantic pins approval to never.
+    # WFL must not silently turn this into an approval queue of its own.
+    policy: 'never'
+
+- id: fs-sandbox
+  name: '@deepseek-ai/dsh-fs-sandbox'
+  config:
+    cwd: !!js process.env.DSH_CWD ?? process.cwd()
+
+- id: fs-observation-policy
+  name: '@deepseek-ai/dsh-fs-observation-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    persona: 'You are a coding agent.'
+    workspaceContext:
+      maxBytes: 65536
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SESSION_ROOT ?? './.sessions'
+
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
+  config:
+    providerName: spawn

@@ -1,0 +1,44 @@
+:root { color-scheme: light; font-family: Inter, system-ui, sans-serif; color: #172033; background: #f4f6fb; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+.mobile-tool-shell { width: min(1180px, 100%); margin: 0 auto; padding: 28px 20px 48px; }
+.mobile-tool-header { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
+.mobile-tool-header h1 { margin: 5px 0; font-size: clamp(24px, 4vw, 38px); }
+.mobile-tool-header p, .section-heading p, .detail { color: #667085; margin: 4px 0 0; font-size: 13px; }
+.eyebrow { color: #667085; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.preview-badge, .status { border-radius: 999px; background: #e6edff; color: #3157b7; padding: 6px 10px; white-space: nowrap; font-size: 12px; font-weight: 700; }
+.status[data-state="ready"] { background: #e4f7ed; color: #147a4b; }
+.status[data-state="error"] { background: #ffe9e7; color: #b42318; }
+.mobile-tool-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 16px; margin-top: 16px; }
+.mobile-tool-card { min-width: 0; background: #fff; border: 1px solid #e5e9f2; border-radius: 16px; padding: 18px; box-shadow: 0 8px 24px #263b680d; }
+.mobile-tool-config { margin-bottom: 16px; }
+.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.section-heading h2, .mobile-form h3 { margin: 0; font-size: 17px; }
+.mobile-form { display: grid; gap: 10px; }
+.mobile-form label { display: grid; gap: 5px; color: #475467; font-size: 12px; font-weight: 700; }
+.mobile-form input, .mobile-form select { width: 100%; min-height: 38px; border: 1px solid #d0d5dd; border-radius: 8px; padding: 7px 10px; color: #172033; background: #fff; }
+.path-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.path-picker button { min-height: 38px; border: 0; border-radius: 8px; padding: 7px 10px; font-weight: 700; }
+.mobile-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.mobile-actions button, .mobile-form > button { border: 0; border-radius: 8px; padding: 9px 13px; font-weight: 700; }
+.primary { color: #fff; background: #3157b7; }
+.secondary { color: #3157b7; background: #edf2ff; }
+.danger { color: #b42318; background: #ffe9e7; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+.phone-stage { position: relative; width: min(390px, 100%); aspect-ratio: 390 / 844; margin: 0 auto; overflow: hidden; border: 8px solid #1b2438; border-radius: 28px; background: #eef2f8; box-shadow: 0 12px 30px #17203324; }
+.phone-stage iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.preview-placeholder { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: #667085; text-align: center; background: #f8faff; }
+.preview-placeholder[hidden] { display: none; }
+.dependency-list { display: grid; gap: 0; margin: 0; }
+.dependency-list div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #eef1f6; }
+.dependency-list dt { color: #667085; font-size: 12px; }
+.dependency-list dd { max-width: 65%; margin: 0; overflow: hidden; color: #172033; font-size: 12px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.dependency-list dd progress { display: block; width: 150px; height: 7px; margin-top: 5px; }
+.apk-card { margin-top: 16px; }
+.apk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.apk-grid h3 { margin-bottom: 2px; }
+#apkDownload { color: #3157b7; font-size: 13px; font-weight: 700; }
+.mobile-notice { margin: 16px 0 0; padding: 12px 14px; border-radius: 10px; color: #475467; background: #eef2f8; font-size: 12px; }
+@media (max-width: 760px) { .mobile-tool-shell { padding: 18px 12px 30px; } .mobile-tool-header { display: block; } .preview-badge { display: inline-block; margin-top: 10px; } .mobile-tool-grid, .apk-grid { grid-template-columns: 1fr; } .mobile-tool-card { padding: 14px; } }

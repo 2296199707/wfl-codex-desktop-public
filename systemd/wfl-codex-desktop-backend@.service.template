@@ -1,0 +1,32 @@
+[Unit]
+Description=WFL Codex Desktop backend on port %i
+Wants=network-online.target wfl-codex-desktop-codex-recovery.service
+Requires=wfl-codex-desktop-restore-recovery.service
+After=network-online.target wfl-codex-desktop-restore-recovery.service wfl-codex-desktop-codex-recovery.service
+Before=wfl-codex-desktop-gateway.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{SOURCE_DIR}}
+Environment=HOME={{SERVICE_HOME}}
+Environment=PATH={{SERVICE_PATH}}
+Environment=PLAYWRIGHT_BROWSERS_PATH={{PLAYWRIGHT_BROWSERS_PATH}}
+Environment=HOST=127.0.0.1
+Environment=PORT=%i
+Environment=CODEX_DESKTOP_PROJECT_ROOT={{PROJECT_ROOT}}
+Environment=CODEX_DESKTOP_PROJECT_ROOTS={{PROJECT_ROOTS}}
+Environment=CODEX_DESKTOP_DEFAULT_PROJECT={{DEFAULT_PROJECT}}
+Environment=CODEX_DESKTOP_AUTH_FILE={{STATE_DIR}}/auth.json
+Environment=CODEX_DESKTOP_STATE_DIR={{STATE_DIR}}
+Environment=CODEX_DESKTOP_RUNTIME_DIR={{RUNTIME_DIR}}
+Environment=CODEX_DESKTOP_SOURCE_DIR={{SOURCE_DIR}}
+Environment=CODEX_DESKTOP_BACKEND_SOURCE_DIR={{RUNTIME_DIR}}/slots/%i
+Environment=CODEX_DESKTOP_CANDIDATE_RELEASES_ENABLED={{CANDIDATE_RELEASES_ENABLED}}
+ExecStart={{NODE_BIN}} {{SOURCE_DIR}}/scripts/backend-entry.mjs
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

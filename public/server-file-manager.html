@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>服务器文件管理器</title>
+    <link rel="stylesheet" href="/server-file-manager.css?v=0.44.55" />
+  </head>
+  <body>
+    <main class="file-manager-shell">
+      <header class="file-manager-header">
+        <div>
+          <span class="eyebrow">WFL CODEX ADMIN TOOL</span>
+          <h1>服务器文件管理器</h1>
+          <p>浏览和管理服务器文件系统。此工具只对管理员开放，操作使用当前服务器进程的系统权限。</p>
+        </div>
+        <span class="admin-badge">管理员专用</span>
+      </header>
+
+      <section class="file-card file-toolbar-card">
+        <form id="pathForm" class="path-form">
+          <label for="pathInput">当前路径</label>
+          <div class="path-input-row">
+            <input id="pathInput" type="text" autocomplete="off" spellcheck="false" required />
+            <button class="primary" type="submit">打开</button>
+          </div>
+        </form>
+        <div class="toolbar-actions" role="toolbar" aria-label="文件操作">
+          <button id="homeButton" class="secondary" type="button">根目录</button>
+          <button id="upButton" class="secondary" type="button">上一级</button>
+          <button id="refreshButton" class="secondary" type="button">刷新</button>
+          <button id="newFileButton" class="secondary" type="button">新建文件</button>
+          <button id="newDirectoryButton" class="secondary" type="button">新建文件夹</button>
+          <label class="file-button secondary">上传文件<input id="uploadInput" type="file" hidden /></label>
+          <button id="renameButton" class="secondary" type="button" disabled>重命名</button>
+          <button id="deleteButton" class="danger" type="button" disabled>删除</button>
+          <button id="downloadButton" class="secondary" type="button" disabled>下载</button>
+        </div>
+        <p id="managerStatus" class="status-text" role="status" aria-live="polite">正在读取服务器信息…</p>
+      </section>
+
+      <section class="file-manager-grid">
+        <article class="file-card directory-card">
+          <header class="card-heading">
+            <div><h2>目录内容</h2><p id="directorySummary">--</p></div>
+            <span id="directoryLoading" class="loading-label" hidden>读取中…</span>
+          </header>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>名称</th><th>类型</th><th>大小</th><th>修改时间</th><th>权限</th></tr></thead>
+              <tbody id="fileRows"></tbody>
+            </table>
+          </div>
+          <div class="pagination">
+            <button id="previousPageButton" class="secondary" type="button" disabled>上一页</button>
+            <span id="pageSummary">--</span>
+            <button id="nextPageButton" class="secondary" type="button" disabled>下一页</button>
+          </div>
+        </article>
+
+        <article class="file-card editor-card">
+          <header class="card-heading">
+            <div><h2 id="editorTitle">文件预览</h2><p id="editorMeta">选择普通文件查看内容；符号链接不会被跟随。</p></div>
+            <button id="saveButton" class="primary" type="button" disabled>保存</button>
+          </header>
+          <textarea id="fileEditor" spellcheck="false" placeholder="尚未选择文件" readonly></textarea>
+          <p id="editorStatus" class="status-text"></p>
+        </article>
+      </section>
+
+      <p class="security-note">安全提示：服务器文件管理器不会跟随符号链接；保存使用版本冲突检测；删除文件夹需要明确确认完整路径。页面和 API 都会再次校验管理员身份。</p>
+    </main>
+    <script src="/server-file-manager.js?v=0.44.55" type="module"></script>
+  </body>
+</html>

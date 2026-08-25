@@ -1,0 +1,149 @@
+{
+  "backgroundcolor": "#ff1b2430",
+  "class": "GameMap",
+  "height": 2,
+  "infinite": false,
+  "layers": [
+    {
+      "data": [1, 2, 0, 1],
+      "height": 2,
+      "id": 1,
+      "mode": "multiply",
+      "name": "TintedGround",
+      "opacity": 0.9,
+      "parallaxx": 0.75,
+      "parallaxy": 0.5,
+      "tintcolor": "#ccffffff",
+      "type": "tilelayer",
+      "visible": true,
+      "width": 2,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "draworder": "topdown",
+      "id": 2,
+      "name": "Objects",
+      "objects": [
+        {
+          "capsule": true,
+          "class": "Collision",
+          "height": 24,
+          "id": 1,
+          "name": "CapsuleCollision",
+          "opacity": 0.5,
+          "rotation": 0,
+          "visible": true,
+          "width": 12,
+          "x": 8,
+          "y": 8
+        },
+        {
+          "height": 32,
+          "id": 2,
+          "name": "FormattedText",
+          "rotation": 0,
+          "text": {
+            "bold": true,
+            "color": "#ffffffff",
+            "fontfamily": "sans-serif",
+            "halign": "center",
+            "pixelsize": 14,
+            "text": "Tiled 1.12.2",
+            "valign": "center",
+            "wrap": true
+          },
+          "visible": true,
+          "width": 64,
+          "x": 24,
+          "y": 8
+        },
+        {
+          "id": 3,
+          "name": "PortalTemplate",
+          "template": "../templates/portal.tx",
+          "x": 16,
+          "y": 24
+        }
+      ],
+      "opacity": 1,
+      "type": "objectgroup",
+      "visible": true,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 3,
+      "image": "../images/background.png",
+      "name": "RepeatedBackdrop",
+      "opacity": 1,
+      "repeatx": true,
+      "repeaty": false,
+      "transparentcolor": "#ff00ff",
+      "type": "imagelayer",
+      "visible": true,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 4,
+      "layers": [
+        {
+          "data": [0, 0, 0, 0],
+          "height": 2,
+          "id": 5,
+          "name": "NestedTiles",
+          "type": "tilelayer",
+          "visible": true,
+          "width": 2,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "mode": "screen",
+      "name": "Effects",
+      "opacity": 0.8,
+      "type": "group",
+      "visible": true,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "nextlayerid": 6,
+  "nextobjectid": 4,
+  "orientation": "orthogonal",
+  "parallaxoriginx": 32,
+  "parallaxoriginy": 16,
+  "properties": [
+    {
+      "name": "tags",
+      "type": "list",
+      "value": [
+        {
+          "type": "string",
+          "value": "forest"
+        },
+        {
+          "type": "string",
+          "value": "night"
+        }
+      ]
+    }
+  ],
+  "renderorder": "left-up",
+  "tiledversion": "1.12.2",
+  "tileheight": 16,
+  "tilesets": [
+    {
+      "firstgid": 1,
+      "source": "../tiles/tiled-1.12.2-features.tsj"
+    }
+  ],
+  "tilewidth": 16,
+  "type": "map",
+  "version": "1.12",
+  "width": 2,
+  "wflForwardCompatibleField": {
+    "keep": [1, "two", true]
+  }
+}

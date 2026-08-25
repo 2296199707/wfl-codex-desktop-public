@@ -1,0 +1,111 @@
+{
+  "columns": 2,
+  "fillmode": "preserve-aspect-fit",
+  "image": "../images/terrain.png",
+  "imageheight": 16,
+  "imagewidth": 32,
+  "margin": 0,
+  "name": "Tiled112Terrain",
+  "objectalignment": "center",
+  "properties": [
+    {
+      "name": "categories",
+      "type": "list",
+      "value": [
+        {
+          "type": "string",
+          "value": "ground"
+        }
+      ]
+    }
+  ],
+  "spacing": 0,
+  "tilecount": 2,
+  "tiledversion": "1.12.2",
+  "tileheight": 16,
+  "tileoffset": {
+    "x": 1,
+    "y": -2
+  },
+  "tilerendersize": "grid",
+  "tiles": [
+    {
+      "animation": [
+        {
+          "duration": 120,
+          "tileid": 0
+        },
+        {
+          "duration": 120,
+          "tileid": 1
+        }
+      ],
+      "id": 0,
+      "objectgroup": {
+        "draworder": "index",
+        "id": 1,
+        "name": "TileCollision",
+        "objects": [
+          {
+            "height": 8,
+            "id": 1,
+            "name": "Solid",
+            "rotation": 0,
+            "visible": true,
+            "width": 16,
+            "x": 0,
+            "y": 8
+          }
+        ],
+        "opacity": 1,
+        "type": "objectgroup",
+        "visible": true,
+        "x": 0,
+        "y": 0
+      },
+      "probability": 0.75
+    },
+    {
+      "id": 1,
+      "properties": [
+        {
+          "name": "walkCost",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    }
+  ],
+  "tilewidth": 16,
+  "transformations": {
+    "hflip": true,
+    "preferuntransformed": false,
+    "rotate": true,
+    "vflip": true
+  },
+  "type": "tileset",
+  "version": "1.12",
+  "wangsets": [
+    {
+      "class": "GroundTerrain",
+      "colors": [
+        {
+          "color": "#4f8f3a",
+          "name": "Grass",
+          "probability": 1,
+          "tile": 0
+        }
+      ],
+      "name": "Ground",
+      "tile": 0,
+      "type": "mixed",
+      "wangtiles": [
+        {
+          "tileid": 0,
+          "wangid": [1, 1, 1, 1, 1, 1, 1, 1]
+        }
+      ]
+    }
+  ],
+  "wflForwardCompatibleField": "preserve"
+}

@@ -1,0 +1,25 @@
+{
+  "format": 2,
+  "id": "ai-provider-real-test",
+  "name": "AI 供应商真实测试",
+  "version": "0.1.0",
+  "publisher": "WFL Official",
+  "summary": "复用 WFL 已加密保存的 API 供应商配置，由插件页或 AI MCP 工具验证 Responses、结构化输出和受限 Agent 工具循环；不接受任意 URL，不返回 API Key。",
+  "icon": "flask-conical",
+  "capability": "ai-provider-real-test",
+  "permissions": [
+    "network:ai-provider",
+    "credential:encrypted",
+    "tool:allowlisted"
+  ],
+  "category": "infrastructure",
+  "risk": "high",
+  "platforms": ["linux"],
+  "compatibility": {
+    "minAppVersion": "0.44.49",
+    "maxAppVersion": null
+  },
+  "companion": null,
+  "dependencies": [],
+  "perUserAuthorization": true
+}

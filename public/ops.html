@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>运维中心 · WFL Codex</title>
+    <link rel="stylesheet" href="/ops.css?v=0.44.55" />
+  </head>
+  <body>
+    <div class="ops-shell">
+      <header class="ops-titlebar">
+        <a class="brand" href="/" aria-label="返回 WFL Codex 对话窗口">
+          <span class="brand-mark" aria-hidden="true"><i data-lucide="square-terminal"></i></span>
+          <span class="brand-copy"><strong>WFL Codex</strong><small>运维中心</small></span>
+        </a>
+        <div class="live-state" id="liveState" data-status="loading" role="status">
+          <span></span><strong id="liveStateLabel">正在同步</strong>
+          <time id="observedAt">--:--:--</time>
+        </div>
+        <div class="title-actions">
+          <a class="icon-button" href="/" title="返回对话" aria-label="返回对话"><i data-lucide="message-square"></i></a>
+          <button class="icon-button" id="refreshButton" type="button" title="刷新状态" aria-label="刷新状态"><i data-lucide="refresh-cw"></i></button>
+          <button class="icon-button" type="button" data-language-toggle title="切换为英文" aria-label="切换为英文"><i data-lucide="languages"></i></button>
+          <button class="icon-button" id="themeButton" type="button" title="切换主题" aria-label="切换主题"><i data-lucide="sun-moon"></i></button>
+        </div>
+      </header>
+
+      <nav class="ops-tabs" aria-label="运维视图">
+        <button class="ops-tab is-active" type="button" data-view="overview"><i data-lucide="layout-dashboard"></i><span>概览</span></button>
+        <button class="ops-tab" type="button" data-view="tasks"><i data-lucide="list-checks"></i><span>任务</span><output id="taskTabCount">0</output></button>
+        <button class="ops-tab" type="button" data-view="map-render"><i data-lucide="map"></i><span>地图 Render</span><output id="mapRenderTabCount">0</output></button>
+        <button class="ops-tab" type="button" data-view="image-execution"><i data-lucide="image-cog"></i><span>图片 Worker</span><output id="imageExecutionTabCount">0</output></button>
+        <button class="ops-tab" type="button" data-view="deployment"><i data-lucide="git-compare-arrows"></i><span>部署</span></button>
+        <button class="ops-tab" id="backupsTab" type="button" data-view="backups"><i data-lucide="database-backup"></i><span>备份</span><output id="backupTabCount">0</output></button>
+        <button class="ops-tab" id="sidecarTab" type="button" data-view="sidecar"><i data-lucide="database-zap"></i><span>Sidecar</span><output id="sidecarTabCount">0</output></button>
+        <button class="ops-tab" id="migrationsTab" type="button" data-view="migrations"><i data-lucide="folder-sync"></i><span>迁移</span><output id="migrationTabCount">0</output></button>
+        <button class="ops-tab" type="button" data-view="users"><i data-lucide="users"></i><span>用户</span><output id="userTabCount">0</output></button>
+        <button class="ops-tab" type="button" data-view="events"><i data-lucide="activity"></i><span>事件</span><output id="eventTabCount">0</output></button>
+        <button class="ops-tab" type="button" data-view="logs"><i data-lucide="scroll-text"></i><span>日志</span></button>
+        <button class="ops-tab" type="button" data-view="alerts"><i data-lucide="bell-ring"></i><span>告警</span><output id="alertTabCount">0</output></button>
+      </nav>
+
+      <div class="error-banner" id="errorBanner" role="alert" hidden>
+        <i data-lucide="circle-alert"></i><span id="errorMessage"></span>
+      </div>
+
+      <main class="ops-main">
+        <section class="ops-view is-active" id="overviewView" data-view-panel="overview">
+          <div class="metric-strip" aria-label="运行概览">
+            <div><span>健康评分</span><strong id="overallMetric">--</strong></div>
+            <div><span>24 小时请求</span><strong id="activeTaskMetric">0</strong></div>
+            <div><span>P95 延迟</span><strong id="clientMetric">--</strong></div>
+            <div><span>Codex 官方 Token</span><strong id="activeUserMetric">--</strong></div>
+          </div>
+
+          <section class="ops-section pulse-section">
+            <div class="health-panel">
+              <div class="health-ring" id="healthRing"><strong id="healthScore">--</strong><span>健康度</span></div>
+              <div class="health-copy"><span class="section-kicker">HEALTH ASSESSMENT</span><h1 id="healthLabel">正在评估</h1><div id="healthDeductions" class="deduction-list"></div></div>
+            </div>
+            <div class="traffic-panel">
+              <header class="section-heading"><div><span class="section-kicker">TRAFFIC · 24H</span><h2>请求与吞吐</h2></div><span id="trafficSummary">--</span></header>
+              <canvas id="trafficChart" height="180" role="img" aria-label="网页请求、错误和 Codex RPC 吞吐趋势"></canvas>
+              <div class="traffic-legend" aria-hidden="true"><span data-series="requests">网页请求</span><span data-series="errors">错误</span><span data-series="rpc">Codex RPC</span></div>
+            </div>
+          </section>
+
+          <section class="ops-section service-section">
+            <header class="section-heading">
+              <div><span class="section-kicker">SERVICE CHAIN</span><h1>服务链路</h1></div>
+              <span id="serviceSummary">正在检查</span>
+            </header>
+            <div class="service-chain">
+              <article class="service-node" id="gatewayService" data-status="loading">
+                <i data-lucide="cloud"></i><div><span>入口网关</span><strong id="gatewayPrimary">检查中</strong><small id="gatewaySecondary">--</small></div>
+              </article>
+              <article class="service-node" id="backendService" data-status="loading">
+                <i data-lucide="server"></i><div><span>活动后端</span><strong id="backendPrimary">检查中</strong><small id="backendSecondary">--</small></div>
+              </article>
+              <article class="service-node" id="codexService" data-status="loading">
+                <i data-lucide="terminal-square"></i><div><span>Codex Runtime</span><strong id="codexPrimary">检查中</strong><small id="codexSecondary">--</small></div>
+              </article>
+              <article class="service-node" id="providerService" data-status="loading">
+                <i data-lucide="key-round"></i><div><span>API 供应商</span><strong id="providerPrimary">检查中</strong><small id="providerSecondary">--</small></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="ops-section resource-section">
+            <header class="section-heading">
+              <div><span class="section-kicker">HOST RESOURCES</span><h2>资源趋势</h2></div>
+              <div class="range-control" id="metricRangeControl" role="group" aria-label="指标时间范围">
+                <button class="is-active" type="button" data-metric-range="1h">1 小时</button>
+                <button type="button" data-metric-range="24h">24 小时</button>
+                <button type="button" data-metric-range="7d">7 天</button>
+              </div>
+            </header>
+            <div class="resource-layout">
+              <div class="resource-readings">
+                <div class="resource-reading">
+                  <div><span>CPU</span><strong id="cpuValue">--</strong></div>
+                  <div class="meter"><span id="cpuMeter"></span></div>
+                </div>
+                <div class="resource-reading memory-reading">
+                  <div><span>内存</span><strong id="memoryValue">--</strong></div>
+                  <small id="memoryDetail">--</small>
+                  <div class="meter"><span id="memoryMeter"></span></div>
+                </div>
+                <div class="resource-reading disk-reading">
+                  <div><span id="diskLabel">磁盘</span><strong id="diskValue">--</strong></div>
+                  <small id="diskDetail">--</small>
+                  <div class="meter"><span id="diskMeter"></span></div>
+                </div>
+                <div class="additional-disk-readings" id="additionalDiskReadings" hidden></div>
+                <div class="resource-reading network-reading"><div><span>网络接收</span><strong id="networkRxValue">--</strong></div></div>
+                <div class="resource-reading network-reading"><div><span>网络发送</span><strong id="networkTxValue">--</strong></div></div>
+              </div>
+              <div class="chart-wrap">
+                <div class="chart-legend" aria-hidden="true"><span data-series="cpu">CPU</span><span data-series="memory">内存</span><span data-series="disk">磁盘</span></div>
+                <canvas id="resourceChart" height="190" role="img" aria-label="CPU、内存和磁盘使用率趋势"></canvas>
+              </div>
+            </div>
+          </section>
+
+          <section class="ops-section web-settings-section">
+            <header class="section-heading">
+              <div><span class="section-kicker">WEB EXPERIENCE</span><h2>网页设置</h2></div>
+              <span class="status-badge" id="webSettingsStatus">读取中</span>
+            </header>
+            <form class="web-settings-form" id="webSettingsForm">
+              <label>
+                <span>对话图片预览</span>
+                <select id="imagePreviewPreset">
+                  <option value="minimal">极省 · 480px / 质量 40</option>
+                  <option value="economy">节省 · 640px / 质量 55</option>
+                  <option value="standard">标准 · 1024px / 质量 65</option>
+                  <option value="clear">清晰 · 1440px / 质量 75</option>
+                  <option value="high">高清 · 1920px / 质量 82</option>
+                </select>
+              </label>
+              <label>
+                <span>预览显示尺寸</span>
+                <select id="imagePreviewDisplaySize">
+                  <option value="auto">自动 · 跟随预览档位</option>
+                  <option value="compact">紧凑 · 最大 480px</option>
+                  <option value="standard">标准 · 最大 640px</option>
+                  <option value="wide">宽屏 · 最大 760px</option>
+                </select>
+              </label>
+              <p>聊天中只加载所选档位的 WebP 预览；自动尺寸不会放大低清预览。点击图片后才加载原图。该设置对全站用户生效。</p>
+              <button class="primary-button" id="saveWebSettingsButton" type="submit"><i data-lucide="save"></i>保存网页设置</button>
+            </form>
+          </section>
+
+          <section class="ops-section ranking-section">
+            <header class="section-heading"><div><span class="section-kicker">USER ACTIVITY · 7D</span><h2>用户使用排行</h2></div><span id="rankingSummary">--</span></header>
+            <div class="table-scroll">
+              <table><thead><tr><th>用户</th><th>请求</th><th>任务</th><th>输入 Token</th><th>缓存 Token</th><th>输出 Token</th><th>推理 Token</th><th>总 Token</th><th>最近使用</th></tr></thead><tbody id="rankingRows"></tbody></table>
+            </div>
+            <div class="empty-state compact-empty" id="rankingEmpty"><i data-lucide="chart-no-axes-column-increasing"></i><strong>暂无用户活动数据</strong></div>
+          </section>
+        </section>
+
+        <section class="ops-view" id="backupsView" data-view-panel="backups" hidden>
+          <div class="metric-strip backup-metrics" aria-label="备份概览">
+            <div><span>可用备份</span><strong id="backupCountMetric">0</strong></div>
+            <div><span>占用空间</span><strong id="backupSizeMetric">0 B</strong></div>
+            <div><span>最近备份</span><strong id="latestBackupMetric">--</strong></div>
+            <div><span>定时策略</span><strong id="backupScheduleMetric">未启用</strong></div>
+          </div>
+          <section class="ops-section backup-control-section">
+            <header class="section-heading"><div><span class="section-kicker">ENCRYPTED DATA BACKUP</span><h1>备份中心</h1></div><div class="heading-actions"><button class="secondary-button" id="exportRecoveryKeyButton" type="button"><i data-lucide="key-round"></i>导出恢复密钥</button><button class="primary-button" id="createBackupButton" type="button"><i data-lucide="database-backup"></i>立即备份</button></div></header>
+            <form class="backup-settings" id="backupSettingsForm">
+              <label class="switch-control"><input id="backupScheduleEnabled" type="checkbox" /><span></span><strong>定时备份</strong></label>
+              <label><span>周期</span><select id="backupInterval"><option value="24">每天</option><option value="168">每周</option></select></label>
+              <label><span>保留数量</span><input id="backupRetention" type="number" min="1" max="30" value="7" /></label>
+              <label><span>所有者密码</span><input id="backupSettingsPassword" type="password" autocomplete="current-password" minlength="16" /></label>
+              <button class="secondary-button" id="saveBackupSettingsButton" type="submit"><i data-lucide="save"></i>保存策略</button>
+            </form>
+            <div class="inline-status" id="backupOperationStatus" role="status" hidden></div>
+          </section>
+          <section class="ops-section">
+            <header class="section-heading"><div><span class="section-kicker">VERIFIED SNAPSHOTS</span><h2>备份记录</h2></div><span id="backupListSummary">0 个备份</span></header>
+            <div class="backup-list" id="backupRows"></div>
+            <div class="empty-state compact-empty" id="backupEmpty"><i data-lucide="archive-restore"></i><strong>暂无数据备份</strong></div>
+          </section>
+          <section class="ops-section restore-status-section">
+            <header class="section-heading"><div><span class="section-kicker">RESTORE STATUS</span><h2>恢复状态</h2></div><span class="status-badge" id="backupRestoreStatus">空闲</span></header>
+            <div class="restore-status-copy"><strong id="backupRestoreDetail">没有正在执行的恢复任务</strong><span id="backupRestoreTime">--</span></div>
+          </section>
+        </section>
+
+        <section class="ops-view" id="sidecarView" data-view-panel="sidecar" hidden>
+          <div class="metric-strip" aria-label="Sidecar 存储概览">
+            <div><span>物理占用</span><strong id="sidecarSizeMetric">0 B</strong></div>
+            <div><span>索引记录</span><strong id="sidecarEventMetric">0</strong></div>
+            <div><span>历史索引</span><strong id="sidecarHistoryMetric">0</strong></div>
+            <div><span>活动 Worker</span><strong id="sidecarWorkerMetric">0</strong></div>
+          </div>
+          <section class="ops-section">
+            <header class="section-heading">
+              <div><span class="section-kicker">REBUILDABLE HISTORY INDEX</span><h1>Sidecar 管理</h1></div>
+              <div class="section-heading-actions">
+                <span class="status-badge" id="sidecarModeStatus">读取中</span>
+                <button class="secondary-button" id="refreshSidecarButton" type="button"><i data-lucide="refresh-cw"></i>重新检查</button>
+              </div>
+            </header>
+            <p class="section-note">Sidecar 只保存可删除重建的历史搜索与索引数据，不参与消息发送、账号切换等待或聊天终态判定。</p>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>账号</th><th>状态</th><th>物理占用</th><th>索引记录</th><th>历史索引</th><th>队列</th><th>完整性</th></tr></thead>
+                <tbody id="sidecarRows"></tbody>
+              </table>
+            </div>
+            <div class="empty-state compact-empty" id="sidecarEmpty" hidden><i data-lucide="database"></i><strong>当前没有 Sidecar 存储</strong></div>
+            <div class="inline-status" id="sidecarOperationStatus" role="status" hidden></div>
+          </section>
+        </section>
+
+        <section class="ops-view" id="migrationsView" data-view-panel="migrations" hidden>
+          <div class="metric-strip migration-metrics" aria-label="工作区迁移概览">
+            <div><span>可选工程</span><strong id="migrationProjectMetric">0</strong></div>
+            <div><span>本机迁移包</span><strong id="migrationExportMetric">0</strong></div>
+            <div><span>上传记录</span><strong id="migrationUploadMetric">0</strong></div>
+            <div><span>最近导入</span><strong id="migrationImportMetric">--</strong></div>
+          </div>
+
+          <section class="ops-section migration-export-section">
+            <header class="section-heading"><div><span class="section-kicker">SOURCE WORKSPACE</span><h1>生成迁移包</h1></div><span id="migrationSelectionSummary">0 个工程</span></header>
+            <form id="migrationExportForm" class="migration-form">
+              <div class="migration-project-picker" id="migrationProjectChoices"></div>
+              <div class="migration-options">
+                <label class="switch-control"><input id="migrationIncludeGit" type="checkbox" checked /><span></span><strong>包含 Git 历史</strong></label>
+                <label class="switch-control"><input id="migrationIncludeEnv" type="checkbox" /><span></span><strong>包含 .env</strong></label>
+                <label class="migration-password"><span>所有者密码</span><input id="migrationExportPassword" type="password" autocomplete="current-password" minlength="16" /></label>
+                <button class="primary-button" id="createMigrationButton" type="submit"><i data-lucide="package-plus"></i>生成迁移包</button>
+              </div>
+            </form>
+            <div class="inline-status" id="migrationOperationStatus" role="status" hidden></div>
+          </section>
+
+          <section class="ops-section">
+            <header class="section-heading"><div><span class="section-kicker">ENCRYPTED PACKAGES</span><h2>迁移包记录</h2></div><span id="migrationExportSummary">0 个迁移包</span></header>
+            <div class="backup-list" id="migrationExportRows"></div>
+            <div class="empty-state compact-empty" id="migrationExportEmpty"><i data-lucide="package-open"></i><strong>暂无工作区迁移包</strong></div>
+          </section>
+
+          <section class="ops-section migration-import-section">
+            <header class="section-heading"><div><span class="section-kicker">TARGET WORKSPACE</span><h2>上传与预检</h2></div><span id="migrationUploadSummary">未选择文件</span></header>
+            <form id="migrationUploadForm" class="migration-upload-form">
+              <label class="migration-file-field"><span>迁移包</span><input id="migrationPackageFile" type="file" accept=".wflworkspace,application/octet-stream" /></label>
+              <label><span>恢复密钥</span><textarea id="migrationRecoveryKey" rows="5" spellcheck="false" autocomplete="off"></textarea></label>
+              <label><span>所有者密码</span><input id="migrationImportPassword" type="password" autocomplete="current-password" minlength="16" /></label>
+              <div class="migration-import-actions">
+                <button class="secondary-button" id="uploadMigrationButton" type="button"><i data-lucide="upload"></i>上传</button>
+                <button class="secondary-button" id="inspectMigrationButton" type="button" disabled><i data-lucide="scan-search"></i>预检</button>
+              </div>
+            </form>
+            <div class="migration-progress" id="migrationUploadProgress" hidden>
+              <div class="migration-progress-track" id="migrationUploadProgressTrack" role="progressbar" aria-label="迁移包上传进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+              <output id="migrationUploadProgressDetail">0% · 0 B / 0 B</output>
+              <button class="secondary-button" id="cancelMigrationUploadButton" type="button"><i data-lucide="circle-x"></i><span>取消上传</span></button>
+            </div>
+            <div class="inline-status" id="migrationImportStatus" role="status" hidden></div>
+            <div class="migration-preview" id="migrationPreview" hidden>
+              <div class="migration-preview-summary"><strong id="migrationPreviewTitle">--</strong><span id="migrationPreviewDetail">--</span></div>
+              <div class="migration-plan" id="migrationPlanRows"></div>
+              <div class="migration-confirmation">
+                <label><span>输入迁移包编号</span><input id="migrationTypedId" type="text" autocomplete="off" placeholder="请手动输入上方完整编号" /></label>
+                <button class="primary-button" id="executeMigrationButton" type="button"><i data-lucide="folder-input"></i>确认导入</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="ops-section">
+            <header class="section-heading"><div><span class="section-kicker">UPLOAD INBOX</span><h2>目标端上传记录</h2></div></header>
+            <div class="backup-list" id="migrationUploadRows"></div>
+            <div class="empty-state compact-empty" id="migrationUploadEmpty"><i data-lucide="inbox"></i><strong>暂无上传记录</strong></div>
+          </section>
+        </section>
+
+        <section class="ops-view" id="tasksView" data-view-panel="tasks" hidden>
+          <section class="ops-section">
+            <header class="section-heading"><div><span class="section-kicker">LIVE RUNTIMES</span><h1>任务与连接</h1></div><span id="taskSummary">0 个活动任务</span></header>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>用户</th><th>Codex</th><th>供应商</th><th>任务状态</th><th>阶段</th><th>Worktrees</th><th>连接</th><th>更新时间</th></tr></thead>
+                <tbody id="taskRows"></tbody>
+              </table>
+            </div>
+            <div class="empty-state" id="taskEmpty" hidden><i data-lucide="circle-check-big"></i><strong>当前没有运行环境</strong></div>
+          </section>
+        </section>
+
+        <section class="ops-view" id="mapRenderView" data-view-panel="map-render" hidden>
+          <div class="metric-strip map-render-metrics" aria-label="地图 Render 实时状态">
+            <div><span>CPU</span><strong id="mapRenderCpuMetric">--</strong></div>
+            <div><span>可用内存</span><strong id="mapRenderMemoryMetric">--</strong></div>
+            <div><span>主站延迟</span><strong id="mapRenderLatencyMetric">--</strong></div>
+            <div><span>Worker 数量</span><strong id="mapRenderWorkerMetric">0</strong></div>
+            <div><span>队列长度</span><strong id="mapRenderQueueMetric">0</strong></div>
+            <div><span>手动预设</span><strong id="mapRenderPresetMetric">--</strong></div>
+          </div>
+
+          <section class="ops-section map-render-control-section">
+            <header class="section-heading map-render-heading">
+              <div><span class="section-kicker">MANUAL WORKER CONTROL</span><h1>地图 Render Worker</h1></div>
+              <div class="section-heading-actions">
+                <span class="status-badge" id="mapRenderControlStatus">读取中</span>
+                <button class="secondary-button danger-button" id="pauseMapRenderButton" type="button"><i data-lucide="pause"></i>暂停接收</button>
+                <button class="secondary-button" id="continueMapRenderButton" type="button"><i data-lucide="play"></i>继续队列</button>
+                <button class="secondary-button" id="clearMapRenderCacheButton" type="button"><i data-lucide="eraser"></i>清理缓存</button>
+              </div>
+            </header>
+            <div class="map-render-presets" role="group" aria-label="手动 Render 预设">
+              <button type="button" data-map-render-preset="stable"><i data-lucide="shield-check"></i><span>稳定</span></button>
+              <button type="button" data-map-render-preset="balanced"><i data-lucide="scale"></i><span>均衡</span></button>
+              <button type="button" data-map-render-preset="performance"><i data-lucide="gauge"></i><span>性能</span></button>
+              <span id="mapRenderSettingsRevision">修订 --</span>
+            </div>
+            <p class="section-note map-render-note">预设和自定义设置均由管理员手动应用。保存只影响新任务；运行中和已排队任务保留各自参数快照。</p>
+            <div class="inline-status" id="mapRenderOperationStatus" role="status" hidden></div>
+          </section>
+
+          <form class="map-render-settings-form" id="mapRenderSettingsForm">
+            <section class="ops-section">
+              <header class="section-heading"><div><span class="section-kicker">WORKER BUDGETS</span><h2>进程、并发与缓存</h2></div><span class="status-badge" id="mapRenderSettingsStatus">读取中</span></header>
+              <div class="map-render-setting-grid map-render-setting-grid-two">
+                <fieldset>
+                  <legend>Worker</legend>
+                  <div class="map-render-fields">
+                    <label class="switch-control map-render-switch"><input name="worker.enabled" data-map-render-setting type="checkbox" /><span></span><strong>启用 Worker</strong></label>
+                    <label><span>渲染并发</span><input name="worker.renderConcurrency" data-map-render-setting type="number" min="1" max="64" step="1" required /><small>任务</small></label>
+                    <label><span>截图并发</span><input name="worker.screenshotConcurrency" data-map-render-setting type="number" min="1" max="64" step="1" required /><small>任务</small></label>
+                    <label><span>排队上限</span><input name="worker.queueLimit" data-map-render-setting type="number" min="1" max="100000" step="1" required /><small>任务</small></label>
+                    <label><span>内存预算</span><input name="worker.memoryMb" data-map-render-setting type="number" min="256" max="65536" step="1" required /><small>MiB / Worker</small></label>
+                    <label><span>任务超时</span><input name="worker.taskTimeoutMs" data-map-render-setting type="number" min="1000" max="3600000" step="1" required /><small>ms</small></label>
+                    <label><span>空闲回收</span><input name="worker.idleRecycleMs" data-map-render-setting type="number" min="1000" max="3600000" step="1" required /><small>ms</small></label>
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>缓存预算</legend>
+                  <div class="map-render-fields">
+                    <label><span>瓦片缓存</span><input name="cache.tileMb" data-map-render-setting type="number" min="0" max="1048576" step="1" required /><small>MiB</small></label>
+                    <label><span>图片缓存</span><input name="cache.imageMb" data-map-render-setting type="number" min="0" max="1048576" step="1" required /><small>MiB</small></label>
+                  </div>
+                </fieldset>
+              </div>
+            </section>
+
+            <section class="ops-section">
+              <header class="section-heading"><div><span class="section-kicker">STILL OUTPUTS</span><h2>预览、全景图与切片</h2></div></header>
+              <div class="map-render-setting-grid">
+                <fieldset>
+                  <legend>预览与截图</legend>
+                  <div class="map-render-fields">
+                    <label><span>宽度</span><input name="preview.width" data-map-render-setting type="number" min="320" max="32767" step="1" required /><small>px</small></label>
+                    <label><span>高度</span><input name="preview.height" data-map-render-setting type="number" min="240" max="32767" step="1" required /><small>px</small></label>
+                    <label><span>帧率</span><input name="preview.fps" data-map-render-setting type="number" min="1" max="240" step="1" required /><small>FPS</small></label>
+                    <label class="switch-control map-render-switch"><input name="preview.antialias" data-map-render-setting type="checkbox" /><span></span><strong>抗锯齿</strong></label>
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>全景图</legend>
+                  <div class="map-render-fields">
+                    <label><span>比例</span><input name="panorama.scale" data-map-render-setting type="number" min="0.01" max="16" step="any" required /><small>倍</small></label>
+                    <label><span>格式</span><select name="panorama.format" data-map-render-setting><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>地图切片</legend>
+                  <div class="map-render-fields">
+                    <label><span>切片宽度</span><input name="tiles.width" data-map-render-setting type="number" min="128" max="8192" step="1" required /><small>px</small></label>
+                    <label><span>切片高度</span><input name="tiles.height" data-map-render-setting type="number" min="128" max="8192" step="1" required /><small>px</small></label>
+                    <label><span>比例</span><input name="tiles.scale" data-map-render-setting type="number" min="0.01" max="16" step="any" required /><small>倍</small></label>
+                    <label><span>格式</span><select name="tiles.format" data-map-render-setting><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+                  </div>
+                </fieldset>
+              </div>
+            </section>
+
+            <section class="ops-section">
+              <header class="section-heading"><div><span class="section-kicker">MOTION OUTPUTS</span><h2>动画帧与视频</h2></div></header>
+              <div class="map-render-setting-grid map-render-setting-grid-two">
+                <fieldset>
+                  <legend>动画帧</legend>
+                  <div class="map-render-fields">
+                    <label><span>宽度</span><input name="animation.width" data-map-render-setting type="number" min="320" max="32767" step="1" required /><small>px</small></label>
+                    <label><span>高度</span><input name="animation.height" data-map-render-setting type="number" min="240" max="32767" step="1" required /><small>px</small></label>
+                    <label><span>帧率</span><input name="animation.fps" data-map-render-setting type="number" min="1" max="240" step="1" required /><small>FPS</small></label>
+                    <label><span>时长</span><input name="animation.durationMs" data-map-render-setting type="number" min="100" max="3600000" step="1" required /><small>ms</small></label>
+                    <label><span>格式</span><select name="animation.format" data-map-render-setting><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>视频</legend>
+                  <div class="map-render-fields">
+                    <label><span>宽度</span><input name="video.width" data-map-render-setting type="number" min="320" max="32767" step="1" required /><small>px</small></label>
+                    <label><span>高度</span><input name="video.height" data-map-render-setting type="number" min="240" max="32767" step="1" required /><small>px</small></label>
+                    <label><span>帧率</span><input name="video.fps" data-map-render-setting type="number" min="1" max="240" step="1" required /><small>FPS</small></label>
+                    <label><span>时长</span><input name="video.durationMs" data-map-render-setting type="number" min="100" max="3600000" step="1" required /><small>ms</small></label>
+                    <label><span>编码器</span><select name="video.codec" data-map-render-setting><option value="libvpx-vp9">VP9 / WebM</option><option value="libx264">H.264 / MP4</option></select></label>
+                    <label><span>CRF</span><input name="video.crf" data-map-render-setting type="number" min="0" max="63" step="1" required /></label>
+                  </div>
+                </fieldset>
+              </div>
+            </section>
+
+            <section class="ops-section">
+              <header class="section-heading"><div><span class="section-kicker">LARGE MAP I/O</span><h2>地图分段与保存</h2></div></header>
+              <div class="map-render-setting-grid map-render-setting-grid-one">
+                <fieldset>
+                  <legend>读取与原子提交</legend>
+                  <div class="map-render-fields map-render-io-fields">
+                    <label><span>读取分段</span><input name="mapIo.readChunkBytes" data-map-render-setting type="number" min="65536" max="67108864" step="1" required /><small>bytes</small></label>
+                    <label><span>保存分块</span><input name="mapIo.saveChunkBytes" data-map-render-setting type="number" min="65536" max="67108864" step="1" required /><small>bytes</small></label>
+                    <label><span>提交并发</span><input name="mapIo.saveCommitConcurrency" data-map-render-setting type="number" min="1" max="64" step="1" required /><small>任务</small></label>
+                    <label><span>地图上限</span><input name="mapIo.maxMapBytes" data-map-render-setting type="number" min="1048576" max="1099511627776" step="1" required /><small>bytes</small></label>
+                    <label><span>自动保存间隔</span><input name="mapIo.autoSaveIntervalMs" data-map-render-setting type="number" min="0" max="3600000" step="1" required /><small>ms · 0 关闭</small></label>
+                  </div>
+                </fieldset>
+              </div>
+              <div class="map-render-savebar">
+                <span>所有数值按输入值保存，不自动调节并发、分辨率、帧率、格式或画质。</span>
+                <button class="primary-button" id="saveMapRenderSettingsButton" type="submit"><i data-lucide="save"></i>保存为自定义设置</button>
+              </div>
+            </section>
+          </form>
+        </section>
+
+        <section class="ops-view" id="imageExecutionView" data-view-panel="image-execution" hidden>
+          <div class="metric-strip map-render-metrics image-execution-metrics" aria-label="图片 Worker 实时状态">
+            <div><span>CPU</span><strong id="imageExecutionCpuMetric">--</strong></div>
+            <div><span>可用内存</span><strong id="imageExecutionMemoryMetric">--</strong></div>
+            <div><span>主站延迟</span><strong id="imageExecutionLatencyMetric">--</strong></div>
+            <div><span>Worker 数量</span><strong id="imageExecutionWorkerMetric">0</strong></div>
+            <div><span>队列长度</span><strong id="imageExecutionQueueMetric">0</strong></div>
+            <div><span>手动预设</span><strong id="imageExecutionPresetMetric">--</strong></div>
+          </div>
+
+          <section class="ops-section image-execution-control-section">
+            <header class="section-heading map-render-heading image-execution-heading">
+              <div><span class="section-kicker">MANUAL WORKER CONTROL</span><h1>图片 Worker</h1></div>
+              <div class="section-heading-actions">
+                <span class="status-badge" id="imageExecutionControlStatus">读取中</span>
+                <button class="secondary-button danger-button" id="pauseImageExecutionButton" type="button"><i data-lucide="pause"></i>暂停接收</button>
+                <button class="secondary-button" id="continueImageExecutionButton" type="button"><i data-lucide="play"></i>继续接收</button>
+              </div>
+            </header>
+            <div class="map-render-presets image-execution-presets" role="group" aria-label="手动图片 Worker 预设">
+              <button type="button" data-image-execution-preset="stable"><i data-lucide="shield-check"></i><span>稳定</span></button>
+              <button type="button" data-image-execution-preset="balanced"><i data-lucide="scale"></i><span>均衡</span></button>
+              <button type="button" data-image-execution-preset="performance"><i data-lucide="gauge"></i><span>性能</span></button>
+              <button type="button" data-image-execution-preset="custom"><i data-lucide="sliders-horizontal"></i><span>自定义</span></button>
+              <span id="imageExecutionSettingsRevision">修订 --</span>
+            </div>
+            <p class="section-note map-render-note">全部参数和预设仅由管理员手动应用。状态指标只读，不会自动切换并发、预算或预设；保存只影响新任务。</p>
+            <div class="inline-status" id="imageExecutionOperationStatus" role="status" hidden></div>
+          </section>
+
+          <form class="map-render-settings-form image-execution-settings-form" id="imageExecutionSettingsForm">
+            <section class="ops-section">
+              <header class="section-heading"><div><span class="section-kicker">WORKER BUDGETS</span><h2>进程、队列与资源预算</h2></div><span class="status-badge" id="imageExecutionSettingsStatus">读取中</span></header>
+              <div class="map-render-setting-grid map-render-setting-grid-one image-execution-setting-grid">
+                <fieldset>
+                  <legend>Worker</legend>
+                  <div class="map-render-fields image-execution-fields">
+                    <label class="switch-control map-render-switch"><input name="worker.enabled" data-image-execution-setting type="checkbox" /><span></span><strong>启用 Worker</strong></label>
+                    <label><span>执行并发</span><input name="worker.concurrency" data-image-execution-setting type="number" min="1" max="64" step="1" required /><small>任务</small></label>
+                    <label><span>排队上限</span><input name="worker.queueLimit" data-image-execution-setting type="number" min="1" max="100000" step="1" required /><small>任务</small></label>
+                    <label><span>内存预算</span><input name="worker.memoryMb" data-image-execution-setting type="number" min="128" max="65536" step="1" required /><small>MiB / Worker</small></label>
+                    <label><span>任务超时</span><input name="worker.taskTimeoutMs" data-image-execution-setting type="number" min="1000" max="3600000" step="1" required /><small>ms</small></label>
+                  </div>
+                </fieldset>
+              </div>
+              <div class="map-render-savebar image-execution-savebar">
+                <span>达到手动并发上限时任务进入队列；Worker 内存超限只终止对应任务。</span>
+                <button class="primary-button" id="saveImageExecutionSettingsButton" type="submit"><i data-lucide="save"></i>保存为自定义设置</button>
+              </div>
+            </section>
+          </form>
+        </section>
+
+        <section class="ops-view" id="deploymentView" data-view-panel="deployment" hidden>
+          <div class="version-strip">
+            <div><span>运行版本</span><strong id="runningVersion">--</strong></div>
+            <div><span>源码版本</span><strong id="sourceVersion">--</strong></div>
+            <div><span>远程版本</span><strong id="remoteVersion">--</strong></div>
+            <div><span>Codex CLI</span><strong id="codexVersion">--</strong></div>
+          </div>
+          <section class="ops-section setup-section">
+            <header class="section-heading"><div><span class="section-kicker">FIRST-RUN CHECKLIST</span><h1>首次部署收尾</h1></div><span id="setupSummary">0 / 4 已完成</span></header>
+            <div class="setup-list">
+              <article>
+                <i data-lucide="key-round"></i>
+                <div><strong>网页密码</strong><span id="setupPasswordDetail">正在检查</span></div>
+                <a class="text-button" href="/#account" target="_blank" rel="noopener"><i data-lucide="external-link"></i>个人账户</a>
+                <span class="status-badge" id="setupPasswordStatus">--</span>
+              </article>
+              <article>
+                <i data-lucide="waypoints"></i>
+                <div><strong>模型与 API 授权</strong><span id="setupAuthorizationDetail">正在检查</span></div>
+                <a class="text-button" href="/#providers" target="_blank" rel="noopener"><i data-lucide="external-link"></i>供应商中心</a>
+                <span class="status-badge" id="setupAuthorizationStatus">--</span>
+              </article>
+              <article>
+                <i data-lucide="globe-lock"></i>
+                <div><strong>浏览器访问</strong><span id="setupAccessDetail">正在检查</span></div>
+                <button class="text-button setup-command-button" type="button" data-setup-command="access"><i data-lucide="copy"></i><span>复制命令</span></button>
+                <span class="status-badge" id="setupAccessStatus">--</span>
+              </article>
+              <article>
+                <i data-lucide="git-branch"></i>
+                <div><strong>版本更新源</strong><span id="setupUpdatesDetail">正在检查</span></div>
+                <button class="text-button setup-command-button" type="button" data-setup-command="updates"><i data-lucide="copy"></i><span>复制命令</span></button>
+                <span class="status-badge" id="setupUpdatesStatus">--</span>
+              </article>
+            </div>
+          </section>
+          <section class="ops-section public-origin-section">
+            <header class="section-heading"><div><span class="section-kicker">PROJECT PREVIEW ORIGINS</span><h2>项目预览域名</h2></div><span class="status-badge" id="publicOriginStatus">读取中</span></header>
+            <p class="section-note">未确认前继续使用隔离沙箱。固定域池适合已有逐个子域名证书；复杂游戏若需要用户、工程和窗口级浏览器存储隔离，可选择每会话独立 Origin，但必须准备 `*.预览基础域名` 的 DNS 与 wildcard 证书。</p>
+            <form class="public-origin-form" id="publicOriginForm">
+              <label><span>公开 Origin</span><input id="publicOriginInput" type="url" placeholder="https://your-instance.example" autocomplete="off" required /></label>
+              <label><span>预览基础域名（可选）</span><input id="previewBaseDomainInput" type="text" placeholder="your-instance.example" autocomplete="off" /></label>
+              <label><span>预览槽位</span><input id="previewSlotCountInput" type="number" min="1" max="16" value="4" required /></label>
+              <label><span>浏览器存储隔离</span><select id="previewIsolationInput"><option value="pool">固定域池（兼容逐个子域名证书）</option><option value="session">每会话独立 Origin（复杂游戏推荐）</option></select></label>
+              <div class="public-origin-actions"><button class="primary-button" id="confirmPublicOriginButton" type="submit"><i data-lucide="shield-check"></i>确认并启用</button><button class="secondary-button danger-button" id="disablePublicOriginButton" type="button">停用并回到沙箱</button></div>
+            </form>
+            <div class="public-origin-candidates" id="publicOriginCandidates" hidden></div>
+            <div class="inline-status" id="publicOriginFormStatus" role="status" hidden></div>
+          </section>
+          <section class="ops-section tencent-cloud-section">
+            <header class="section-heading"><div><span class="section-kicker">TENCENT CLOUD DNSPOD</span><h2>腾讯云 DNS 与证书向导</h2></div><span class="status-badge" id="tencentCloudStatus">未配置</span></header>
+            <p class="section-note">保存后仅写入本机 0600 私有状态文件。先检查解析、TLS 证书和公网响应，再由所有者明确确认写入 DNS。已有 Nginx、Caddy、Cloudflare Tunnel 等反向代理不会被自动覆盖。</p>
+            <form class="tencent-cloud-form" id="tencentCloudForm">
+              <label><span>腾讯云 SecretId</span><input id="tencentSecretIdInput" type="text" autocomplete="off" placeholder="AKID..." required /></label>
+              <label><span>腾讯云 SecretKey</span><input id="tencentSecretKeyInput" type="password" autocomplete="new-password" placeholder="只在保存时提交" /></label>
+              <label><span>API 地域</span><select id="tencentRegionInput"><option value="ap-guangzhou">广州</option><option value="ap-shanghai">上海</option><option value="ap-beijing">北京</option><option value="ap-chengdu">成都</option><option value="ap-hongkong">香港</option><option value="ap-singapore">新加坡</option><option value="ap-seoul">首尔</option><option value="ap-tokyo">东京</option></select></label>
+              <label><span>DNSPod 根域名</span><input id="tencentZoneDomainInput" type="text" autocomplete="off" placeholder="example.com" required /></label>
+              <label><span>记录类型</span><select id="tencentTargetTypeInput"><option value="A">A（服务器公网 IPv4）</option><option value="AAAA">AAAA（服务器公网 IPv6）</option><option value="CNAME">CNAME（已有入口域名）</option></select></label>
+              <label><span>记录目标</span><input id="tencentTargetInput" type="text" autocomplete="off" placeholder="203.0.113.8 或入口域名" required /></label>
+              <label><span>证书通知邮箱</span><input id="tencentCertificateEmailInput" type="email" autocomplete="email" placeholder="admin@example.com" required /></label>
+              <label class="switch-control"><input id="tencentManagePublicOriginInput" type="checkbox" /><span></span><strong>同时管理主域名记录</strong></label>
+              <label class="switch-control"><input id="tencentReplaceExistingInput" type="checkbox" /><span></span><strong>允许替换同名默认记录</strong></label>
+              <div class="tencent-cloud-actions"><button class="primary-button" id="saveTencentCloudButton" type="submit"><i data-lucide="key-round"></i>保存凭据</button><button class="secondary-button" id="checkTencentCloudButton" type="button"><i data-lucide="shield-check"></i>检查 DNS/证书状态</button><button class="secondary-button" id="planTencentCloudButton" type="button" disabled><i data-lucide="list-checks"></i>预览写入计划</button><button class="primary-button" id="applyTencentCloudButton" type="button" disabled><i data-lucide="cloud-cog"></i>一键配置 DNS 与证书</button><button class="secondary-button danger-button" id="clearTencentCloudButton" type="button" disabled><i data-lucide="trash-2"></i>删除服务器凭据</button></div>
+            </form>
+            <div class="inline-status" id="tencentCloudFormStatus" role="status" hidden></div>
+            <pre class="tencent-cloud-output" id="tencentCloudOutput" hidden></pre>
+          </section>
+          <section class="ops-section">
+            <header class="section-heading deployment-heading"><div><span class="section-kicker">RELEASE PIPELINE</span><h1>发布状态</h1></div><div class="section-heading-actions"><button class="secondary-button danger-button" id="clearAdmissionsButton" type="button" hidden><i data-lucide="eraser"></i><span>清理中断写入</span></button><button class="secondary-button danger-button" id="cancelDeploymentButton" type="button" hidden><i data-lucide="circle-stop"></i><span>取消维护</span></button><a class="text-button" href="/#version" id="openVersionCenter"><i data-lucide="external-link"></i>版本中心</a></div></header>
+            <div class="operation-list">
+              <article><i data-lucide="package-check"></i><div><strong>网页发布</strong><span id="releaseDetail">--</span></div><span class="status-badge" id="releaseStatus">--</span></article>
+              <article><i data-lucide="download"></i><div><strong>远程同步</strong><span id="appUpdateDetail">--</span></div><span class="status-badge" id="appUpdateStatus">--</span></article>
+              <article><i data-lucide="terminal"></i><div><strong>Codex 升级</strong><span id="codexUpdateDetail">--</span></div><span class="status-badge" id="codexUpdateStatus">--</span></article>
+              <article><i data-lucide="history"></i><div><strong>手动回滚</strong><span id="rollbackDetail">--</span></div><span class="status-badge" id="rollbackStatus">--</span></article>
+            </div>
+          </section>
+          <section class="ops-section rollback-section">
+            <header class="section-heading"><div><span class="section-kicker">MANUAL ROLLBACK</span><h2>受控回滚</h2></div><label class="switch-control"><input id="rollbackEnabled" type="checkbox" /><span></span><strong id="rollbackEnabledLabel">已关闭</strong></label></header>
+            <div class="rollback-controls">
+              <label><span>已验证版本</span><select id="rollbackVersion"><option value="">暂无可用版本</option></select></label>
+              <button class="secondary-button danger-button" id="openRollbackButton" type="button" disabled><i data-lucide="history"></i>确认回滚</button>
+            </div>
+            <div class="inline-status" id="rollbackPanelStatus" role="status" hidden></div>
+          </section>
+        </section>
+
+        <section class="ops-view" id="usersView" data-view-panel="users" hidden>
+          <div class="metric-strip user-metrics" aria-label="用户概览">
+            <div><span>用户总数</span><strong id="totalUserMetric">0</strong></div>
+            <div><span>可用账号</span><strong id="enabledUserMetric">0</strong></div>
+            <div><span>停用账号</span><strong id="disabledUserMetric">0</strong></div>
+            <div><span>已分配空间</span><strong id="quotaMetric">0 B</strong></div>
+          </div>
+          <section class="ops-section user-management-section">
+            <header class="section-heading"><div><span class="section-kicker">ACCOUNT CONTROL</span><h1>用户、套餐与权限</h1></div><a class="text-button" href="/users" target="_blank" rel="noopener"><i data-lucide="external-link"></i>独立打开</a></header>
+            <iframe class="user-management-frame" id="userManagementFrame" data-src="/users?embed=ops" title="用户管理" loading="lazy"></iframe>
+          </section>
+        </section>
+
+        <section class="ops-view" id="eventsView" data-view-panel="events" hidden>
+          <div class="metric-strip event-metrics" aria-label="事件概览">
+            <div><span>已加载事件</span><strong id="eventCountMetric">0</strong></div>
+            <div><span>严重事件</span><strong id="criticalEventMetric">0</strong></div>
+            <div><span>警告事件</span><strong id="warningEventMetric">0</strong></div>
+            <div><span>最近事件</span><strong id="latestEventMetric">--</strong></div>
+          </div>
+          <section class="ops-section">
+            <header class="section-heading event-heading">
+              <div><span class="section-kicker">EVENT TIMELINE</span><h1>事件时间线</h1></div>
+              <div class="filter-controls">
+                <select id="eventSeverityFilter" aria-label="按事件级别筛选">
+                  <option value="">全部级别</option>
+                  <option value="critical">严重</option>
+                  <option value="warning">警告</option>
+                  <option value="info">信息</option>
+                </select>
+                <select id="eventSourceFilter" aria-label="按事件来源筛选">
+                  <option value="">全部来源</option>
+                  <option value="gateway">网关</option>
+                  <option value="codex">Codex</option>
+                  <option value="conversation">对话存储</option>
+                  <option value="resource">资源</option>
+                  <option value="deployment">部署</option>
+                  <option value="task">任务</option>
+                  <option value="user">用户</option>
+                  <option value="alert">告警</option>
+                </select>
+              </div>
+            </header>
+            <div class="event-list" id="eventRows"></div>
+            <div class="empty-state compact-empty" id="eventEmpty" hidden><i data-lucide="circle-check-big"></i><strong>当前没有匹配事件</strong></div>
+            <button class="load-more-button" id="loadMoreEventsButton" type="button"><i data-lucide="chevrons-down"></i>加载更早事件</button>
+          </section>
+        </section>
+
+        <section class="ops-view" id="alertsView" data-view-panel="alerts" hidden>
+          <div class="metric-strip alert-metrics" aria-label="告警概览">
+            <div><span>活动告警</span><strong id="activeAlertMetric">0</strong></div>
+            <div><span>启用规则</span><strong id="enabledAlertMetric">0</strong></div>
+            <div><span>通知渠道</span><strong id="webhookMetric">未配置</strong></div>
+            <div><span>规则总数</span><strong id="alertRuleMetric">5</strong></div>
+          </div>
+          <section class="ops-section active-alert-section">
+            <header class="section-heading"><div><span class="section-kicker">ACTIVE ALERTS</span><h1>当前告警</h1></div><span id="activeAlertSummary">0 项需要处理</span></header>
+            <div class="active-alert-list" id="activeAlertRows"></div>
+            <div class="empty-state compact-empty" id="activeAlertEmpty"><i data-lucide="shield-check"></i><strong>当前没有活动告警</strong></div>
+          </section>
+          <form id="alertSettingsForm">
+            <section class="ops-section">
+              <header class="section-heading"><div><span class="section-kicker">ALERT RULES</span><h2>告警规则</h2></div><span>5 条规则</span></header>
+              <div class="alert-rule-list" id="alertRuleRows"></div>
+            </section>
+            <section class="ops-section webhook-section">
+              <header class="section-heading"><div><span class="section-kicker">HTTPS WEBHOOK</span><h2>通知渠道</h2></div><span class="status-badge" id="webhookStatus">未配置</span></header>
+              <div class="webhook-controls">
+                <label><span>Webhook URL</span><input id="webhookUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://hooks.example.com/codex" /></label>
+                <div class="form-actions">
+                  <button class="secondary-button" id="testWebhookButton" type="button"><i data-lucide="send"></i>测试</button>
+                  <button class="secondary-button danger-button" id="removeWebhookButton" type="button"><i data-lucide="trash-2"></i>移除</button>
+                  <button class="primary-button" id="saveAlertSettingsButton" type="submit"><i data-lucide="save"></i>保存设置</button>
+                </div>
+              </div>
+              <div class="inline-status" id="alertSettingsStatus" role="status" hidden></div>
+            </section>
+          </form>
+        </section>
+
+        <section class="ops-view" id="logsView" data-view-panel="logs" hidden>
+          <section class="ops-section">
+            <header class="section-heading event-heading">
+              <div><span class="section-kicker">SANITIZED LOGS</span><h1>运行日志</h1></div>
+              <div class="range-control" id="logCategoryControl" role="group" aria-label="日志分类">
+                <button class="is-active" type="button" data-log-category="api">API 请求</button>
+                <button type="button" data-log-category="rpc">Codex RPC</button>
+                <button type="button" data-log-category="errors">错误</button>
+                <button type="button" data-log-category="system">系统</button>
+                <button type="button" data-log-category="warnings">警告</button>
+              </div>
+            </header>
+            <div class="table-scroll"><table><thead><tr><th>时间</th><th>类型</th><th>操作</th><th>状态</th><th>耗时</th><th>用户</th></tr></thead><tbody id="logRows"></tbody></table></div>
+            <div class="empty-state compact-empty" id="logEmpty"><i data-lucide="scroll-text"></i><strong>当前没有日志</strong></div>
+            <button class="load-more-button" id="loadMoreLogsButton" type="button"><i data-lucide="chevrons-down"></i>加载更早日志</button>
+          </section>
+        </section>
+      </main>
+
+      <dialog class="rollback-dialog" id="rollbackDialog">
+        <form method="dialog" class="dialog-frame" id="rollbackForm">
+          <header><div><span class="section-kicker">MANUAL ROLLBACK</span><h2>确认手动回滚</h2></div><button class="icon-button" value="cancel" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></header>
+          <div class="rollback-step" id="rollbackStepOne">
+            <div class="danger-callout"><i data-lucide="triangle-alert"></i><span>目标版本 <strong id="rollbackTargetLabel">--</strong></span></div>
+            <label><span>输入目标版本号</span><input id="rollbackTypedVersion" type="text" autocomplete="off" /></label>
+            <div class="dialog-actions"><button class="secondary-button" value="cancel">取消</button><button class="primary-button" id="rollbackContinueButton" type="button">继续复验</button></div>
+          </div>
+          <div class="rollback-step" id="rollbackStepTwo" hidden>
+            <div class="danger-callout"><i data-lucide="shield-alert"></i><span>第二次确认</span></div>
+            <label><span>当前管理员密码</span><input id="rollbackPassword" type="password" autocomplete="current-password" /></label>
+            <div class="dialog-actions"><button class="secondary-button" id="rollbackBackButton" type="button">返回</button><button class="primary-button danger-primary" id="executeRollbackButton" type="button">执行回滚</button></div>
+          </div>
+          <div class="inline-status" id="rollbackDialogStatus" role="status" hidden></div>
+        </form>
+      </dialog>
+
+      <dialog class="rollback-dialog" id="deploymentCancelDialog">
+        <form method="dialog" class="dialog-frame" id="deploymentCancelForm">
+          <header><div><span class="section-kicker">EMERGENCY CONTROL</span><h2>取消维护任务</h2></div><button class="icon-button" value="cancel" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></header>
+          <div class="rollback-step">
+            <div class="danger-callout"><i data-lucide="shield-alert"></i><span id="deploymentCancelSummary">仅能取消尚未提交切换的维护任务。</span></div>
+            <label><span>当前所有者密码</span><input id="deploymentCancelPassword" type="password" autocomplete="current-password" /></label>
+            <div class="dialog-actions"><button class="secondary-button" value="cancel">返回</button><button class="primary-button danger-primary" id="executeDeploymentCancelButton" type="submit">确认取消</button></div>
+          </div>
+          <div class="inline-status" id="deploymentCancelStatus" role="status" hidden></div>
+        </form>
+      </dialog>
+
+      <dialog class="rollback-dialog" id="admissionsClearDialog">
+        <form method="dialog" class="dialog-frame" id="admissionsClearForm">
+          <header><div><span class="section-kicker">EMERGENCY RECOVERY</span><h2>清理中断写入</h2></div><button class="icon-button" value="cancel" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></header>
+          <div class="rollback-step">
+            <div class="danger-callout"><i data-lucide="shield-alert"></i><span id="admissionsClearSummary">仅清理已中断且后台任务确认停止的写入记录。</span></div>
+            <label><span>当前所有者密码</span><input id="admissionsClearPassword" type="password" autocomplete="current-password" /></label>
+            <label><span>输入“清理中断写入”</span><input id="admissionsClearConfirmation" type="text" autocomplete="off" /></label>
+            <div class="dialog-actions"><button class="secondary-button" value="cancel">返回</button><button class="primary-button danger-primary" id="executeAdmissionsClearButton" type="submit">确认清理</button></div>
+          </div>
+          <div class="inline-status" id="admissionsClearStatus" role="status" hidden></div>
+        </form>
+      </dialog>
+
+      <dialog class="rollback-dialog" id="backupActionDialog">
+        <form method="dialog" class="dialog-frame" id="backupActionForm">
+          <header><div><span class="section-kicker">BACKUP CONFIRMATION</span><h2 id="backupActionTitle">确认备份操作</h2></div><button class="icon-button" value="cancel" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></header>
+          <div class="rollback-step">
+            <p class="dialog-summary" id="backupActionSummary"></p>
+            <label><span>所有者密码</span><input id="backupActionPassword" type="password" autocomplete="current-password" minlength="16" /></label>
+            <div class="dialog-actions"><button class="secondary-button" value="cancel">取消</button><button class="primary-button" id="executeBackupActionButton" type="submit">确认</button></div>
+          </div>
+          <div class="inline-status" id="backupActionError" role="status" hidden></div>
+        </form>
+      </dialog>
+
+      <dialog class="rollback-dialog" id="backupRestoreDialog">
+        <form method="dialog" class="dialog-frame" id="backupRestoreForm">
+          <header><div><span class="section-kicker">CONTROLLED DATA RESTORE</span><h2>确认恢复备份</h2></div><button class="icon-button" value="cancel" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></header>
+          <div class="rollback-step" id="backupRestoreStepOne">
+            <div class="danger-callout"><i data-lucide="triangle-alert"></i><span>恢复会替换用户、工程、对话和供应商数据，并要求重新登录。</span></div>
+            <label><span>输入备份编号</span><input id="backupRestoreTypedId" type="text" autocomplete="off" /></label>
+            <label><span>所有者密码</span><input id="backupRestorePassword" type="password" autocomplete="current-password" minlength="16" /></label>
+            <div class="dialog-actions"><button class="secondary-button" value="cancel">取消</button><button class="primary-button" id="prepareBackupRestoreButton" type="button">复验备份</button></div>
+          </div>
+          <div class="rollback-step" id="backupRestoreStepTwo" hidden>
+            <div class="danger-callout"><i data-lucide="shield-alert"></i><span id="backupRestoreConfirmation">备份已通过校验</span></div>
+            <div class="dialog-actions"><button class="secondary-button" id="backBackupRestoreButton" type="button">返回</button><button class="primary-button danger-primary" id="executeBackupRestoreButton" type="button">执行恢复</button></div>
+          </div>
+          <div class="inline-status" id="backupRestoreError" role="status" hidden></div>
+        </form>
+      </dialog>
+
+      <footer class="ops-footer"><span>WFL Codex Desktop <strong id="footerVersion">--</strong></span><span id="refreshSchedule">每 15 秒刷新</span></footer>
+    </div>
+          <script src="/i18n.js?v=0.44.55"></script>
+    <script src="/vendor/lucide/lucide.min.js?v=0.44.55"></script>
+    <script type="module" src="/ops.js?v=0.44.55"></script>
+  </body>
+</html>

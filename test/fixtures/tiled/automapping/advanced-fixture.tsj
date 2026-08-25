@@ -1,0 +1,23 @@
+{
+  "columns": 6,
+  "image": "advanced-fixture.svg",
+  "imageheight": 16,
+  "imagewidth": 96,
+  "margin": 0,
+  "name": "AdvancedAutomapFixture",
+  "spacing": 0,
+  "tilecount": 6,
+  "tiledversion": "1.12.2",
+  "tileheight": 16,
+  "tiles": [
+    {
+      "id": 3,
+      "properties": [
+        { "name": "MatchType", "type": "string", "value": "Other" }
+      ]
+    }
+  ],
+  "tilewidth": 16,
+  "type": "tileset",
+  "version": "1.12"
+}

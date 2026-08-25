@@ -1,0 +1,25 @@
+{
+  "format": 2,
+  "id": "android-drive-builder",
+  "name": "Android APK AI 构建器",
+  "version": "2.0.0",
+  "publisher": "WFL Official",
+  "summary": "管理员保存签名密码后，由本地 MCP 工具让 AI 按明确请求构建已授权目录内的任意 Android Gradle 工程 APK；缺少 Java keytool 时可从插件目录按需下载构建依赖；不自动打包、不自动发布、不开放任意 Shell 接口。",
+  "icon": "smartphone",
+  "capability": "android-apk-builder",
+  "permissions": [
+    "build:android",
+    "credential:encrypted",
+    "tool:allowlisted"
+  ],
+  "category": "infrastructure",
+  "risk": "high",
+  "platforms": ["linux"],
+  "compatibility": {
+    "minAppVersion": "0.43.103",
+    "maxAppVersion": null
+  },
+  "companion": null,
+  "dependencies": [],
+  "perUserAuthorization": true
+}

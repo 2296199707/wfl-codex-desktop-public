@@ -1,0 +1,1381 @@
+import { spawn } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { ACTIVE_APP_UPDATE_PHASES, AppUpdateStatusStore } from "../lib/app-update-status.mjs";
+import { inspectCodexInstallation } from "../lib/codex-prerequisite.mjs";
+import { installCodexUsernsProfile } from "../lib/codex-userns-profile.mjs";
+import { DeploymentCancelStore } from "../lib/deployment-cancel.mjs";
+import { startDeploymentWatchdog } from "../lib/deployment-watchdog.mjs";
+import { waitForIdleDrain } from "../lib/maintenance-drain.mjs";
+import {
+  acquireMaintenanceOperationLock,
+  cancelMaintenanceReservation,
+  inspectOperationLock,
+  operationLockState,
+  reserveMaintenanceOperation,
+  RELEASE_LOCK_ACCEPTED_COMMANDS,
+  statusTimestampIsFresh,
+} from "../lib/operation-lock.mjs";
+import {
+  CODEX_RUNTIME_BUNDLE_PACKAGE_CAPABILITY,
+  IMAGE_EXECUTION_PACKAGE_CAPABILITY,
+  inspectPackageSource,
+  MAP_EDITOR_PACKAGE_CAPABILITY,
+} from "../lib/package-source.mjs";
+import { assertStableReleaseIdentity } from "../lib/release-source-policy.mjs";
+import { ReleaseDrainStore } from "../lib/release-drain.mjs";
+import { ReleaseCandidateStore } from "../lib/release-candidate-store.mjs";
+import { ACTIVE_RELEASE_PHASES, ReleaseStatusStore } from "../lib/release-status.mjs";
+import { deploymentRecoveryStatusIsTerminal } from "../lib/deployment-recovery-status.mjs";
+import { normalizeBrowsersPath, readPlaywrightBrowsersPath } from "../lib/playwright-browser.mjs";
+import { advanceWorktreeSourceRefs } from "./advance-worktree-source-refs.mjs";
+
+const projectDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const runtimeDir = path.resolve(
+  process.env.CODEX_DESKTOP_RUNTIME_DIR || path.join(projectDir, ".codex-runtime"),
+);
+const backupDir = path.resolve(
+  process.env.CODEX_DESKTOP_BACKUP_DIR || path.join(projectDir, "backups"),
+);
+const stateDir = path.resolve(
+  process.env.CODEX_DESKTOP_STATE_DIR || path.join(projectDir, ".codex-desktop"),
+);
+const gatewayPort = parsePort(process.env.CODEX_DESKTOP_GATEWAY_PORT || "4317", "gateway port");
+const backendPorts = parsePorts(process.env.CODEX_DESKTOP_UPSTREAM_PORTS || "4318,4319");
+const lockPath = path.join(runtimeDir, "release.lock");
+const statusStore = new ReleaseStatusStore(stateDir);
+const appUpdateStatusStore = new AppUpdateStatusStore(stateDir);
+const drainStore = new ReleaseDrainStore(runtimeDir);
+const cancelStore = new DeploymentCancelStore(runtimeDir);
+const candidateStore = new ReleaseCandidateStore(stateDir);
+const version = (await fs.readFile(path.join(projectDir, "VERSION"), "utf8")).trim();
+const precheckedCommit = process.env.CODEX_DESKTOP_PRECHECK_COMMIT || null;
+const precheckKind = process.env.CODEX_DESKTOP_PRECHECK_KIND || null;
+const candidateMode = process.env.CODEX_DESKTOP_CANDIDATE_MODE === "1";
+const candidateId = process.env.CODEX_DESKTOP_CANDIDATE_ID || null;
+const candidateCommit = process.env.CODEX_DESKTOP_CANDIDATE_COMMIT?.toLowerCase() || null;
+const candidateTree = process.env.CODEX_DESKTOP_CANDIDATE_TREE || null;
+const packageSource = process.argv.includes("--package-source")
+  || process.env.CODEX_DESKTOP_PACKAGE_SOURCE === "1";
+const localCandidateMode = process.env.CODEX_DESKTOP_LOCAL_CANDIDATE === "1";
+const verifiedPackagePrereleaseMode = packageSource && version.includes("-");
+// Repository and browser suites run only in the primary candidate pipeline (or
+// an explicitly managed primary release). Ordinary servers use bounded checks.
+const fullReleaseCheck = candidateMode
+  || process.env.CODEX_DESKTOP_FULL_RELEASE_CHECK === "1";
+// A release remains operable while a conversation is running. The owner's
+// default is immediate activation after candidate verification; an explicit
+// zero opts into the task-idle drain window.
+// Forced activation is the owner's default: an explicit "0" opts back into
+// waiting for an idle task window. Candidate validation and the blue-green
+// watchdog remain mandatory in either mode.
+const forceUpdate = process.env.CODEX_DESKTOP_FORCE_UPDATE !== "0";
+const cancelDecisionManagedByCaller = process.env.CODEX_DESKTOP_CANCEL_DECISION_MANAGED === "1";
+const KNOWN_LEGACY_DRAIN_VERSIONS = new Set(["0.37.0", "0.37.1"]);
+const MAINTENANCE_LAUNCH_TIMEOUT_MS = boundedLauncherDuration(
+  process.env.CODEX_DESKTOP_LAUNCH_TIMEOUT_MS,
+  12_000,
+  50,
+);
+const CHILD_TERMINATION_GRACE_MS = boundedLauncherDuration(
+  process.env.CODEX_DESKTOP_LAUNCH_KILL_GRACE_MS,
+  1_000,
+  10,
+);
+const SYSTEMCTL_PROBE_TIMEOUT_MS = 5_000;
+const RELEASE_CAPTURE_TIMEOUT_MS = 30_000;
+const sharedReleaseLockOptions = {
+  ownerCommand: "scripts/release.mjs",
+  acceptedCommands: RELEASE_LOCK_ACCEPTED_COMMANDS,
+  requiredArguments: ["--worker"],
+  conflictMessage: "Another release is already running",
+};
+const legacyAppUpdateLockOptions = {
+  ownerCommand: "scripts/update-app.mjs",
+  acceptedCommands: ["scripts/update-app.mjs"],
+  requiredArguments: ["--worker"],
+};
+
+try {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    validateReleaseArguments({ help: true });
+    printReleaseUsage();
+  } else {
+    validateReleaseArguments();
+    if (process.argv.includes("--status")) {
+      console.log(JSON.stringify(await statusStore.read(), null, 2));
+    } else if (process.argv.includes("--worker")) {
+      await runWorker();
+    } else {
+      await launchWorker();
+      if (process.argv.includes("--wait")) await waitForRelease();
+    }
+  }
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 1;
+}
+
+function validateReleaseArguments({ help = false } = {}) {
+  const args = process.argv.slice(2);
+  const allowed = new Set(["--help", "-h", "--status", "--worker", "--wait", "--package-source"]);
+  const unknown = args.filter((value) => !allowed.has(value));
+  if (unknown.length) throw new Error(`Unknown release argument: ${unknown[0]}`);
+  if (new Set(args).size !== args.length) throw new Error("Duplicate release arguments are not allowed");
+  if (help) {
+    if (args.length !== 1) throw new Error("Release help cannot be combined with another action");
+    return;
+  }
+  if (args.includes("--status") && args.length !== 1) {
+    throw new Error("Release status cannot be combined with another action");
+  }
+  if (args.includes("--worker") && args.length !== 1) {
+    throw new Error("Release worker mode cannot be combined with another action");
+  }
+  if (localCandidateMode && (!packageSource || candidateMode || !validGitHash(candidateCommit))) {
+    throw new Error("Local candidates require --package-source and a verified candidate commit");
+  }
+}
+
+function printReleaseUsage() {
+  console.log([
+    "Usage: node scripts/release.mjs [--wait] [--package-source]",
+    "       node scripts/release.mjs --status",
+    "",
+    "Ordinary servers use bounded compatibility and post-deployment health checks.",
+    "Full repository/browser suites run only in the primary candidate pipeline.",
+  ].join("\n"));
+}
+
+async function launchWorker() {
+  if (candidateMode || localCandidateMode || verifiedPackagePrereleaseMode) validateVersion(version);
+  else validateFormalVersion(version);
+  await fs.mkdir(runtimeDir, { recursive: true, mode: 0o755 });
+  const sourceIdentity = candidateMode ? await inspectCandidateSource() : null;
+  if (localCandidateMode) await assertLocalCandidateCommit();
+  const unit = `wfl-codex-release-v${version.replace(/[^0-9A-Za-z]+/g, "-")}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+  const playwrightBrowsersPath = await readPlaywrightBrowsersPath(runtimeDir)
+    || normalizeBrowsersPath(process.env.PLAYWRIGHT_BROWSERS_PATH)
+    || path.join(process.env.HOME || "/root", ".cache", "ms-playwright");
+  const reservation = await reserveMaintenanceOperation(runtimeDir, {
+    operationKind: "release",
+    operationId: unit,
+    ownerCommand: "scripts/release.mjs",
+  });
+  let launched = false;
+  let releaseCandidate = null;
+  try {
+    const current = await statusStore.read();
+    if (ACTIVE_RELEASE_PHASES.has(current.phase) && await releaseIsStillRunning(current)) {
+      throw new Error(`Release v${current.version || "unknown"} is already ${current.phase}`);
+    }
+    if (ACTIVE_RELEASE_PHASES.has(current.phase)) {
+      await statusStore.write({
+        status: "failed",
+        phase: "failed",
+        detail: "上次发布任务已异常退出，可以重新发布",
+        completedAt: Date.now(),
+        error: "Stale release state was cleared",
+      });
+    }
+
+    if (candidateMode) {
+      const id = `candidate-v${version}-${sourceIdentity.commitSha.slice(0, 12)}-${Date.now()}`;
+      releaseCandidate = await candidateStore.create({
+        id,
+        version,
+        commitSha: sourceIdentity.commitSha,
+        treeHash: sourceIdentity.treeHash,
+        unit,
+        detail: `准备候选版本 v${version}`,
+        checks: {
+          fullSuite: { status: "pending", command: "npm run check" },
+          browser: { status: "pending", command: "npm run test:browser" },
+          deployment: { status: "pending" },
+        },
+      });
+    }
+
+    await cancelStore.clear(unit);
+    await statusStore.write({
+      status: "running",
+      phase: "queued",
+      version,
+      ...(releaseCandidate ? candidateIdentityFields(releaseCandidate) : {}),
+      unit,
+      detail: "等待后台发布任务启动",
+      startedAt: Date.now(),
+      completedAt: null,
+      error: null,
+    });
+    await run("systemd-run", [
+      `--unit=${unit}`,
+      `--description=WFL Codex Desktop v${version} checked release`,
+      `--property=WorkingDirectory=${projectDir}`,
+      "--property=RuntimeMaxSec=20min",
+      "--property=OnFailure=wfl-codex-desktop-deployment-recovery.service",
+      `--setenv=PATH=${process.env.PATH || "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}`,
+      `--setenv=CODEX_DESKTOP_STATE_DIR=${stateDir}`,
+      `--setenv=CODEX_DESKTOP_RUNTIME_DIR=${runtimeDir}`,
+      `--setenv=CODEX_DESKTOP_BACKUP_DIR=${backupDir}`,
+      `--setenv=PLAYWRIGHT_BROWSERS_PATH=${playwrightBrowsersPath}`,
+      `--setenv=CODEX_DESKTOP_OPERATION_ID=${unit}`,
+      `--setenv=CODEX_DESKTOP_MAINTENANCE_RESERVATION_TOKEN=${reservation.record.token}`,
+      "--setenv=CODEX_DESKTOP_CANCEL_DECISION_MANAGED=0",
+      ...(precheckedCommit ? [`--setenv=CODEX_DESKTOP_PRECHECK_COMMIT=${precheckedCommit}`] : []),
+      ...(precheckKind ? [`--setenv=CODEX_DESKTOP_PRECHECK_KIND=${precheckKind}`] : []),
+      ...(releaseCandidate ? [
+        "--setenv=CODEX_DESKTOP_CANDIDATE_MODE=1",
+        `--setenv=CODEX_DESKTOP_CANDIDATE_ID=${releaseCandidate.id}`,
+        `--setenv=CODEX_DESKTOP_CANDIDATE_COMMIT=${releaseCandidate.commitSha}`,
+        `--setenv=CODEX_DESKTOP_CANDIDATE_TREE=${releaseCandidate.treeHash}`,
+      ] : []),
+      ...(localCandidateMode ? [
+        "--setenv=CODEX_DESKTOP_LOCAL_CANDIDATE=1",
+        `--setenv=CODEX_DESKTOP_CANDIDATE_COMMIT=${candidateCommit}`,
+      ] : []),
+      ...(process.env.CODEX_DESKTOP_LEGACY_DRAIN_CONFIRMED === "1"
+        ? ["--setenv=CODEX_DESKTOP_LEGACY_DRAIN_CONFIRMED=1"]
+        : []),
+      ...(packageSource ? ["--setenv=CODEX_DESKTOP_PACKAGE_SOURCE=1"] : []),
+      `--setenv=CODEX_DESKTOP_FULL_RELEASE_CHECK=${fullReleaseCheck ? "1" : "0"}`,
+      `--setenv=CODEX_DESKTOP_FORCE_UPDATE=${forceUpdate ? "1" : "0"}`,
+      "--collect",
+      "--no-block",
+      process.execPath,
+      path.join(projectDir, "scripts", "release.mjs"),
+      "--worker",
+    ], { timeoutMs: MAINTENANCE_LAUNCH_TIMEOUT_MS });
+    launched = true;
+    console.log(JSON.stringify({
+      ok: true,
+      version,
+      unit,
+      status: "queued",
+      candidateId: releaseCandidate?.id || null,
+    }));
+  } catch (error) {
+    const current = await statusStore.read().catch(() => null);
+    if (current?.unit === unit) {
+      await statusStore.write({
+        status: "failed",
+        phase: "failed",
+        version,
+        ...(releaseCandidate ? candidateIdentityFields(releaseCandidate) : {}),
+        unit,
+        detail: "无法启动后台发布任务",
+        completedAt: Date.now(),
+        error: error.message,
+      }).catch(() => {});
+    }
+    if (releaseCandidate) {
+      await candidateStore.update(releaseCandidate.id, {
+        phase: "failed",
+        detail: "候选发布任务无法启动",
+        completedAt: Date.now(),
+        error: error.message,
+      }).catch(() => {});
+    }
+    throw error;
+  } finally {
+    if (!launched) await reservation.cancel().catch(() => {});
+  }
+}
+
+async function waitForRelease() {
+  const deadline = Date.now() + 21 * 60 * 1000;
+  let lastPhase = null;
+  while (Date.now() < deadline) {
+    const status = await statusStore.read();
+    if (status.version === version && status.phase !== lastPhase) {
+      lastPhase = status.phase;
+      console.log(`[${status.phase}] ${status.detail || `Release v${version}`}`);
+    }
+    if (status.version === version && status.status === "completed") {
+      console.log(JSON.stringify({ ok: true, version, status: "completed", detail: status.detail }));
+      return;
+    }
+    if (status.version === version && status.status === "failed") {
+      throw new Error(status.error || status.detail || `Release v${version} failed`);
+    }
+    if (
+      status.version === version
+      && ACTIVE_RELEASE_PHASES.has(status.phase)
+      && !await releaseIsStillRunning(status)
+    ) {
+      const error = "Release worker exited before recording a terminal result";
+      await statusStore.write({
+        ...status,
+        status: "failed",
+        phase: "failed",
+        detail: "后台发布任务已异常退出，原活动后端保持不变",
+        completedAt: Date.now(),
+        error,
+      });
+      throw new Error(error);
+    }
+    await delay(1_000);
+  }
+  throw new Error(`Timed out waiting for release v${version}; inspect npm run release:status`);
+}
+
+async function runWorker() {
+  if (candidateMode || localCandidateMode || verifiedPackagePrereleaseMode) validateVersion(version);
+  else validateFormalVersion(version);
+  if (candidateMode) assertCandidateWorkerIdentity();
+  await fs.mkdir(runtimeDir, { recursive: true, mode: 0o755 });
+  const startedAt = Date.now();
+  const operationId = process.env.CODEX_DESKTOP_OPERATION_ID
+    || await legacyAppUpdateParentOperationId()
+    || `release-worker-${process.pid}-${startedAt}`;
+  process.env.CODEX_DESKTOP_OPERATION_ID = operationId;
+  const reservationToken = process.env.CODEX_DESKTOP_MAINTENANCE_RESERVATION_TOKEN || null;
+  let lock = null;
+  try {
+    lock = await acquireMaintenanceOperationLock(runtimeDir, {
+      operationKind: "release",
+      operationId,
+      ownerCommand: "scripts/release.mjs",
+      reservationToken,
+      lockPath,
+      lockOptions: sharedReleaseLockOptions,
+      allowAppUpdateParent: true,
+    });
+  } catch (error) {
+    if (reservationToken) {
+      const queued = await statusStore.read().catch(() => null);
+      if (queued?.unit === operationId) {
+        await statusStore.write({
+          status: "failed",
+          phase: "failed",
+          version,
+          unit: operationId,
+          detail: "发布任务未能取得安全执行窗口",
+          completedAt: Date.now(),
+          error: error.message,
+        }).catch(() => {});
+      }
+      if (candidateMode && candidateId) {
+        await candidateStore.update(candidateId, {
+          phase: "failed",
+          detail: "候选发布任务未能取得安全执行窗口",
+          completedAt: Date.now(),
+          error: error.message,
+        }, {
+          expectedPhases: [
+            "preparing", "testing", "browser-verification", "deploying", "verifying",
+          ],
+        }).catch(() => {});
+      }
+      await cancelMaintenanceReservation(runtimeDir, {
+        operationId,
+        reservationToken,
+        ownerCommand: "scripts/release.mjs",
+      }).catch(() => {});
+    }
+    throw error;
+  }
+  let drainLease = null;
+  let candidateStaged = false;
+  let deploymentWatchdog = null;
+  try {
+    if (candidateMode) {
+      const previousVersion = await activeReleaseVersion();
+      await candidateStore.update(candidateId, {
+        phase: "preparing",
+        detail: `验证候选 v${version} 的源码身份`,
+        previousVersion,
+        unit: operationId,
+      }, { expectedPhases: ["preparing"] });
+    }
+    await assertNotCancelled(operationId);
+    await update("preflight", "验证官方 Codex CLI 与 app-server", { startedAt });
+    await inspectCodexInstallation();
+    await installCodexUsernsProfile();
+    await assertNotCancelled(operationId);
+    await update("preflight", "检查版本、提交和发布标签", { startedAt });
+    const sourceCommit = await verifyReleaseSource();
+
+    if (fullReleaseCheck) {
+      await update("testing", "主发布服务器运行完整测试和浏览器冒烟检查");
+      if (candidateMode) {
+        await candidateStore.update(candidateId, {
+          phase: "testing",
+          detail: "运行完整测试和浏览器检查",
+          checks: {
+            fullSuite: { status: "running", command: "npm run check", startedAt: Date.now() },
+            browser: { status: "running", command: "npm run test:browser", startedAt: Date.now() },
+            deployment: { status: "pending" },
+          },
+        });
+      }
+      await retryReleaseCheck(() => run("npm", ["run", "check"], { env: isolatedCheckEnvironment() }));
+      if (candidateMode) {
+        const completedAt = Date.now();
+        await candidateStore.update(candidateId, {
+          phase: "browser-verification",
+          detail: "完整测试与浏览器检查通过",
+          checks: {
+            fullSuite: {
+              status: "passed", command: "npm run check", startedAt, completedAt,
+              summary: "完整 Node 测试与静态检查通过",
+            },
+            browser: {
+              status: "passed", command: "npm run test:browser", startedAt, completedAt,
+              summary: "桌面与移动端浏览器检查通过",
+            },
+            deployment: { status: "pending" },
+          },
+        });
+      }
+    } else if (precheckedCommit === sourceCommit) {
+      await update(
+        "testing",
+        precheckKind === "stable"
+          ? "普通服务器已通过快速兼容检查，不重复运行仓库测试"
+          : "使用上游已验证结果，不重复运行仓库测试",
+      );
+    } else {
+      await update("testing", "运行轻量兼容检查，不启动仓库测试或浏览器冒烟");
+      await run(process.execPath, [path.join(projectDir, "scripts", "quick-update-check.mjs")], {
+        env: {
+          ...isolatedCheckEnvironment(),
+          CODEX_DESKTOP_QUICK_CHECK_OFFLINE: "1",
+        },
+      });
+    }
+
+    await assertNotCancelled(operationId);
+    if (localCandidateMode) {
+      await update("backup", "校验隔离的本地 beta 候选包");
+      await verifyLocalCandidateArchive();
+    } else {
+      await update("backup", "生成并校验版本备份");
+      await run(process.execPath, [path.join(projectDir, "scripts", "backup.mjs")]);
+    }
+
+    await assertNotCancelled(operationId);
+    await update("deploying", "按当前服务器配置生成后端服务单元");
+    if (candidateMode) {
+      const candidate = await candidateStore.current();
+      await candidateStore.update(candidateId, {
+        phase: "deploying",
+        detail: "在主服务器部署候选并保留旧后端",
+        checks: {
+          ...candidate?.checks,
+          deployment: { status: "running", startedAt: Date.now() },
+        },
+      });
+    }
+    await run(process.execPath, [
+      path.join(projectDir, "scripts", "install-service-units.mjs"), "--main-only",
+    ]);
+    await update("deploying", "安装后端服务单元，公网网关保持运行");
+    await installBackendUnit();
+    await assertNotCancelled(operationId);
+    const activePortBeforeDeploy = await readActivePortForDrain({ allowMissing: true });
+    if (activePortBeforeDeploy === null) {
+      await update("deploying", "首次安装：启动并验证首个后端，不创建对话排空状态");
+      await commitBootstrapDecision(operationId);
+      await run(process.execPath, [
+        path.join(projectDir, "scripts", "deploy.mjs"), "--operation-id", operationId,
+      ]);
+    } else {
+      await update("deploying", "启动独立恢复看门进程，当前对话继续可用");
+      deploymentWatchdog = await startDeploymentWatchdog({
+        sourceDirectory: projectDir,
+        runtimeDirectory: runtimeDir,
+        operationId,
+      });
+      await deploymentWatchdog.assertActive();
+      await update("deploying", "准备候选后端，当前对话继续可用");
+      await run(process.execPath, [
+        path.join(projectDir, "scripts", "deploy.mjs"), "--stage", "--operation-id", operationId,
+      ], {
+        env: { ...process.env, CODEX_DESKTOP_DEPLOYMENT_WATCH_TOKEN: deploymentWatchdog.token },
+      });
+      candidateStaged = true;
+      await deploymentWatchdog.assertActive();
+
+      if (forceUpdate) {
+        await update("forcing", "不等待运行中的对话，立即切换后端；中断任务将在新版本重连");
+        await assertNotCancelled(operationId);
+        await deploymentWatchdog.assertActive();
+        await run(process.execPath, [
+          path.join(projectDir, "scripts", "deploy.mjs"),
+          "--activate-staged", "--defer-finalize", "--operation-id", operationId,
+        ], {
+          env: {
+            ...process.env,
+            CODEX_DESKTOP_FORCE_ACTIVATION: "1",
+            CODEX_DESKTOP_DEPLOYMENT_WATCH_TOKEN: deploymentWatchdog.token,
+          },
+          timeoutMs: activationForceTimeout(),
+        });
+      } else {
+        const drainPort = await readActivePortForDrain();
+        const drainProtocol = await inspectTaskDrainProtocol(drainPort);
+        await update("waiting", "等待对话自然结束，期间仍可继续发送消息");
+        drainLease = await waitForIdleDrain({
+          drainStore,
+          version,
+          fetchReadiness: () => fetchTaskReadiness(drainPort, drainProtocol),
+          allowLegacyProtocol: drainProtocol === "legacy",
+          isCancellationRequested: () => cancelStore.isCancellationRequested(operationId),
+          onWaiting: () => update("waiting", "仍在等待安全切换窗口，对话服务保持开放"),
+          timeoutMs: releaseDrainTimeout(),
+          maxDrainMs: 60_000,
+        });
+        await update("draining", "已确认任务空闲，正在执行短时蓝绿切换");
+        await assertNotCancelled(operationId);
+        await drainLease.assertActive();
+        await deploymentWatchdog.assertActive();
+        await run(process.execPath, [
+          path.join(projectDir, "scripts", "deploy.mjs"),
+          "--activate-staged", "--defer-finalize", "--operation-id", operationId,
+        ], {
+          env: {
+            ...process.env,
+            CODEX_DESKTOP_DRAIN_TOKEN: drainLease.token,
+            CODEX_DESKTOP_DRAIN_TTL_MS: "20000",
+            CODEX_DESKTOP_DRAIN_DEADLINE_AT: String(drainLease.deadlineAt),
+            CODEX_DESKTOP_LEGACY_EXCLUSIVE_ACTIVATION: drainLease.legacyProtocol ? "1" : "0",
+            CODEX_DESKTOP_DEPLOYMENT_WATCH_TOKEN: deploymentWatchdog.token,
+          },
+          timeoutMs: remainingDrainMs(drainLease),
+        });
+      }
+    }
+    await update("deploying", "检查稳定网关连接策略，必要时由浏览器自动重连");
+    await ensureGatewayConnectionPolicy();
+    await update("verifying", "确认稳定网关和 Codex 对话接口");
+    const activePort = await verifyDeployedRelease();
+    if (candidateStaged) {
+      await deploymentWatchdog.assertActive();
+      await run(process.execPath, [
+        path.join(projectDir, "scripts", "deploy.mjs"),
+        "--finalize-staged", "--operation-id", operationId, "--version", version,
+      ], {
+        env: {
+          ...process.env,
+          CODEX_DESKTOP_DEPLOYMENT_WATCH_TOKEN: deploymentWatchdog.token,
+        },
+        timeoutMs: drainLease ? remainingDrainMs(drainLease) : activationForceTimeout(),
+      });
+      candidateStaged = false;
+      const completedDrain = drainLease;
+      drainLease = null;
+      if (completedDrain) await completedDrain.release().catch(() => {});
+    }
+    let advancedWorktreeSourceRefs = null;
+    if (!candidateMode) {
+      try {
+        advancedWorktreeSourceRefs = await advanceWorktreeSourceRefs({
+          stateDirectory: stateDir,
+          projectDirectory: projectDir,
+          targetCommit: sourceCommit,
+        });
+        if (advancedWorktreeSourceRefs.advanced.length > 0) {
+          await update(
+            "verifying",
+            `已自动推进 ${advancedWorktreeSourceRefs.advanced.length} 个 Worktree 来源分支；Worktree 内容仍由用户选择同步`,
+          );
+        }
+        for (const skipped of advancedWorktreeSourceRefs.skipped || []) {
+          const reasonCode = String(skipped.reason || "unknown").split(":", 1)[0];
+          const action = reasonCode === "different-repository" ? "不在自动范围" : "无法自动推进";
+          console.warn(
+            `[Worktree source] ${action} ${worktreeSourceDisplayName(skipped)}`
+              + `：${worktreeSourceAdvanceReason(skipped.reason)}`,
+          );
+        }
+      } catch (error) {
+        console.error(`Unable to advance Worktree source refs after release: ${error.message}`);
+      }
+    }
+    await statusStore.write({
+      status: "completed",
+      phase: "completed",
+      version,
+      ...candidateWorkerFields(),
+      detail: `发布完成，活动后端 ${activePort}`
+        + (advancedWorktreeSourceRefs?.advanced.length
+          ? `；已推进 ${advancedWorktreeSourceRefs.advanced.length} 个 Worktree 来源分支`
+          : ""),
+      startedAt,
+      completedAt: Date.now(),
+      error: null,
+    });
+    if (candidateMode) {
+      const candidate = await candidateStore.current();
+      await candidateStore.update(candidateId, {
+        phase: "awaiting-approval",
+        detail: "候选已通过部署验证，等待所有者完成实际验证",
+        checks: {
+          ...candidate?.checks,
+          deployment: {
+            status: "passed",
+            startedAt: candidate?.checks?.deployment?.startedAt,
+            completedAt: Date.now(),
+            summary: `稳定网关、救援服务和活动后端 ${activePort} 已验证`,
+          },
+        },
+        completedAt: null,
+        error: null,
+      });
+    }
+  } catch (error) {
+    if (drainLease) {
+      await drainLease.release().catch(() => {});
+      drainLease = null;
+    }
+    if (candidateStaged) {
+      let topologyRecoveryPending = false;
+      const cleanupEnvironment = {
+        ...process.env,
+        ...(deploymentWatchdog ? { CODEX_DESKTOP_DEPLOYMENT_WATCH_TOKEN: deploymentWatchdog.token } : {}),
+      };
+      try {
+        await run(process.execPath, [
+          path.join(projectDir, "scripts", "deploy.mjs"), "--discard-staged", "--operation-id", operationId,
+        ], { env: cleanupEnvironment });
+        candidateStaged = false;
+      } catch {
+        // The independent deployment watchdog owns recovery once activation
+        // has committed.  Starting a second topology recovery here races the
+        // watchdog and can make both workers observe the same lock as active.
+        // Leave the durable manifest in place; the watchdog (or systemd's
+        // recovery unit after the owner exits) will take over it exactly once.
+        if (!deploymentWatchdog) {
+          await run(process.execPath, [
+            path.join(projectDir, "scripts", "deploy.mjs"), "--recover-staged", "--operation-id", operationId,
+          ], { env: cleanupEnvironment }).then(
+            () => { candidateStaged = false; },
+            () => {},
+          );
+        } else {
+          topologyRecoveryPending = true;
+        }
+      }
+      const recoveryStatus = await statusStore.read().catch(() => null);
+      if (!deploymentRecoveryStatusIsTerminal(recoveryStatus, operationId, startedAt)) {
+        await statusStore.write({
+          status: "failed",
+          phase: "failed",
+          version,
+          ...candidateWorkerFields(),
+          unit: operationId,
+          detail: topologyRecoveryPending
+            ? "发布未完成，恢复看门程序将在当前任务退出后接管后端恢复"
+            : error.code === "ERR_MAINTENANCE_CANCELLED"
+              ? "发布已由所有者取消，原活动后端保持运行"
+              : "发布失败，原活动后端保持不变",
+          startedAt,
+          completedAt: Date.now(),
+          error: error.message,
+        }).catch(() => {});
+      }
+    } else {
+      const recoveryStatus = await statusStore.read().catch(() => null);
+      if (!deploymentRecoveryStatusIsTerminal(recoveryStatus, operationId, startedAt)) {
+        await statusStore.write({
+          status: "failed",
+          phase: "failed",
+          version,
+          ...candidateWorkerFields(),
+          unit: operationId,
+          detail: error.code === "ERR_MAINTENANCE_CANCELLED"
+            ? "发布已由所有者取消，原活动后端保持运行"
+            : "发布失败，原活动后端保持不变",
+          startedAt,
+          completedAt: Date.now(),
+          error: error.message,
+        }).catch(() => {});
+      }
+    }
+    if (candidateMode) {
+      const candidate = await candidateStore.current().catch(() => null);
+      await candidateStore.update(candidateId, {
+        phase: "failed",
+        detail: error.code === "ERR_MAINTENANCE_CANCELLED"
+          ? "候选发布已由所有者取消"
+          : "候选发布失败，正式稳定通道未改变",
+        checks: candidate?.checks,
+        completedAt: Date.now(),
+        error: error.message,
+      }).catch(() => {});
+    }
+    throw error;
+  } finally {
+    if (drainLease) await drainLease.release().catch(() => {});
+    if (!cancelDecisionManagedByCaller) await cancelStore.clear(operationId).catch(() => {});
+    await lock?.release();
+  }
+}
+
+async function legacyAppUpdateParentOperationId() {
+  const observed = await inspectOperationLock(
+    path.join(runtimeDir, "app-update.lock"),
+    legacyAppUpdateLockOptions,
+  );
+  if (
+    observed.state !== "active"
+    || observed.record?.legacy !== true
+    || observed.record.pid !== process.ppid
+  ) return null;
+  const status = await appUpdateStatusStore.read();
+  if (
+    !ACTIVE_APP_UPDATE_PHASES.has(status.phase)
+    || !statusTimestampIsFresh(status, { maxAgeMs: 30_000 })
+    || !/^wfl-codex-app-update-\d+$/.test(status.unit || "")
+  ) return null;
+  return status.unit;
+}
+
+async function verifyReleaseSource() {
+  const packageJson = JSON.parse(await fs.readFile(path.join(projectDir, "package.json"), "utf8"));
+  validateVersion(packageJson.version);
+  if (packageJson.version !== version) throw new Error("VERSION and package.json do not match");
+  const changelog = await fs.readFile(path.join(projectDir, "CHANGELOG.md"), "utf8");
+  if (!changelog.includes(`## [${version}]`)) throw new Error(`CHANGELOG.md has no v${version} entry`);
+
+  if (packageSource) {
+    if (localCandidateMode) {
+      await assertLocalCandidateCommit();
+      return candidateCommit;
+    }
+    const packaged = await inspectPackageSource(projectDir);
+    return packaged.manifest.sourceCommit;
+  }
+
+  const status = (await capture("git", ["status", "--porcelain", "--untracked-files=all"])).trim();
+  if (status) throw new Error("Release source has uncommitted files");
+  const head = (await capture("git", ["rev-parse", "HEAD"])).trim();
+  if (candidateMode) {
+    assertCandidateWorkerIdentity();
+    if (head !== candidateCommit) throw new Error("Candidate commit changed after it was queued");
+    const tree = (await capture("git", ["rev-parse", "HEAD^{tree}"])).trim();
+    if (tree !== candidateTree) throw new Error("Candidate source tree changed after it was queued");
+    const upstream = (await capture("git", ["rev-parse", "@{upstream}"])).trim();
+    if (head !== upstream) throw new Error("Candidate commit has not been pushed to its upstream branch");
+    if (await commandSucceeds("git", ["rev-parse", "--verify", `refs/tags/v${version}`])) {
+      throw new Error(`Candidate v${version} is already tagged as a formal release`);
+    }
+    return head;
+  }
+  const tag = (await capture("git", ["rev-parse", `v${version}^{commit}`])).trim();
+  if (precheckKind === "stable") {
+    const remoteStable = (await capture("git", ["rev-parse", "refs/remotes/origin/stable"])).trim();
+    return assertStableReleaseIdentity({
+      version,
+      head,
+      tagCommit: tag,
+      precheckedCommit,
+      remoteStableCommit: remoteStable,
+    });
+  }
+  if (head !== tag) throw new Error(`HEAD is not tagged as v${version}`);
+  if (await commandSucceeds("git", ["symbolic-ref", "--quiet", "HEAD"])) {
+    const upstream = (await capture("git", ["rev-parse", "@{upstream}"])).trim();
+    if (head !== upstream) throw new Error("Release commit has not been pushed to its upstream branch");
+  } else {
+    const remoteMain = (await capture("git", ["rev-parse", "refs/remotes/origin/main"])).trim();
+    if (!await commandSucceeds("git", ["merge-base", "--is-ancestor", head, remoteMain])) {
+      throw new Error("Detached release commit is not contained in origin/main");
+    }
+  }
+  return head;
+}
+
+async function retryReleaseCheck(runCheck) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await runCheck();
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) {
+        console.error(`Release checks failed on attempt ${attempt}; retrying once.`);
+        await delay(1_000);
+      }
+    }
+  }
+  throw lastError;
+}
+
+async function readActivePortForDrain({ allowMissing = false } = {}) {
+  let activePort;
+  try {
+    activePort = Number((await fs.readFile(path.join(runtimeDir, "active-port"), "utf8")).trim());
+  } catch (error) {
+    if (error.code === "ENOENT" && allowMissing) return null;
+    if (error.code === "ENOENT") throw new Error("Active backend record is missing before task drain");
+    throw error;
+  }
+  if (!backendPorts.includes(activePort)) throw new Error("Invalid active backend before task drain");
+
+  return activePort;
+}
+
+async function commitBootstrapDecision(operationId) {
+  const result = await cancelStore.commit(operationId);
+  if (result.accepted && result.decision === "commit") return;
+  const error = new Error("Maintenance operation was cancelled before initial backend deployment");
+  error.code = "ERR_MAINTENANCE_CANCELLED";
+  throw error;
+}
+
+async function inspectTaskDrainProtocol(activePort) {
+  const readiness = await fetchTaskReadinessResponse(activePort);
+  if (typeof readiness.maintenanceIdle === "boolean") return "current";
+  const active = await fetchJson(`http://127.0.0.1:${activePort}/internal/codex-ready`, 3_000);
+  if (!KNOWN_LEGACY_DRAIN_VERSIONS.has(active.version)) {
+    const error = new Error("Active backend does not support a recognized safe drain protocol");
+    error.code = "ERR_TASK_DRAIN_UNSUPPORTED";
+    throw error;
+  }
+  if (process.env.CODEX_DESKTOP_LEGACY_DRAIN_CONFIRMED === "1") return "legacy";
+  const confirmationError = new Error(
+    "Legacy backend activation requires explicit CODEX_DESKTOP_LEGACY_DRAIN_CONFIRMED=1 confirmation",
+  );
+  confirmationError.code = "ERR_LEGACY_DRAIN_CONFIRMATION_REQUIRED";
+  throw confirmationError;
+}
+
+async function fetchTaskReadiness(activePort, protocol = "current") {
+  const data = await fetchTaskReadinessResponse(activePort);
+  if (protocol === "current" && typeof data.maintenanceIdle === "boolean") return data;
+  if (protocol === "legacy" && typeof data.maintenanceIdle !== "boolean") {
+    return { ...data, legacyProtocol: true };
+  }
+  const error = new Error("Active backend task drain protocol changed during deployment");
+  error.code = "ERR_TASK_DRAIN_UNSUPPORTED";
+  throw error;
+}
+
+async function fetchTaskReadinessResponse(activePort) {
+  const response = await fetch(`http://127.0.0.1:${activePort}/internal/task-ready`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(3_000),
+  });
+  if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+    const error = new Error("Active backend does not support safe task draining");
+    error.code = "ERR_TASK_DRAIN_UNSUPPORTED";
+    throw error;
+  }
+  const data = await response.json();
+  if (typeof data?.taskIdle === "boolean" && typeof data?.draining === "boolean") return data;
+  const error = new Error("Active backend does not support safe task draining");
+  error.code = "ERR_TASK_DRAIN_UNSUPPORTED";
+  throw error;
+}
+
+function releaseDrainTimeout() {
+  const timeoutMs = Number(process.env.CODEX_DESKTOP_RELEASE_DRAIN_TIMEOUT_MS || 10 * 60 * 1000);
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 20 * 60 * 1000) {
+    throw new Error("Invalid release task drain timeout");
+  }
+  return timeoutMs;
+}
+
+async function assertNotCancelled(operationId) {
+  if (!await cancelStore.isCancellationRequested(operationId)) return;
+  const error = new Error("Maintenance operation was cancelled by the owner");
+  error.code = "ERR_MAINTENANCE_CANCELLED";
+  throw error;
+}
+
+async function installBackendUnit() {
+  await assertRootOwnedPath("/etc/systemd/system");
+  for (const name of [
+    "wfl-codex-desktop-restore-recovery.service",
+    "wfl-codex-desktop-codex-recovery.service",
+    "wfl-codex-desktop-deployment-recovery.service",
+    "wfl-codex-desktop-backend@.service",
+    "wfl-codex-desktop-gateway.service",
+  ]) {
+    const generated = path.join(runtimeDir, "systemd", name);
+    if (!await exists(generated)) {
+      throw new Error(`Generated systemd unit is missing: ${generated}; rerun service preparation before release`);
+    }
+    const destination = path.join("/etc/systemd/system", name);
+    await atomicInstallUnit(generated, destination);
+  }
+  await run("systemctl", ["daemon-reload"]);
+  await run("systemctl", ["enable", "wfl-codex-desktop-restore-recovery.service"]);
+  await run("systemctl", ["enable", "wfl-codex-desktop-codex-recovery.service"]);
+  await run("systemctl", ["enable", "wfl-codex-desktop-deployment-recovery.service"]);
+}
+
+async function atomicInstallUnit(source, destination) {
+  const existing = await fs.lstat(destination).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (existing?.isSymbolicLink()) throw new Error(`Refusing to replace symbolic-link systemd unit: ${destination}`);
+  const temporary = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await fs.copyFile(source, temporary);
+    await fs.chmod(temporary, 0o644);
+    const handle = await fs.open(temporary, "r");
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fs.rename(temporary, destination);
+    await fs.chmod(destination, 0o644);
+    const directory = await fs.open(path.dirname(destination), "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
+  } finally {
+    await fs.rm(temporary, { force: true }).catch(() => {});
+  }
+}
+
+async function assertRootOwnedPath(target) {
+  let current = await fs.realpath(target);
+  while (current !== "/") {
+    const stat = await fs.stat(current);
+    if (stat.uid !== 0 || (stat.mode & 0o022) !== 0) {
+      throw new Error(`Systemd path must be root-owned and not group/world-writable: ${current}`);
+    }
+    current = path.dirname(current);
+  }
+}
+
+async function verifyDeployedRelease() {
+  const activePort = Number((await fs.readFile(path.join(runtimeDir, "active-port"), "utf8")).trim());
+  if (!backendPorts.includes(activePort)) throw new Error("Invalid active backend after deployment");
+  const gateway = await fetchJson(`http://127.0.0.1:${gatewayPort}/internal/gateway-ready`, 5_000);
+  if (gateway.ok !== true || gateway.upstreamPort !== activePort) throw new Error("Stable gateway verification failed");
+  const codex = await fetchJson(`http://127.0.0.1:${activePort}/internal/codex-ready`, 8_000);
+  if (
+    codex.version !== version
+    || codex.threadListReady !== true
+    || codex.runtimeBundleReady !== true
+    || codex.codeModeHostReady !== true
+    || typeof codex.codexTarget !== "string"
+    || !/^[a-f0-9]{64}$/iu.test(codex.codexRuntimeSha256 || "")
+    || !/^[a-f0-9]{64}$/iu.test(codex.codexCodeModeHostSha256 || "")
+  ) throw new Error("Codex deep or native runtime bundle verification failed");
+  return activePort;
+}
+
+async function ensureGatewayConnectionPolicy() {
+  const requiredPolicyVersion = 8;
+  const expectedGatewaySourceSha256 = crypto
+    .createHash("sha256")
+    .update(await fs.readFile(path.join(projectDir, "gateway.mjs")))
+    .digest("hex");
+  const readyUrl = `http://127.0.0.1:${gatewayPort}/internal/gateway-ready`;
+  const current = await fetchJson(readyUrl, 5_000);
+  if (
+    current.connectionPolicyVersion === requiredPolicyVersion
+    && current.gatewaySourceSha256 === expectedGatewaySourceSha256
+  ) return false;
+
+  await run("systemctl", ["restart", "wfl-codex-desktop-gateway.service"]);
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const ready = await fetchJson(readyUrl, 2_000);
+      if (
+        ready.connectionPolicyVersion === requiredPolicyVersion
+        && ready.gatewaySourceSha256 === expectedGatewaySourceSha256
+      ) return true;
+    } catch {
+      // The listening socket is briefly unavailable during the one-time policy activation.
+    }
+    await delay(250);
+  }
+  throw new Error(`Stable gateway did not activate connection policy v${requiredPolicyVersion}`);
+}
+
+async function fetchJson(url, timeoutMs) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
+  return data;
+}
+
+async function update(phase, detail, extra = {}) {
+  const operationId = process.env.CODEX_DESKTOP_OPERATION_ID || null;
+  await statusStore.write({
+    status: "running",
+    phase,
+    version,
+    ...candidateWorkerFields(),
+    detail,
+    completedAt: null,
+    error: null,
+    ...(operationId ? { unit: operationId } : {}),
+    ...extra,
+  });
+}
+
+function worktreeSourceAdvanceReason(reason) {
+  const code = String(reason || "unknown").split(":", 1)[0];
+  return {
+    "base-ref-head": "基准是 HEAD，不是可自动推进的来源分支",
+    "repository-unavailable": "来源仓库不可用",
+    "different-repository": "不是当前发布仓库",
+    "source-ref-missing": "来源分支不存在",
+    "source-diverged": "来源分支已分叉，不能快进",
+    "checked-out-source-dirty": "来源工作树有未提交修改",
+    "record-limit": "状态记录超过自动扫描上限",
+  }[code] || String(reason || "未知原因");
+}
+
+function worktreeSourceDisplayName(entry) {
+  const repository = typeof entry?.repositoryRoot === "string" && entry.repositoryRoot
+    ? path.basename(path.resolve(entry.repositoryRoot))
+    : null;
+  return [repository, entry?.ref || "未命名来源"].filter(Boolean).join("/");
+}
+
+async function releaseIsStillRunning(current) {
+  if (statusTimestampIsFresh(current)) return true;
+  const lockState = await operationLockState(lockPath, sharedReleaseLockOptions);
+  if (lockState !== "inactive") return true;
+  if (!current.unit) return false;
+  return commandSucceeds("systemctl", ["is-active", "--quiet", current.unit]);
+}
+
+function validateVersion(value) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(value)) {
+    throw new Error(`Invalid release version: ${value}`);
+  }
+}
+
+function validateFormalVersion(value) {
+  validateVersion(value);
+  if (value.includes("-")) {
+    throw new Error(`Formal release versions cannot include a prerelease suffix: ${value}`);
+  }
+}
+
+function isolatedCheckEnvironment() {
+  const environment = { ...process.env };
+  delete environment.CODEX_DESKTOP_SOURCE_DIR;
+  delete environment.CODEX_DESKTOP_RUNNING_VERSION;
+  delete environment.CODEX_DESKTOP_PRECHECK_COMMIT;
+  delete environment.CODEX_DESKTOP_PRECHECK_KIND;
+  delete environment.CODEX_DESKTOP_OPERATION_ID;
+  delete environment.CODEX_DESKTOP_MAINTENANCE_RESERVATION_TOKEN;
+  delete environment.CODEX_DESKTOP_CANCEL_DECISION_MANAGED;
+  delete environment.CODEX_DESKTOP_DRAIN_TOKEN;
+  delete environment.CODEX_DESKTOP_DRAIN_TTL_MS;
+  delete environment.CODEX_DESKTOP_DRAIN_DEADLINE_AT;
+  delete environment.CODEX_DESKTOP_LEGACY_DRAIN_CONFIRMED;
+  delete environment.CODEX_DESKTOP_FORCE_UPDATE;
+  delete environment.CODEX_DESKTOP_FORCE_ACTIVATION;
+  delete environment.CODEX_DESKTOP_CANDIDATE_MODE;
+  delete environment.CODEX_DESKTOP_CANDIDATE_ID;
+  delete environment.CODEX_DESKTOP_CANDIDATE_COMMIT;
+  delete environment.CODEX_DESKTOP_CANDIDATE_TREE;
+  delete environment.CODEX_DESKTOP_FULL_RELEASE_CHECK;
+  return environment;
+}
+
+async function inspectCandidateSource() {
+  if (packageSource) throw new Error("Candidate releases require a Git checkout");
+  const status = (await capture("git", ["status", "--porcelain", "--untracked-files=all"])).trim();
+  if (status) throw new Error("Candidate source has uncommitted files");
+  const [commitSha, treeHash, upstream] = await Promise.all([
+    capture("git", ["rev-parse", "HEAD"]).then((value) => value.trim()),
+    capture("git", ["rev-parse", "HEAD^{tree}"]).then((value) => value.trim()),
+    capture("git", ["rev-parse", "@{upstream}"]).then((value) => value.trim()),
+  ]);
+  if (!validGitHash(commitSha) || !validGitHash(treeHash)) throw new Error("Candidate Git identity is invalid");
+  if (commitSha !== upstream) throw new Error("Candidate commit has not been pushed to its upstream branch");
+  if (await commandSucceeds("git", ["rev-parse", "--verify", `refs/tags/v${version}`])) {
+    throw new Error(`v${version} is already a formal release`);
+  }
+  return { commitSha, treeHash };
+}
+
+async function assertLocalCandidateCommit() {
+  if (!validGitHash(candidateCommit)) throw new Error("Local candidate commit is invalid");
+  const [resolvedCommit, parentCommit, head] = await Promise.all([
+    capture("git", ["rev-parse", `${candidateCommit}^{commit}`])
+      .then((value) => value.trim().toLowerCase()),
+    capture("git", ["rev-parse", `${candidateCommit}^`])
+      .then((value) => value.trim().toLowerCase()),
+    capture("git", ["rev-parse", "HEAD"])
+      .then((value) => value.trim().toLowerCase()),
+  ]);
+  if (resolvedCommit !== candidateCommit || parentCommit !== head) {
+    throw new Error("Local candidate snapshot is no longer based on the current source revision");
+  }
+}
+
+async function verifyLocalCandidateArchive() {
+  await assertLocalCandidateCommit();
+  const suffix = candidateCommit.slice(0, 12);
+  const archiveName = `wfl-codex-desktop-v${version}-${suffix}.tar.gz`;
+  const archivePath = path.join(backupDir, archiveName);
+  const checksumPath = `${archivePath}.sha256`;
+  const checksum = (await fs.readFile(checksumPath, "utf8")).trim().split(/\s+/, 1)[0];
+  if (!/^[a-f0-9]{64}$/i.test(checksum)) throw new Error("Local candidate checksum is invalid");
+  const digest = crypto.createHash("sha256").update(await fs.readFile(archivePath)).digest("hex");
+  if (digest.toLowerCase() !== checksum.toLowerCase()) {
+    throw new Error("Local candidate archive checksum does not match");
+  }
+  const manifestText = await capture("tar", [
+    "--extract",
+    "--gzip",
+    "--to-stdout",
+    "--file",
+    archivePath,
+    `wfl-codex-desktop-v${version}/.codex-package.json`,
+  ]);
+  const manifest = JSON.parse(manifestText);
+  const requiredCapabilities = [
+    "main-standby-handoff-v1",
+    CODEX_RUNTIME_BUNDLE_PACKAGE_CAPABILITY,
+    IMAGE_EXECUTION_PACKAGE_CAPABILITY,
+    MAP_EDITOR_PACKAGE_CAPABILITY,
+  ];
+  if (
+    manifest.version !== version
+    || manifest.name !== "wfl-codex-desktop"
+    || manifest.sourceCommit?.toLowerCase() !== candidateCommit
+    || !requiredCapabilities.every((capability) => manifest.capabilities?.includes(capability))
+  ) {
+    throw new Error("Local candidate package identity is invalid");
+  }
+}
+
+function assertCandidateWorkerIdentity() {
+  if (
+    !/^candidate-v\d+\.\d+\.\d+-[a-f0-9]{12}-\d+$/.test(String(candidateId || ""))
+    || !validGitHash(candidateCommit)
+    || !validGitHash(candidateTree)
+  ) {
+    throw new Error("Candidate worker identity is invalid");
+  }
+}
+
+function validGitHash(value) {
+  return /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(String(value || "").toLowerCase());
+}
+
+function candidateIdentityFields(candidate) {
+  return {
+    candidateId: candidate.id,
+    commitSha: candidate.commitSha,
+    treeHash: candidate.treeHash,
+  };
+}
+
+function candidateWorkerFields() {
+  return candidateMode ? {
+    candidateId,
+    commitSha: candidateCommit,
+    treeHash: candidateTree,
+  } : {
+    candidateId: null,
+    commitSha: null,
+    treeHash: null,
+  };
+}
+
+async function activeReleaseVersion() {
+  let activePort;
+  try {
+    activePort = Number((await fs.readFile(path.join(runtimeDir, "active-port"), "utf8")).trim());
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  if (!backendPorts.includes(activePort)) throw new Error("Active backend selector is invalid");
+  const target = await fs.realpath(path.join(runtimeDir, "slots", String(activePort)));
+  const releasesRoot = await fs.realpath(path.join(runtimeDir, "releases"));
+  const relative = path.relative(releasesRoot, target);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Active backend is not a verified release");
+  }
+  const packageJson = JSON.parse(await fs.readFile(path.join(target, "package.json"), "utf8"));
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(packageJson.version || "")) {
+    throw new Error("Active backend release version is not rollback-compatible");
+  }
+  if (relative !== `v${packageJson.version}`) {
+    throw new Error("Active backend is a candidate or nested release, not a formal release");
+  }
+  return packageJson.version;
+}
+
+function run(command, args, { env = process.env, timeoutMs = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: projectDir,
+      env,
+      stdio: "inherit",
+      detached: process.platform !== "win32",
+    });
+    let settled = false;
+    let timedOut = false;
+    let forceKillTimer = null;
+    const timeoutError = new Error(`${command} ${args.join(" ")} timed out after ${timeoutMs}ms`);
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timeout = timeoutMs === null ? null : setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      if (process.platform === "win32") child.kill("SIGTERM");
+      else terminateChild(child, "SIGTERM");
+      forceKillTimer = setTimeout(() => {
+        if (process.platform === "win32") child.kill("SIGKILL");
+        else terminateChild(child, "SIGKILL");
+        // Do not reject until close has reaped the child.  The deployment
+        // worker owns a filesystem lock; returning while it is still a
+        // zombie lets OnFailure recovery race the worker's cleanup.
+        forceKillTimer = setTimeout(() => finish(timeoutError), CHILD_TERMINATION_GRACE_MS);
+        forceKillTimer.unref?.();
+      }, CHILD_TERMINATION_GRACE_MS);
+      forceKillTimer.unref?.();
+    }, timeoutMs);
+    timeout?.unref?.();
+    child.once("error", (error) => finish(timedOut ? timeoutError : error));
+    child.once("close", (code) => {
+      if (timedOut) finish(timeoutError);
+      else if (code === 0) finish();
+      else finish(new Error(`${command} ${args.join(" ")} exited with status ${code}`));
+    });
+  });
+}
+
+function remainingDrainMs(drainLease) {
+  return Math.max(1, drainLease.deadlineAt - Date.now());
+}
+
+function activationForceTimeout() {
+  const timeoutMs = Number(process.env.CODEX_DESKTOP_FORCE_ACTIVATION_TIMEOUT_MS || 240_000);
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 10_000 || timeoutMs > 5 * 60 * 1000) {
+    throw new Error("Invalid forced activation timeout");
+  }
+  return timeoutMs;
+}
+
+function capture(command, args, { timeoutMs = RELEASE_CAPTURE_TIMEOUT_MS } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: projectDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timedOut = false;
+    let forceKillTimer = null;
+    const timeoutError = new Error(`${command} ${args.join(" ")} timed out after ${timeoutMs}ms`);
+    const finish = (error, value = null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      terminateChild(child, "SIGTERM");
+      forceKillTimer = setTimeout(() => {
+        terminateChild(child, "SIGKILL");
+        finish(timeoutError);
+      }, CHILD_TERMINATION_GRACE_MS);
+      forceKillTimer.unref?.();
+    }, timeoutMs);
+    timeout.unref?.();
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.once("error", (error) => finish(timedOut ? timeoutError : error));
+    child.once("close", (code) => {
+      if (timedOut) finish(timeoutError);
+      else if (code === 0) finish(null, stdout);
+      else finish(new Error(stderr.trim() || `${command} exited with status ${code}`));
+    });
+  });
+}
+
+function commandSucceeds(command, args, { timeoutMs = SYSTEMCTL_PROBE_TIMEOUT_MS } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: projectDir,
+      stdio: "ignore",
+      detached: process.platform !== "win32",
+    });
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(result);
+    };
+    const timeout = setTimeout(() => {
+      terminateChild(child, "SIGKILL");
+      finish(false);
+    }, timeoutMs);
+    timeout.unref?.();
+    child.once("error", () => finish(false));
+    child.once("close", (code) => finish(code === 0));
+  });
+}
+
+function terminateChild(child, signal) {
+  try {
+    if (process.platform !== "win32" && child.pid) {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  } catch (error) {
+    if (!/(?:ESRCH|EINVAL)/u.test(String(error?.code || ""))) throw error;
+  }
+}
+
+function boundedLauncherDuration(value, maximum, minimum) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < minimum) return maximum;
+  return Math.min(maximum, Math.floor(parsed));
+}
+
+function exists(candidate) {
+  return fs.access(candidate).then(() => true, () => false);
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function parsePort(value, label) {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`Invalid ${label}`);
+  return port;
+}
+
+function parsePorts(value) {
+  const ports = [...new Set(String(value).split(",").map((entry) => Number(entry.trim())))];
+  if (ports.length !== 2 || ports.some((port) => !Number.isInteger(port) || port < 1 || port > 65_535)) {
+    throw new Error("Exactly two valid backend ports are required");
+  }
+  return ports;
+}

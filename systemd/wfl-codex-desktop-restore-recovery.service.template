@@ -1,0 +1,26 @@
+[Unit]
+Description=WFL Codex Desktop interrupted data restore recovery gate
+After=local-fs.target wfl-codex-desktop.service
+Before=wfl-codex-desktop-backend@4318.service wfl-codex-desktop-backend@4319.service
+StartLimitIntervalSec=120s
+StartLimitBurst=45
+
+[Service]
+Type=oneshot
+TimeoutStartSec=90s
+User=root
+WorkingDirectory={{SOURCE_DIR}}
+Environment=HOME={{SERVICE_HOME}}
+Environment=PATH={{SERVICE_PATH}}
+Environment=PLAYWRIGHT_BROWSERS_PATH={{PLAYWRIGHT_BROWSERS_PATH}}
+Environment=CODEX_DESKTOP_SOURCE_DIR={{SOURCE_DIR}}
+Environment=CODEX_DESKTOP_PROJECT_ROOT={{PROJECT_ROOT}}
+Environment=CODEX_DESKTOP_PROJECT_ROOTS={{PROJECT_ROOTS}}
+Environment=CODEX_DESKTOP_STATE_DIR={{STATE_DIR}}
+Environment=CODEX_DESKTOP_RUNTIME_DIR={{RUNTIME_DIR}}
+Environment=CODEX_DESKTOP_MULTI_USER_ROOT={{USERS_ROOT}}
+Environment=CODEX_DESKTOP_OWNER_CODEX_HOME={{OWNER_CODEX_HOME}}
+ExecStart={{NODE_BIN}} {{SOURCE_DIR}}/scripts/recover-data-restore.mjs
+
+[Install]
+WantedBy=multi-user.target

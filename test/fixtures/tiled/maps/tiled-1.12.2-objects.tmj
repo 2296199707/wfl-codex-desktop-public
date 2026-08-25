@@ -1,0 +1,40 @@
+{
+  "height": 8,
+  "infinite": false,
+  "layers": [
+    {
+      "draworder": "index",
+      "id": 1,
+      "name": "Gameplay",
+      "objects": [
+        { "class": "Object", "height": 16, "id": 1, "name": "Rectangle", "rotation": 15, "visible": true, "width": 24, "x": 8, "y": 8, "wflUnknownObjectField": { "keep": true } },
+        { "class": "Object", "height": 0, "id": 2, "name": "Point", "point": true, "rotation": 0, "visible": true, "width": 0, "x": 48, "y": 16 },
+        { "class": "Object", "ellipse": true, "height": 16, "id": 3, "name": "Ellipse", "rotation": 0, "visible": true, "width": 24, "x": 64, "y": 8 },
+        { "capsule": true, "class": "Collision", "height": 24, "id": 4, "name": "Capsule", "rotation": 0, "type": "collision", "visible": true, "width": 12, "x": 96, "y": 8 },
+        { "class": "Collision", "height": 0, "id": 5, "name": "Polygon", "polygon": [{ "x": 0, "y": 0 }, { "x": 24, "y": 0 }, { "x": 16, "y": 20 }, { "x": 0, "y": 12 }], "rotation": 0, "type": "collision", "visible": true, "width": 0, "x": 8, "y": 48 },
+        { "class": "Collision", "height": 0, "id": 6, "name": "Polyline", "polyline": [{ "x": 0, "y": 0 }, { "x": 16, "y": 8 }, { "x": 32, "y": 0 }], "rotation": 0, "type": "collision", "visible": true, "width": 0, "x": 48, "y": 56 },
+        { "gid": 1, "height": 32, "id": 7, "name": "TileObject", "rotation": 30, "visible": true, "width": 32, "x": 112, "y": 80 },
+        { "height": 32, "id": 8, "name": "TextObject", "rotation": 0, "text": { "bold": true, "color": "#ff336699", "fontfamily": "sans-serif", "halign": "center", "italic": true, "kerning": false, "pixelsize": 14, "strikeout": true, "text": "Portal Ready", "underline": true, "valign": "center", "wrap": true }, "visible": true, "width": 64, "x": 8, "y": 88 },
+        { "class": "SpawnPoint", "height": 0, "id": 9, "name": "North", "point": true, "properties": [{ "name": "spawnId", "type": "string", "value": "north" }], "rotation": 0, "type": "spawn", "visible": true, "width": 0, "x": 96, "y": 104 },
+        { "class": "Portal", "height": 16, "id": 10, "name": "NorthPortal", "properties": [{ "name": "targetMap", "type": "string", "value": "" }, { "name": "targetSpawn", "type": "string", "value": "north" }], "rotation": 0, "type": "portal", "visible": true, "width": 24, "x": 104, "y": 88 }
+      ],
+      "opacity": 1,
+      "type": "objectgroup",
+      "visible": true,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "nextlayerid": 2,
+  "nextobjectid": 11,
+  "orientation": "orthogonal",
+  "renderorder": "right-down",
+  "tiledversion": "1.12.2",
+  "tileheight": 16,
+  "tilesets": [{ "firstgid": 1, "source": "../tiles/tiled-1.12.2-features.tsj" }],
+  "tilewidth": 16,
+  "type": "map",
+  "version": "1.12",
+  "width": 8,
+  "wflUnknownRootField": ["keep", 5]
+}

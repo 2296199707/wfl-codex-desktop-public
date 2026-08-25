@@ -1,0 +1,100 @@
+CODEX QUICK COMMANDS
+====================
+
+Start and exit
+--------------
+
+# Start Codex in the current directory.
+codex
+
+# Start Codex for this repository from any directory.
+codex -C /srv/wfl-rpg
+
+# Preserve normal terminal scrollback instead of using the alternate screen.
+codex --no-alt-screen
+
+# Exit Codex while it is idle.
+Ctrl+C
+
+
+Resume a conversation
+---------------------
+
+# Open the conversation picker for the current directory.
+codex resume
+
+# Continue the most recent conversation without opening the picker.
+codex resume --last
+
+# Show conversations from every working directory.
+codex resume --all
+
+# Resume a specific conversation by session ID or session name.
+codex resume <SESSION_ID>
+
+# Resume the latest conversation and immediately send a prompt.
+codex resume --last "Continue the unfinished work."
+
+# Include non-interactive sessions created by commands such as codex exec.
+codex resume --all --include-non-interactive
+
+# Resume with normal terminal scrollback enabled.
+codex resume --all --no-alt-screen
+
+
+Fork a conversation
+-------------------
+
+# Open the picker and create a new branch from an old conversation.
+codex fork
+
+# Fork the most recent conversation.
+codex fork --last
+
+# Fork a specific conversation.
+codex fork <SESSION_ID>
+
+
+Manage saved conversations
+--------------------------
+
+# Archive or restore a saved conversation.
+codex archive <SESSION_ID_OR_NAME>
+codex unarchive <SESSION_ID_OR_NAME>
+
+# Permanently delete a saved conversation. This cannot be undone.
+codex delete <SESSION_ID_OR_NAME>
+
+
+Keep Codex running with tmux
+---------------------------
+
+# Create a persistent terminal session for this project.
+tmux new -s wfl
+
+# Detach from tmux without stopping Codex.
+Ctrl+B, then D
+
+# Reconnect to the persistent terminal session.
+tmux attach -t wfl
+
+# List existing tmux sessions.
+tmux ls
+
+
+Diagnostics and help
+--------------------
+
+codex --help
+codex resume --help
+codex fork --help
+codex doctor
+codex --version
+
+
+Important
+---------
+
+Run resume commands from the shell after leaving Codex. Do not ask an active
+Codex conversation to run "codex resume" because that starts a nested Codex
+process instead of replacing the current interface.

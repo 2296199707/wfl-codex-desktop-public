@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="color-scheme" content="dark" />
+    <title>WFL 地图编辑器</title>
+    <link rel="stylesheet" href="/map-editor/map-editor.css?v=0.44.55" />
+  </head>
+  <body>
+    <div class="map-app" id="mapApp" data-state="loading">
+      <header class="map-topbar">
+        <button class="icon-button mobile-layers-button" id="layersButton" type="button" title="图层" aria-label="打开图层面板" aria-expanded="false">
+          <i data-lucide="layers-3"></i>
+        </button>
+        <div class="map-identity">
+          <span class="map-product">WFL MAP</span>
+          <div>
+            <h1 id="mapTitle">地图编辑器</h1>
+            <p id="mapMeta">正在建立会话</p>
+          </div>
+        </div>
+        <div class="map-toolbar" role="toolbar" aria-label="地图视图工具">
+          <button class="icon-button" id="saveButton" type="button" title="保存地图" aria-label="保存地图" disabled><i data-lucide="save"></i></button>
+          <button class="icon-button" id="revisionsButton" type="button" title="修订历史" aria-label="打开地图修订历史" disabled><i data-lucide="history"></i></button>
+          <button class="icon-button" id="undoButton" type="button" title="撤销" aria-label="撤销" disabled><i data-lucide="undo-2"></i></button>
+          <button class="icon-button" id="redoButton" type="button" title="重做" aria-label="重做" disabled><i data-lucide="redo-2"></i></button>
+          <button class="icon-button" id="aiEditButton" type="button" title="AI 地图补丁" aria-label="AI 地图补丁" disabled><i data-lucide="sparkles"></i></button>
+          <button class="icon-button" id="autoMapButton" type="button" title="Tiled AutoMap" aria-label="打开 Tiled AutoMap" disabled><i data-lucide="workflow"></i></button>
+          <button class="icon-button" id="mapImageButton" type="button" title="地图 AI / 内置生图" aria-label="地图 AI / 内置生图" disabled><i data-lucide="image-plus"></i></button>
+          <button class="icon-button" id="assetLibraryButton" type="button" title="工程素材库" aria-label="打开工程素材库" disabled><i data-lucide="library"></i></button>
+          <button class="icon-button" id="gamePreviewButton" type="button" title="游戏预览" aria-label="游戏预览" disabled><i data-lucide="play"></i></button>
+          <button class="icon-button" id="exportButton" type="button" title="导出地图" aria-label="导出地图" disabled><i data-lucide="download"></i></button>
+          <button class="icon-button collaboration-toggle-button" id="collaborationButton" type="button" title="对话与任务" aria-label="打开对话与任务侧栏" aria-expanded="true"><i data-lucide="messages-square"></i></button>
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <button class="icon-button" id="zoomOutButton" type="button" title="缩小" aria-label="缩小" disabled><i data-lucide="zoom-out"></i></button>
+          <output id="zoomLabel" aria-label="当前缩放">100%</output>
+          <button class="icon-button" id="zoomInButton" type="button" title="放大" aria-label="放大" disabled><i data-lucide="zoom-in"></i></button>
+          <button class="icon-button" id="fitButton" type="button" title="适合窗口" aria-label="适合窗口" disabled><i data-lucide="scan"></i></button>
+          <button class="icon-button is-active" id="gridButton" type="button" title="网格" aria-label="显示网格" aria-pressed="true" disabled><i data-lucide="grid-3x3"></i></button>
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <button class="icon-button" id="helpButton" type="button" title="操作帮助（? / F1）" aria-label="打开地图编辑器操作帮助"><i data-lucide="circle-help"></i></button>
+          <button class="icon-button" id="reloadButton" type="button" title="重新加载" aria-label="重新加载"><i data-lucide="rotate-ccw"></i></button>
+          <button class="icon-button" id="closeButton" type="button" title="关闭窗口" aria-label="关闭窗口"><i data-lucide="x"></i></button>
+        </div>
+      </header>
+
+      <nav class="map-document-tabs" aria-label="同项目地图标签">
+        <div class="map-document-tab-list" id="mapDocumentTabList" role="tablist"></div>
+        <button class="map-document-tab-open" id="mapFileButton" type="button" title="在编辑器内切换工程地图" aria-label="在编辑器内切换工程地图"><i data-lucide="folder-open"></i><span>打开地图</span></button>
+        <button class="map-document-tab-add" id="mapDocumentTabAddButton" type="button" title="打开其他地图" aria-label="打开其他地图"><i data-lucide="plus"></i></button>
+      </nav>
+
+      <div class="map-workspace">
+        <aside class="layer-panel" id="layerPanel" aria-label="地图图层">
+          <header>
+            <div>
+              <span>图层</span>
+              <small id="layerCount">0</small>
+            </div>
+            <button class="icon-button mobile-panel-close" id="layersCloseButton" type="button" title="关闭图层面板" aria-label="关闭图层面板"><i data-lucide="x"></i></button>
+          </header>
+          <nav class="layer-actions" aria-label="图层操作">
+            <button class="mini-icon-button" id="addTileLayerButton" type="button" title="新建瓦片层" aria-label="新建瓦片层" disabled><i data-lucide="grid-2x2-plus"></i></button>
+            <button class="mini-icon-button" id="addObjectLayerButton" type="button" title="新建对象层" aria-label="新建对象层" disabled><i data-lucide="shapes"></i></button>
+            <button class="mini-icon-button" id="addGroupLayerButton" type="button" title="新建分组" aria-label="新建分组" disabled><i data-lucide="folder-plus"></i></button>
+            <button class="mini-icon-button" id="addImageLayerButton" type="button" title="导入图片图层" aria-label="导入图片图层" disabled><i data-lucide="image-plus"></i></button>
+            <button class="mini-icon-button" id="addTilesetButton" type="button" title="导入外部 TSJ 瓦片集" aria-label="导入外部 TSJ 瓦片集" disabled><i data-lucide="grid-2x2-plus"></i></button>
+            <button class="mini-icon-button" id="saveCompositeButton" type="button" title="将所选图层保存为组合 TMJ" aria-label="将所选图层保存为组合 TMJ" disabled><i data-lucide="package-plus"></i></button>
+            <span class="layer-action-divider" aria-hidden="true"></span>
+            <button class="mini-icon-button" id="duplicateLayerButton" type="button" title="复制图层" aria-label="复制图层" disabled><i data-lucide="copy-plus"></i></button>
+            <button class="mini-icon-button" id="moveLayerUpButton" type="button" title="上移图层" aria-label="上移图层" disabled><i data-lucide="arrow-up"></i></button>
+            <button class="mini-icon-button" id="moveLayerDownButton" type="button" title="下移图层" aria-label="下移图层" disabled><i data-lucide="arrow-down"></i></button>
+            <button class="mini-icon-button" id="imageArrangeButton" type="button" title="图片层对齐与分布" aria-label="图片层对齐与分布" aria-expanded="false" disabled><i data-lucide="align-center-horizontal"></i></button>
+            <button class="mini-icon-button is-danger" id="deleteLayerButton" type="button" title="删除图层" aria-label="删除图层" disabled><i data-lucide="trash-2"></i></button>
+          </nav>
+          <section class="image-arrange-panel" id="imageArrangePanel" aria-label="图片层排列" hidden>
+            <header><span>图片层排列</span><button class="mini-icon-button" id="closeImageArrangeButton" type="button" title="关闭图片排列" aria-label="关闭图片排列"><i data-lucide="x"></i></button></header>
+            <nav class="image-arrange-actions" aria-label="图片层对齐和分布">
+              <button class="mini-icon-button" type="button" data-image-arrange="left" title="左对齐" aria-label="左对齐"><i data-lucide="align-start-vertical"></i></button>
+              <button class="mini-icon-button" type="button" data-image-arrange="center-x" title="水平居中" aria-label="水平居中"><i data-lucide="align-center-vertical"></i></button>
+              <button class="mini-icon-button" type="button" data-image-arrange="right" title="右对齐" aria-label="右对齐"><i data-lucide="align-end-vertical"></i></button>
+              <button class="mini-icon-button" type="button" data-image-arrange="top" title="顶部对齐" aria-label="顶部对齐"><i data-lucide="align-start-horizontal"></i></button>
+              <button class="mini-icon-button" type="button" data-image-arrange="center-y" title="垂直居中" aria-label="垂直居中"><i data-lucide="align-center-horizontal"></i></button>
+              <button class="mini-icon-button" type="button" data-image-arrange="bottom" title="底部对齐" aria-label="底部对齐"><i data-lucide="align-end-horizontal"></i></button>
+              <button class="mini-icon-button" type="button" data-image-arrange="distribute-x" title="水平等距分布" aria-label="水平等距分布"><i data-lucide="align-horizontal-space-between"></i></button>
+              <button class="mini-icon-button" type="button" data-image-arrange="distribute-y" title="垂直等距分布" aria-label="垂直等距分布"><i data-lucide="align-vertical-space-between"></i></button>
+            </nav>
+            <div class="image-snap-controls">
+              <label><input id="imageSnapEnabled" type="checkbox" /><span>拖动吸附</span></label>
+              <select id="imageSnapUnit" aria-label="图片层吸附单位"><option value="pixel">像素</option><option value="tile">瓦片</option></select>
+              <label><span>步长</span><input id="imageSnapStep" type="number" min="1" max="1024" step="1" value="1" /></label>
+            </div>
+          </section>
+          <div class="layer-list" id="layerList" role="tree" aria-label="地图图层树"></div>
+          <section class="layer-detail" id="layerDetail">
+            <div class="detail-tabs" role="tablist" aria-label="图层详情">
+              <button id="tilesDetailButton" type="button" role="tab" aria-controls="tilePalette" aria-selected="true"><i data-lucide="grid-2x2"></i><span>瓦片</span></button>
+              <button id="propertiesDetailButton" type="button" role="tab" aria-controls="propertyInspector" aria-selected="false"><i data-lucide="list-sliders"></i><span>属性</span></button>
+            </div>
+            <section class="tile-palette" id="tilePalette" role="tabpanel" aria-labelledby="tilesDetailButton">
+              <header>
+                <span id="tilePaletteTitle">瓦片</span>
+                <span class="tile-palette-actions">
+                  <button class="mini-icon-button" id="tileStampSelectButton" type="button" title="选择多格 Stamp" aria-label="选择多格 Stamp" aria-pressed="false" disabled><i data-lucide="scan"></i></button>
+                  <small id="selectedTileState">--</small>
+                </span>
+              </header>
+              <nav class="tile-stamp-toolbar" id="tileStampToolbar" aria-label="Stamp 变换和随机设置">
+                <button class="mini-icon-button" type="button" data-tile-stamp-transform="flip-horizontal" title="水平翻转 Stamp" aria-label="水平翻转 Stamp" disabled><i data-lucide="flip-horizontal-2"></i></button>
+                <button class="mini-icon-button" type="button" data-tile-stamp-transform="flip-vertical" title="垂直翻转 Stamp" aria-label="垂直翻转 Stamp" disabled><i data-lucide="flip-vertical-2"></i></button>
+                <button class="mini-icon-button" type="button" data-tile-stamp-transform="flip-diagonal" title="对角翻转 Stamp" aria-label="对角翻转 Stamp" disabled><i data-lucide="move-diagonal-2"></i></button>
+                <button class="mini-icon-button" type="button" data-tile-stamp-transform="rotate-counterclockwise" title="逆时针旋转 Stamp" aria-label="逆时针旋转 Stamp" disabled><i data-lucide="rotate-ccw"></i></button>
+                <button class="mini-icon-button" type="button" data-tile-stamp-transform="rotate-clockwise" title="顺时针旋转 Stamp" aria-label="顺时针旋转 Stamp" disabled><i data-lucide="rotate-cw"></i></button>
+                <span class="tile-stamp-divider" aria-hidden="true"></span>
+                <button class="mini-icon-button" id="tileRandomButton" type="button" title="随机 Stamp" aria-label="随机 Stamp" aria-pressed="false" disabled><i data-lucide="dice-5"></i></button>
+                <button class="mini-icon-button" id="tileStampLibraryButton" type="button" title="命名 Stamp 库" aria-label="打开命名 Stamp 库" disabled><i data-lucide="library"></i></button>
+                <span class="tile-random-seed-control" id="tileRandomSeedControl" hidden>
+                  <label for="tileRandomSeed">Seed</label>
+                  <input id="tileRandomSeed" type="number" min="0" max="4294967295" step="1" value="1" inputmode="numeric" />
+                  <button class="mini-icon-button" id="tileRandomizeSeedButton" type="button" title="生成新的随机 Seed" aria-label="生成新的随机 Seed"><i data-lucide="shuffle"></i></button>
+                </span>
+              </nav>
+              <nav class="tile-selection-toolbar" id="tileSelectionToolbar" aria-label="瓦片选择工具和集合模式">
+                <button class="mini-icon-button" id="tileRectSelectButton" type="button" title="矩形选择瓦片" aria-label="矩形选择瓦片" disabled><i data-lucide="box-select"></i></button>
+                <button class="mini-icon-button" id="tileMagicToolButton" type="button" title="魔棒选择相连同类瓦片" aria-label="魔棒选择相连同类瓦片" aria-pressed="false" disabled><i data-lucide="wand-sparkles"></i></button>
+                <button class="mini-icon-button" id="tileSameToolButton" type="button" title="选择当前层全部同类瓦片" aria-label="选择当前层全部同类瓦片" aria-pressed="false" disabled><i data-lucide="scan-search"></i></button>
+                <span class="tile-stamp-divider" aria-hidden="true"></span>
+                <button class="mini-icon-button is-active" type="button" data-tile-selection-mode="replace" title="替换选择" aria-label="替换瓦片选择" aria-pressed="true"><i data-lucide="square-dashed"></i></button>
+                <button class="mini-icon-button" type="button" data-tile-selection-mode="add" title="追加选择" aria-label="追加瓦片选择" aria-pressed="false"><i data-lucide="copy-plus"></i></button>
+                <button class="mini-icon-button" type="button" data-tile-selection-mode="subtract" title="减去选择" aria-label="从瓦片选择中减去" aria-pressed="false"><i data-lucide="square-minus"></i></button>
+                <button class="mini-icon-button" type="button" data-tile-selection-mode="intersect" title="交集选择" aria-label="保留瓦片选择交集" aria-pressed="false"><i data-lucide="combine"></i></button>
+                <button class="mini-icon-button" id="clearTileSelectionButton" type="button" title="清除瓦片选择" aria-label="清除瓦片选择" disabled><i data-lucide="x"></i></button>
+              </nav>
+              <nav class="terrain-brush-controls" id="terrainBrushControls" aria-label="Terrain Brush 设置" hidden>
+                <label><span>Set</span><select id="terrainSetSelect" aria-label="Terrain Set"></select></label>
+                <label><span>颜色</span><select id="terrainColorSelect" aria-label="Terrain 颜色"></select></label>
+                <label><span>Seed</span><input id="terrainBrushSeed" type="number" min="0" max="4294967295" step="1" value="1" inputmode="numeric" /></label>
+                <button class="mini-icon-button" id="terrainRandomizeSeedButton" type="button" title="生成新的 Terrain Seed" aria-label="生成新的 Terrain Seed"><i data-lucide="shuffle"></i></button>
+                <small id="terrainBrushState">--</small>
+              </nav>
+              <div class="tile-palette-grid" id="tilePaletteGrid"></div>
+              <nav class="tile-palette-pagination" aria-label="瓦片色板分页">
+                <button class="mini-icon-button" id="tilePalettePreviousButton" type="button" title="上一页" aria-label="上一页" disabled><i data-lucide="chevron-left"></i></button>
+                <output id="tilePalettePageState" aria-live="polite">0 / 0</output>
+                <button class="mini-icon-button" id="tilePaletteNextButton" type="button" title="下一页" aria-label="下一页" disabled><i data-lucide="chevron-right"></i></button>
+              </nav>
+            </section>
+            <section class="property-inspector" id="propertyInspector" role="tabpanel" aria-labelledby="propertiesDetailButton" hidden>
+              <header>
+                <div><span id="inspectorTitle">图层属性</span><small id="inspectorMeta"></small></div>
+                <div class="inspector-actions" id="objectActions" hidden>
+                  <button class="mini-icon-button" id="duplicateObjectButton" type="button" title="复制对象" aria-label="复制对象"><i data-lucide="copy-plus"></i></button>
+                  <button class="mini-icon-button" id="saveTemplateButton" type="button" title="保存为对象模板" aria-label="保存为对象模板"><i data-lucide="package-plus"></i></button>
+                  <button class="mini-icon-button" id="refreshTemplateButton" type="button" title="刷新对象模板" aria-label="刷新对象模板" disabled><i data-lucide="refresh-cw"></i></button>
+                  <button class="mini-icon-button" id="unbindTemplateButton" type="button" title="解除模板绑定" aria-label="解除模板绑定" disabled><i data-lucide="unlink"></i></button>
+                  <button class="mini-icon-button" id="objectArrangeButton" type="button" title="对象排列与顺序" aria-label="对象排列与顺序" aria-expanded="false"><i data-lucide="align-center-horizontal"></i></button>
+                  <button class="mini-icon-button is-danger" id="deleteObjectButton" type="button" title="删除对象" aria-label="删除对象"><i data-lucide="trash-2"></i></button>
+                </div>
+              </header>
+              <section class="object-arrange-panel" id="objectArrangePanel" aria-label="对象排列与顺序" hidden>
+                <nav class="object-arrange-actions" aria-label="对象对齐和分布">
+                  <button class="mini-icon-button" type="button" data-object-arrange="left" title="左对齐" aria-label="左对齐"><i data-lucide="align-start-vertical"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-arrange="center-x" title="水平居中" aria-label="水平居中"><i data-lucide="align-center-vertical"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-arrange="right" title="右对齐" aria-label="右对齐"><i data-lucide="align-end-vertical"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-arrange="top" title="顶部对齐" aria-label="顶部对齐"><i data-lucide="align-start-horizontal"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-arrange="center-y" title="垂直居中" aria-label="垂直居中"><i data-lucide="align-center-horizontal"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-arrange="bottom" title="底部对齐" aria-label="底部对齐"><i data-lucide="align-end-horizontal"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-arrange="distribute-x" title="水平等距分布" aria-label="水平等距分布"><i data-lucide="align-horizontal-space-between"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-arrange="distribute-y" title="垂直等距分布" aria-label="垂直等距分布"><i data-lucide="align-vertical-space-between"></i></button>
+                </nav>
+                <nav class="object-order-actions" aria-label="对象顺序">
+                  <button class="mini-icon-button" type="button" data-object-order="front" title="置于顶层" aria-label="置于顶层"><i data-lucide="bring-to-front"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-order="forward" title="上移一层" aria-label="上移一层"><i data-lucide="arrow-up-to-line"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-order="backward" title="下移一层" aria-label="下移一层"><i data-lucide="arrow-down-to-line"></i></button>
+                  <button class="mini-icon-button" type="button" data-object-order="back" title="置于底层" aria-label="置于底层"><i data-lucide="send-to-back"></i></button>
+                </nav>
+              </section>
+              <div class="object-create-controls" id="objectCreateControls" hidden>
+                <label for="objectPreset">用途</label>
+                <select id="objectPreset">
+                  <option value="object">普通对象</option>
+                  <option value="spawn">出生点</option>
+                  <option value="portal">传送点</option>
+                </select>
+                <label for="objectShape">形状</label>
+                <select id="objectShape">
+                  <option value="rectangle">矩形</option>
+                  <option value="point">点</option>
+                  <option value="ellipse">椭圆</option>
+                  <option value="capsule">胶囊</option>
+                  <option value="polygon">多边形</option>
+                  <option value="polyline">折线</option>
+                  <option value="tile">瓦片对象</option>
+                  <option value="text">文字对象</option>
+                </select>
+                <button class="secondary-button object-template-button" id="templateAssetButton" type="button"><i data-lucide="package-plus"></i><span>从对象模板加入</span></button>
+              </div>
+              <form id="inspectorForm">
+                <div class="inspector-grid">
+                  <label class="inspector-field is-wide"><span>名称</span><input id="inspectorName" name="name" autocomplete="off" /></label>
+                  <label class="inspector-field is-wide"><span>Class</span><input id="inspectorClass" name="class" autocomplete="off" /></label>
+                  <label class="inspector-field is-wide" id="inspectorTypeField"><span>Type</span><input id="inspectorType" name="type" autocomplete="off" /></label>
+                  <label class="inspector-field" id="inspectorXField"><span id="inspectorXLabel">X</span><input id="inspectorX" name="x" type="number" step="1" /></label>
+                  <label class="inspector-field" id="inspectorYField"><span id="inspectorYLabel">Y</span><input id="inspectorY" name="y" type="number" step="1" /></label>
+                  <label class="inspector-field" id="inspectorWidthField"><span>宽</span><input id="inspectorWidth" name="width" type="number" min="0" step="1" /></label>
+                  <label class="inspector-field" id="inspectorHeightField"><span>高</span><input id="inspectorHeight" name="height" type="number" min="0" step="1" /></label>
+                  <label class="inspector-field" id="inspectorRotationField"><span>旋转</span><input id="inspectorRotation" name="rotation" type="number" step="1" /></label>
+                  <label class="inspector-field" id="inspectorOpacityField"><span id="inspectorOpacityLabel">不透明度</span><input id="inspectorOpacity" name="opacity" type="number" min="0" max="1" step="0.05" /></label>
+                  <label class="inspector-field" id="inspectorGidField"><span>瓦片 GID</span><input id="inspectorGid" name="gid" type="number" min="1" max="4294967295" step="1" /></label>
+                  <label class="inspector-field is-wide" id="inspectorDrawOrderField"><span>对象绘制顺序</span><select id="inspectorDrawOrder" name="draworder"><option value="topdown">按 Y 坐标</option><option value="index">按对象顺序</option></select></label>
+                </div>
+                <section class="object-text-fields" id="objectTextFields" hidden>
+                  <label class="inspector-field is-wide"><span>文字</span><textarea id="objectTextValue" data-text-field="text" rows="3"></textarea></label>
+                  <div class="inspector-grid">
+                    <label class="inspector-field"><span>字体</span><input id="objectTextFontFamily" data-text-field="fontfamily" autocomplete="off" /></label>
+                    <label class="inspector-field"><span>字号</span><input id="objectTextPixelSize" data-text-field="pixelsize" type="number" min="1" step="1" /></label>
+                    <label class="inspector-field"><span>颜色</span><input id="objectTextColor" data-text-field="color" autocomplete="off" /></label>
+                    <label class="inspector-field"><span>水平对齐</span><select id="objectTextHalign" data-text-field="halign"><option value="left">左</option><option value="center">中</option><option value="right">右</option><option value="justify">两端</option></select></label>
+                    <label class="inspector-field"><span>垂直对齐</span><select id="objectTextValign" data-text-field="valign"><option value="top">上</option><option value="center">中</option><option value="bottom">下</option></select></label>
+                  </div>
+                  <div class="inspector-toggles">
+                    <label><input id="objectTextWrap" data-text-field="wrap" type="checkbox" /><span>换行</span></label>
+                    <label><input id="objectTextBold" data-text-field="bold" type="checkbox" /><span>粗体</span></label>
+                    <label><input id="objectTextItalic" data-text-field="italic" type="checkbox" /><span>斜体</span></label>
+                    <label><input id="objectTextUnderline" data-text-field="underline" type="checkbox" /><span>下划线</span></label>
+                    <label><input id="objectTextStrikeout" data-text-field="strikeout" type="checkbox" /><span>删除线</span></label>
+                    <label><input id="objectTextKerning" data-text-field="kerning" type="checkbox" /><span>字距调整</span></label>
+                  </div>
+                </section>
+                <section class="object-vertex-fields" id="objectVertexFields" hidden>
+                  <header><span id="objectVertexTitle">顶点</span><button class="mini-icon-button" id="addObjectVertexButton" type="button" title="添加顶点" aria-label="添加顶点"><i data-lucide="plus"></i></button></header>
+                  <div class="object-vertex-list" id="objectVertexList"></div>
+                </section>
+                <div class="inspector-toggles">
+                  <label><input id="inspectorVisible" name="visible" type="checkbox" /><span>可见</span></label>
+                  <label id="inspectorRepeatXField"><input id="inspectorRepeatX" name="repeatx" type="checkbox" /><span>横向重复</span></label>
+                  <label id="inspectorRepeatYField"><input id="inspectorRepeatY" name="repeaty" type="checkbox" /><span>纵向重复</span></label>
+                </div>
+                <section class="custom-properties" id="customProperties" hidden>
+                  <header><span>Tiled 属性</span><button class="mini-icon-button" id="addPropertyButton" type="button" title="添加属性" aria-label="添加属性"><i data-lucide="plus"></i></button></header>
+                  <div id="propertyRows"></div>
+                </section>
+              </form>
+            </section>
+          </section>
+        </aside>
+
+        <main class="map-stage" id="mapStage">
+          <div class="map-canvas-host" id="mapCanvasHost"></div>
+          <div class="map-guide-surface" id="mapGuideSurface" aria-label="地图标尺与辅助线">
+            <button class="map-ruler-corner" id="guidePanelButton" type="button" title="辅助线设置" aria-label="打开辅助线设置" aria-expanded="false"><i data-lucide="ruler"></i></button>
+            <canvas class="map-ruler map-ruler-top" id="mapRulerTop" aria-label="水平标尺；向下拖动创建垂直辅助线"></canvas>
+            <canvas class="map-ruler map-ruler-left" id="mapRulerLeft" aria-label="垂直标尺；向右拖动创建水平辅助线"></canvas>
+            <div class="map-guide-layer" id="mapGuideLayer"></div>
+          </div>
+          <section class="map-guide-panel" id="mapGuidePanel" aria-label="辅助线设置" hidden>
+            <header>
+              <div><strong>辅助线</strong><small>仅此地图视图</small></div>
+              <button class="mini-icon-button" id="closeGuidePanelButton" type="button" title="关闭辅助线设置" aria-label="关闭辅助线设置"><i data-lucide="x"></i></button>
+            </header>
+            <div class="map-guide-toolbar">
+              <label><input id="guidesVisible" type="checkbox" checked /><span>显示</span></label>
+              <select id="guideDefaultUnit" aria-label="标尺和新辅助线单位"><option value="pixel">像素</option><option value="tile">瓦片</option></select>
+              <button class="mini-icon-button" id="addVerticalGuideButton" type="button" title="在视口中心添加垂直辅助线" aria-label="添加垂直辅助线"><i data-lucide="separator-vertical"></i></button>
+              <button class="mini-icon-button" id="addHorizontalGuideButton" type="button" title="在视口中心添加水平辅助线" aria-label="添加水平辅助线"><i data-lucide="separator-horizontal"></i></button>
+            </div>
+            <div class="map-guide-list" id="mapGuideList"></div>
+            <p class="map-guide-empty" id="mapGuideEmptyState">从标尺拖出辅助线，或使用上方按钮添加</p>
+          </section>
+          <nav class="map-toolrail" aria-label="地图工具">
+            <button class="icon-button is-active" id="selectToolButton" type="button" title="选择（V）" aria-label="选择工具" aria-pressed="true" disabled><i data-lucide="mouse-pointer-2"></i></button>
+            <button class="icon-button" id="handToolButton" type="button" title="平移（H）" aria-label="平移工具" aria-pressed="false" disabled><i data-lucide="hand"></i></button>
+            <button class="icon-button" id="sampleToolButton" type="button" title="取样瓦片（I）" aria-label="瓦片取样工具" aria-pressed="false" disabled><i data-lucide="pipette"></i></button>
+            <button class="icon-button" id="brushToolButton" type="button" title="画笔（B）" aria-label="画笔工具" aria-pressed="false" disabled><i data-lucide="paintbrush"></i></button>
+            <button class="icon-button" id="terrainBrushToolButton" type="button" title="Terrain Brush（T）" aria-label="Terrain Brush" aria-pressed="false" disabled><i data-lucide="sprout"></i></button>
+            <button class="icon-button" id="eraserToolButton" type="button" title="橡皮（E）" aria-label="橡皮工具" aria-pressed="false" disabled><i data-lucide="eraser"></i></button>
+            <button class="icon-button" id="fillToolButton" type="button" title="填充（F）" aria-label="填充工具" aria-pressed="false" disabled><i data-lucide="paint-bucket"></i></button>
+            <span class="tile-shape-control">
+              <button class="icon-button" id="tileShapeToolButton" type="button" title="瓦片直线" aria-label="瓦片形状工具" aria-haspopup="menu" aria-expanded="false" aria-pressed="false" disabled><i data-lucide="slash"></i></button>
+              <span class="tile-shape-menu" id="tileShapeMenu" role="menu" aria-label="瓦片形状" hidden>
+                <button class="mini-icon-button is-active" type="button" role="menuitemradio" data-tile-shape="tile-line" title="直线" aria-label="瓦片直线" aria-checked="true"><i data-lucide="slash"></i></button>
+                <button class="mini-icon-button" type="button" role="menuitemradio" data-tile-shape="tile-rectangle" title="矩形" aria-label="瓦片矩形" aria-checked="false"><i data-lucide="rectangle-horizontal"></i></button>
+                <button class="mini-icon-button" type="button" role="menuitemradio" data-tile-shape="tile-ellipse" title="椭圆" aria-label="瓦片椭圆" aria-checked="false"><i data-lucide="circle"></i></button>
+                <label title="填充矩形和椭圆"><input id="tileShapeFilled" type="checkbox" /><span>实心</span></label>
+              </span>
+            </span>
+            <button class="icon-button" id="objectToolButton" type="button" title="矩形对象（O）" aria-label="矩形对象工具" aria-pressed="false" disabled><i data-lucide="square-dashed"></i></button>
+            <button class="icon-button" id="collisionToolButton" type="button" title="碰撞区域（C）" aria-label="碰撞区域工具" aria-pressed="false" disabled><i data-lucide="shield"></i></button>
+            <button class="icon-button" id="vertexToolButton" type="button" title="编辑顶点" aria-label="顶点编辑工具" aria-pressed="false" disabled><i data-lucide="pen-tool"></i></button>
+          </nav>
+          <div class="map-load-state" id="mapLoadState" role="status" aria-live="polite">
+            <span class="map-loader" aria-hidden="true"></span>
+            <strong id="loadTitle">正在读取地图</strong>
+            <span id="loadDetail">0%</span>
+            <button class="secondary-button" id="retryButton" type="button" hidden><i data-lucide="rotate-ccw"></i><span>重试</span></button>
+          </div>
+        </main>
+
+        <aside class="collaboration-panel" id="collaborationPanel" aria-label="对话、AI 修改与处理任务">
+          <header class="collaboration-header">
+            <div><strong>游戏协作</strong><small id="collaborationConnectionState">正在连接主界面对话</small></div>
+            <button class="mini-icon-button" id="closeCollaborationButton" type="button" title="收起协作侧栏" aria-label="收起协作侧栏"><i data-lucide="panel-right-close"></i></button>
+          </header>
+          <nav class="collaboration-tabs" role="tablist" aria-label="游戏协作视图">
+            <button id="conversationTabButton" type="button" role="tab" aria-controls="conversationPanel" aria-selected="true"><i data-lucide="messages-square"></i><span>对话</span></button>
+            <button id="proposalTabButton" type="button" role="tab" aria-controls="proposalPanel" aria-selected="false"><i data-lucide="sparkles"></i><span>AI 修改</span><small id="proposalTabCount" hidden>0</small></button>
+            <button id="taskTrayTabButton" type="button" role="tab" aria-controls="taskTrayPanel" aria-selected="false"><i data-lucide="list-checks"></i><span>任务</span><small id="taskTrayCount" hidden>0</small></button>
+          </nav>
+          <section class="conversation-panel" id="conversationPanel" role="tabpanel" aria-labelledby="conversationTabButton">
+            <div class="conversation-thread-control">
+              <label for="conversationThreadSelect">当前工程对话</label>
+              <div>
+                <select id="conversationThreadSelect" aria-label="切换当前工程对话" disabled><option>等待主界面</option></select>
+                <button class="mini-icon-button" id="refreshConversationButton" type="button" title="刷新对话" aria-label="刷新对话"><i data-lucide="refresh-cw"></i></button>
+                <button class="mini-icon-button" id="focusMainConversationButton" type="button" title="在主界面打开" aria-label="在主界面打开当前对话"><i data-lucide="external-link"></i></button>
+              </div>
+            </div>
+            <div class="conversation-message-list" id="conversationMessageList" aria-live="polite"></div>
+            <p class="conversation-image-delivery" id="conversationImageDelivery" data-mode="none"><i data-lucide="shield-check"></i><span>本回合没有发送图片</span></p>
+            <form class="conversation-composer" id="conversationComposer">
+              <label class="sr-only" for="conversationInput">向当前工程对话发送消息</label>
+              <textarea id="conversationInput" rows="3" maxlength="32000" placeholder="和当前游戏工程的 Codex 继续讨论…" disabled></textarea>
+              <div>
+                <span id="conversationSendState" role="status" aria-live="polite">等待主界面连接</span>
+                <button class="secondary-button is-danger" id="interruptConversationButton" type="button" hidden><i data-lucide="square"></i><span>停止</span></button>
+                <button class="primary-button" id="sendConversationButton" type="submit" disabled><i data-lucide="send"></i><span>发送</span></button>
+              </div>
+            </form>
+          </section>
+          <section class="proposal-panel" id="proposalPanel" role="tabpanel" aria-labelledby="proposalTabButton" hidden>
+            <div class="collaboration-panel-heading"><div><strong>结构化提案</strong><small>预览后才可应用</small></div><button class="secondary-button" id="openProposalInboxButton" type="button"><i data-lucide="inbox"></i><span>打开完整收件箱</span></button></div>
+            <p class="collaboration-note">AI 修改不会自动应用或保存；本地编辑变化会使旧提案失效。</p>
+            <div class="proposal-tray-list" id="proposalTrayList"></div>
+          </section>
+          <section class="task-tray-panel" id="taskTrayPanel" role="tabpanel" aria-labelledby="taskTrayTabButton" hidden>
+            <div class="collaboration-panel-heading"><div><strong>图片、渲染与 AI 托管</strong><small>只显示任务摘要</small></div><button class="mini-icon-button" id="refreshTaskTrayButton" type="button" title="刷新任务" aria-label="刷新任务"><i data-lucide="refresh-cw"></i></button></div>
+            <p class="collaboration-note">任务结果留在候选区或导出目录，不会自动加入对话上下文；托管地图任务会在这里同步状态，未经批准不会写入地图。</p>
+            <p class="dialog-state" id="taskTrayState" role="status" aria-live="polite"></p>
+            <div class="task-tray-list" id="taskTrayList"></div>
+            <div class="task-tray-actions"><button class="secondary-button" id="openImageTasksButton" type="button"><i data-lucide="image-plus"></i><span>图片任务</span></button><button class="secondary-button" id="openRenderTasksButton" type="button"><i data-lucide="download"></i><span>渲染任务</span></button></div>
+          </section>
+        </aside>
+      </div>
+
+      <footer class="map-statusbar">
+        <span class="map-state" id="mapState" data-status="loading"><i data-lucide="loader-circle"></i><span>读取中</span></span>
+        <span id="coordinates">X 0 · Y 0</span>
+        <span id="tileCoordinates">Tile 0, 0</span>
+        <span id="selectionState">未选择</span>
+        <span id="gamepadState" role="status" aria-live="polite" hidden></span>
+        <span class="status-spacer"></span>
+        <button class="status-help-button" id="statusHelpButton" type="button" title="操作帮助" aria-label="打开地图编辑器操作帮助"><i data-lucide="circle-help"></i></button>
+        <label class="game-work-mode-control" id="gameWorkModeControl" title="游戏工作模式仅影响绑定的 Codex 对话">
+          <i data-lucide="gamepad-2"></i>
+          <span class="game-work-mode-label">游戏工作模式</span>
+          <input id="gameWorkModeToggle" type="checkbox" role="switch" aria-label="游戏工作模式" aria-describedby="gameWorkModeState" disabled />
+          <span class="game-work-mode-switch" aria-hidden="true"></span>
+          <small id="gameWorkModeState" role="status" aria-live="polite">关闭</small>
+        </label>
+        <span id="warningState" hidden><i data-lucide="triangle-alert"></i><span></span></span>
+        <span id="documentState">只读</span>
+      </footer>
+      <button class="layer-scrim" id="layerScrim" type="button" aria-label="关闭图层面板" hidden></button>
+      <button class="collaboration-scrim" id="collaborationScrim" type="button" aria-label="关闭协作侧栏" hidden></button>
+    </div>
+
+    <dialog class="map-dialog map-help-dialog" id="helpDialog" aria-labelledby="helpTitle">
+      <div class="dialog-heading map-help-heading">
+        <i data-lucide="circle-help"></i>
+        <div>
+          <h2 id="helpTitle">地图编辑器操作帮助</h2>
+          <p>鼠标、触控笔、触屏和标准手柄使用同一套地图数据与保存功能。</p>
+        </div>
+        <button class="mini-icon-button" id="closeHelpButton" type="button" title="关闭" aria-label="关闭操作帮助"><i data-lucide="x"></i></button>
+      </div>
+      <div class="map-help-sections">
+        <section>
+          <h3>先从这里开始</h3>
+          <ol>
+            <li>在左侧图层树选择要编辑的图层；眼睛控制多层同时显示，锁定可防止误改。</li>
+            <li>瓦片层先在“瓦片”页选择图块，再用画笔、橡皮、填充或形状工具绘制。</li>
+            <li>图片层可直接在画布拖动；辅助线、吸附和“图片层排列”用于对齐。</li>
+            <li>顶部“地图 AI / 内置生图”可生成、编辑、裁剪和扩图，候选必须由你确认后才加入地图。</li>
+            <li>右侧“游戏协作”连接当前工程对话；AI 修改先成为提案，不会自动应用或保存。</li>
+          </ol>
+        </section>
+        <section>
+          <h3>鼠标、触控笔与触屏</h3>
+          <dl class="map-help-commands">
+            <div><dt>主按钮 / 单指</dt><dd>使用当前工具</dd></div>
+            <div><dt>非主按钮拖动</dt><dd>平移画布</dd></div>
+            <div><dt>滚轮</dt><dd>以指针位置缩放</dd></div>
+            <div><dt>双指</dt><dd>同时平移和缩放</dd></div>
+            <div><dt>手势中断</dt><dd>切后台、失焦或捕获丢失会取消半截操作</dd></div>
+          </dl>
+        </section>
+        <section>
+          <h3>键盘</h3>
+          <dl class="map-help-commands">
+            <div><dt><kbd>Ctrl/⌘ S</kbd></dt><dd>保存</dd></div>
+            <div><dt><kbd>Ctrl/⌘ Z</kbd></dt><dd>撤销；加 <kbd>Shift</kbd> 重做</dd></div>
+            <div><dt><kbd>Ctrl/⌘ Y</kbd></dt><dd>重做</dd></div>
+            <div><dt><kbd>Ctrl/⌘ 0</kbd></dt><dd>适合窗口</dd></div>
+            <div><dt><kbd>Ctrl/⌘ D</kbd></dt><dd>复制所选对象；图层面板聚焦时复制图层</dd></div>
+            <div><dt><kbd>Ctrl/⌘ C / V</kbd></dt><dd>复制 / 粘贴所选对象</dd></div>
+            <div><dt><kbd>V H I B T E F</kbd></dt><dd>选择、平移、取样、画笔、Terrain、橡皮、填充</dd></div>
+            <div><dt><kbd>O / C</kbd></dt><dd>矩形对象 / 碰撞区域工具</dd></div>
+            <div><dt><kbd>方向键</kbd></dt><dd>所选对象移动 1 像素；加 <kbd>Shift</kbd> 移动 10 像素</dd></div>
+            <div><dt><kbd>Delete</kbd></dt><dd>删除所选对象；图层面板聚焦时删除所选图层</dd></div>
+            <div><dt><kbd>Esc</kbd></dt><dd>取消填充、AutoMap 派生操作和当前浮层</dd></div>
+            <div><dt><kbd>?</kbd> / <kbd>F1</kbd></dt><dd>打开此帮助</dd></div>
+          </dl>
+        </section>
+        <section>
+          <h3>标准手柄</h3>
+          <dl class="map-help-commands">
+            <div><dt>左摇杆 / D-pad</dt><dd>平移</dd></div>
+            <div><dt>右摇杆纵轴</dt><dd>缩放</dd></div>
+            <div><dt>A</dt><dd>在视口中心使用当前工具</dd></div>
+            <div><dt>B</dt><dd>取消当前操作</dd></div>
+            <div><dt>X / Y</dt><dd>选择工具 / 平移工具</dd></div>
+            <div><dt>Start</dt><dd>适合窗口</dd></div>
+          </dl>
+          <p class="map-help-note">文本输入、对话框、保存、页面在后台及 Fill/AutoMap 运行时会屏蔽可能误改地图的手柄输入。</p>
+        </section>
+      </div>
+      <div class="dialog-actions">
+        <button class="primary-button" id="confirmHelpButton" type="button"><span>知道了</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog map-file-dialog" id="mapFileDialog" aria-labelledby="mapFileTitle">
+      <div class="dialog-heading map-file-heading">
+        <i data-lucide="map"></i>
+        <div>
+          <h2 id="mapFileTitle">切换工程地图</h2>
+          <p>只显示当前工程范围内的 `.tmj` 文件；选择后在当前编辑器窗口打开。</p>
+        </div>
+        <button class="mini-icon-button" id="closeMapFileDialogButton" type="button" title="关闭" aria-label="关闭地图文件选择"><i data-lucide="x"></i></button>
+      </div>
+      <label class="search-field map-file-search-field" for="mapFileSearch">
+        <i data-lucide="search"></i>
+        <input id="mapFileSearch" type="search" maxlength="100" placeholder="搜索地图文件名或路径" autocomplete="off" />
+      </label>
+      <p class="dialog-state" id="mapFileState" role="status" aria-live="polite">正在连接当前工程</p>
+      <div class="map-file-list" id="mapFileList" role="listbox" aria-label="工程地图文件"></div>
+      <div class="dialog-actions map-file-actions">
+        <button class="secondary-button" id="loadMoreMapFilesButton" type="button" hidden><i data-lucide="list-plus"></i><span>加载更多</span></button>
+        <button class="secondary-button" id="cancelMapFileButton" type="button"><span>关闭</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog tile-stamp-dialog" id="tileStampLibraryDialog" aria-labelledby="tileStampLibraryTitle">
+      <div class="dialog-heading">
+        <i data-lucide="library"></i>
+        <h2 id="tileStampLibraryTitle">命名 Stamp</h2>
+      </div>
+      <form class="tile-stamp-save-form" id="tileStampLibraryForm">
+        <label class="dialog-field" for="tileStampName"><span>名称</span><input id="tileStampName" maxlength="80" autocomplete="off" required /></label>
+        <button class="primary-button" id="saveNamedTileStampButton" type="submit"><i data-lucide="bookmark-plus"></i><span>保存当前 Stamp</span></button>
+      </form>
+      <p class="dialog-state" id="tileStampLibraryState" role="status" aria-live="polite"></p>
+      <div class="tile-stamp-library-list" id="tileStampLibraryList"></div>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="copyTileStampButton" type="button"><i data-lucide="clipboard-copy"></i><span>复制跨地图 Stamp</span></button>
+        <button class="secondary-button" id="pasteTileStampButton" type="button"><i data-lucide="clipboard-paste"></i><span>粘贴并重映射 GID</span></button>
+        <button class="secondary-button" id="closeTileStampLibraryButton" type="button"><span>关闭</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog" id="saveConflictDialog" aria-labelledby="saveConflictTitle">
+      <div class="dialog-heading"><i data-lucide="git-compare-arrows"></i><h2 id="saveConflictTitle">地图版本冲突</h2></div>
+      <p id="saveConflictDetail">服务端地图已经变化。当前编辑仍保留在这个窗口中，没有覆盖其他窗口的内容。</p>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="keepConflictEditsButton" type="button"><i data-lucide="pencil"></i><span>保留当前编辑</span></button>
+        <button class="primary-button" id="reloadConflictButton" type="button"><i data-lucide="refresh-cw"></i><span>重新加载服务端版本</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog map-asset-dialog" id="imageLayerDialog" aria-labelledby="imageLayerTitle">
+      <div class="dialog-heading">
+        <i data-lucide="image-plus"></i>
+        <div>
+          <h2 id="imageLayerTitle">导入图片图层</h2>
+          <p id="imageLayerDescription">可多选当前工程中的 PNG、JPEG 或 WebP 图片；每张图片会创建一个独立图层</p>
+        </div>
+        <button class="mini-icon-button" id="closeImageLayerDialogButton" type="button" title="关闭" aria-label="关闭图片素材目录"><i data-lucide="x"></i></button>
+      </div>
+      <nav class="map-asset-navigation" aria-label="图片素材目录导航">
+        <button class="mini-icon-button" id="imageAssetParentButton" type="button" title="上一级" aria-label="返回上一级目录" disabled><i data-lucide="folder-up"></i></button>
+        <output id="imageAssetDirectory" aria-label="当前素材目录">工程根目录</output>
+        <button class="mini-icon-button" id="refreshImageAssetsButton" type="button" title="刷新" aria-label="刷新素材目录"><i data-lucide="refresh-cw"></i></button>
+      </nav>
+      <div class="map-asset-list" id="imageAssetList" role="listbox" aria-multiselectable="true" aria-label="工程图片素材"></div>
+      <button class="secondary-button map-asset-load-more" id="loadMoreImageAssetsButton" type="button" hidden><i data-lucide="chevrons-down"></i><span>加载更多</span></button>
+      <p class="dialog-state" id="imageAssetState" role="status" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="cancelImageLayerButton" type="button"><span>取消</span></button>
+        <button class="primary-button" id="importImageLayerButton" type="button" disabled><i data-lucide="image-plus"></i><span>加入图片图层</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog map-asset-dialog" id="tilesetAssetDialog" aria-labelledby="tilesetAssetTitle">
+      <div class="dialog-heading">
+        <i data-lucide="grid-2x2-plus"></i>
+        <div>
+          <h2 id="tilesetAssetTitle">导入外部瓦片集</h2>
+          <p>选择工程中的 .tsj；其 PNG、JPEG 或 WebP 依赖会一起授权</p>
+        </div>
+        <button class="mini-icon-button" id="closeTilesetAssetDialogButton" type="button" title="关闭" aria-label="关闭瓦片集素材目录"><i data-lucide="x"></i></button>
+      </div>
+      <nav class="map-asset-navigation" aria-label="瓦片集素材目录导航">
+        <button class="mini-icon-button" id="tilesetAssetParentButton" type="button" title="上一级" aria-label="返回上一级目录" disabled><i data-lucide="folder-up"></i></button>
+        <output id="tilesetAssetDirectory" aria-label="当前瓦片集目录">工程根目录</output>
+        <button class="mini-icon-button" id="refreshTilesetAssetsButton" type="button" title="刷新" aria-label="刷新瓦片集素材目录"><i data-lucide="refresh-cw"></i></button>
+      </nav>
+      <div class="map-asset-list" id="tilesetAssetList" role="listbox" aria-label="工程 TSJ 瓦片集"></div>
+      <button class="secondary-button map-asset-load-more" id="loadMoreTilesetAssetsButton" type="button" hidden><i data-lucide="chevrons-down"></i><span>加载更多</span></button>
+      <p class="dialog-state" id="tilesetAssetState" role="status" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="cancelTilesetImportButton" type="button"><span>取消</span></button>
+        <button class="primary-button" id="importTilesetButton" type="button" disabled><i data-lucide="grid-2x2-plus"></i><span>加入瓦片集</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog map-asset-dialog" id="templateAssetDialog" aria-labelledby="templateAssetTitle">
+      <div class="dialog-heading">
+        <i data-lucide="package-plus"></i>
+        <div>
+          <h2 id="templateAssetTitle">加入对象模板</h2>
+          <p>选择 Tiled .tx 模板；实例会保留工程相对模板引用和当前默认值</p>
+        </div>
+        <button class="mini-icon-button" id="closeTemplateAssetDialogButton" type="button" title="关闭" aria-label="关闭对象模板目录"><i data-lucide="x"></i></button>
+      </div>
+      <nav class="map-asset-navigation" aria-label="对象模板目录导航">
+        <button class="mini-icon-button" id="templateAssetParentButton" type="button" title="上一级" aria-label="返回上一级目录" disabled><i data-lucide="folder-up"></i></button>
+        <output id="templateAssetDirectory" aria-label="当前模板目录">工程根目录</output>
+        <button class="mini-icon-button" id="refreshTemplateAssetsButton" type="button" title="刷新" aria-label="刷新对象模板目录"><i data-lucide="refresh-cw"></i></button>
+      </nav>
+      <div class="map-asset-list" id="templateAssetList" role="listbox" aria-label="工程对象模板"></div>
+      <button class="secondary-button map-asset-load-more" id="loadMoreTemplateAssetsButton" type="button" hidden><i data-lucide="chevrons-down"></i><span>加载更多</span></button>
+      <p class="dialog-state" id="templateAssetState" role="status" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="cancelTemplateImportButton" type="button"><span>取消</span></button>
+        <button class="primary-button" id="importTemplateButton" type="button" disabled><i data-lucide="package-plus"></i><span>加入当前对象层</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog map-asset-dialog" id="assetLibraryDialog" aria-labelledby="assetLibraryTitle">
+      <div class="dialog-heading">
+        <i data-lucide="library"></i>
+        <div>
+          <h2 id="assetLibraryTitle">工程素材库</h2>
+          <p>按名称、路径或标签搜索；收藏和最近使用只保存在当前用户的工程状态中</p>
+        </div>
+        <button class="mini-icon-button" id="closeAssetLibraryButton" type="button" title="关闭" aria-label="关闭工程素材库"><i data-lucide="x"></i></button>
+      </div>
+      <div class="asset-library-controls">
+        <input id="assetLibrarySearch" type="search" placeholder="搜索图片、TSJ、模板或组合 TMJ" aria-label="搜索工程素材" minlength="2" maxlength="100" />
+        <select id="assetLibraryKind" aria-label="素材类型"><option value="">全部类型</option><option value="image">图片</option><option value="tileset">TSJ</option><option value="template">对象模板</option><option value="map">组合 TMJ/地图</option></select>
+        <label><input id="assetLibraryFavoritesOnly" type="checkbox" /><span>仅收藏</span></label>
+        <button class="secondary-button" id="crossProjectImportButton" type="button"><i data-lucide="copy-plus"></i><span>从其他工程复制</span></button>
+      </div>
+      <div class="map-asset-list" id="assetLibraryList" role="listbox" aria-label="工程素材库结果"></div>
+      <p class="dialog-state" id="assetLibraryState" role="status" aria-live="polite"></p>
+    </dialog>
+
+    <dialog class="map-dialog map-asset-dialog" id="crossProjectImportDialog" aria-labelledby="crossProjectImportTitle">
+      <div class="dialog-heading">
+        <i data-lucide="copy-plus"></i>
+        <div>
+          <h2 id="crossProjectImportTitle">跨工程复制素材</h2>
+          <p>先生成依赖清单，再明确确认；源工程不会被修改，目标文件不会静默覆盖。</p>
+        </div>
+        <button class="mini-icon-button" id="closeCrossProjectImportButton" type="button" title="关闭" aria-label="关闭跨工程复制"><i data-lucide="x"></i></button>
+      </div>
+      <label class="dialog-field" for="crossProjectImportProject"><span>源工程</span><select id="crossProjectImportProject"><option value="">正在读取工程…</option></select></label>
+      <label class="dialog-field" for="crossProjectImportSourcePath"><span>源素材路径</span><input id="crossProjectImportSourcePath" placeholder="例如：tiles/terrain.tsj" autocomplete="off" /></label>
+      <label class="dialog-field" for="crossProjectImportTargetPath"><span>目标素材路径</span><input id="crossProjectImportTargetPath" placeholder="例如：maps/imported-terrain.tsj" autocomplete="off" /></label>
+      <p class="dialog-state" id="crossProjectImportState" role="status" aria-live="polite"></p>
+      <div class="map-import-plan" id="crossProjectImportPlan" hidden></div>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="planCrossProjectImportButton" type="button"><i data-lucide="list-checks"></i><span>生成依赖计划</span></button>
+        <button class="secondary-button" id="cancelCrossProjectImportButton" type="button"><span>取消</span></button>
+        <button class="primary-button" id="confirmCrossProjectImportButton" type="button" disabled><i data-lucide="check-check"></i><span>确认复制</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog map-close-dialog" id="mapCloseDialog" aria-labelledby="mapCloseTitle">
+      <div class="dialog-heading"><i data-lucide="file-warning"></i><h2 id="mapCloseTitle">保存地图修改？</h2></div>
+      <p id="mapCloseDetail">当前地图有未保存修改。你可以先保存、放弃修改，或取消关闭。</p>
+      <p class="dialog-state" id="mapCloseState" role="status" aria-live="polite"></p>
+      <div class="dialog-actions map-close-actions">
+        <button class="secondary-button" id="cancelMapCloseButton" type="button"><span>取消</span></button>
+        <button class="secondary-button danger-button" id="discardMapCloseButton" type="button"><i data-lucide="trash-2"></i><span>放弃修改</span></button>
+        <button class="primary-button" id="saveMapCloseButton" type="button"><i data-lucide="save"></i><span>保存并关闭</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog map-revision-dialog" id="revisionDialog" aria-labelledby="revisionTitle">
+      <div class="dialog-heading">
+        <i data-lucide="history"></i>
+        <div><h2 id="revisionTitle">地图修订历史</h2><p>保存前的只读快照。恢复会生成新版本，不会删除历史记录。</p></div>
+        <button class="mini-icon-button" id="closeRevisionDialogButton" type="button" title="关闭" aria-label="关闭修订历史"><i data-lucide="x"></i></button>
+      </div>
+      <p class="dialog-state" id="revisionState" role="status" aria-live="polite">正在读取修订历史</p>
+      <div class="map-revision-list" id="revisionList" role="listbox" aria-label="地图修订列表"></div>
+      <section class="map-revision-restore" id="revisionRestorePanel" hidden>
+        <strong id="revisionRestoreTitle">恢复所选修订？</strong>
+        <p id="revisionRestoreDetail"></p>
+        <label><input id="revisionRestoreConfirm" type="checkbox" />我确认用此修订生成新的当前地图版本</label>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancelRevisionRestoreButton" type="button">取消</button>
+          <button class="primary-button" id="confirmRevisionRestoreButton" type="button" disabled><i data-lucide="rotate-ccw"></i><span>确认恢复</span></button>
+        </div>
+      </section>
+    </dialog>
+
+    <dialog class="map-dialog ai-patch-dialog" id="aiPatchDialog" aria-labelledby="aiPatchTitle">
+      <div class="dialog-heading ai-patch-heading">
+        <i data-lucide="sparkles"></i>
+        <h2 id="aiPatchTitle">AI 地图补丁</h2>
+        <button class="mini-icon-button" id="closeAiPatchDialogButton" type="button" title="关闭" aria-label="关闭 AI 地图补丁"><i data-lucide="x"></i></button>
+      </div>
+      <section class="map-ai-connection" aria-labelledby="mapAiConnectionTitle">
+        <header>
+          <div>
+            <strong id="mapAiConnectionTitle">当前对话协作</strong>
+            <span id="mapAiThreadState">未绑定当前对话</span>
+          </div>
+          <span class="map-ai-opt-in">默认关闭</span>
+        </header>
+        <p>连接后，AI 只能读取这张地图的精简结构并提交补丁提案；不会读取图片像素、自动应用补丁或保存地图。</p>
+        <div class="map-ai-connection-actions">
+          <button class="primary-button" id="connectMapAiButton" type="button"><i data-lucide="plug-zap"></i><span>连接当前对话</span></button>
+          <button class="secondary-button" id="disconnectMapAiButton" type="button" disabled><i data-lucide="unplug"></i><span>断开地图 AI</span></button>
+          <button class="secondary-button" id="refreshMapAiProposalsButton" type="button" disabled><i data-lucide="refresh-cw"></i><span>刷新提案</span></button>
+        </div>
+        <p class="dialog-state map-ai-connection-state" id="mapAiConnectionState" role="status" aria-live="polite"></p>
+        <div class="map-ai-proposal-list" id="mapAiProposalList" aria-label="地图 AI 提案收件箱"></div>
+        <p class="dialog-state map-ai-proposal-state" id="mapAiProposalState" role="status" aria-live="polite"></p>
+        <section class="map-ai-managed-access" aria-labelledby="mapAiManagedTitle">
+          <header>
+            <div><strong id="mapAiManagedTitle">AI 托管授权（可关闭编辑器继续运行）</strong><small>与上面的编辑器协作授权完全分开；授权边界是当前账号和工程，Thread 只是 AI 入口</small></div>
+            <button class="mini-icon-button" id="refreshMapAiManagedAuthorizationsButton" type="button" title="刷新托管授权" aria-label="刷新托管授权"><i data-lucide="refresh-cw"></i></button>
+          </header>
+          <p>AI 可以统筹工程内的地图、World、瓦片集、角色和资源。创建不会立即修改文件；写入仍经过工程边界、版本校验和原子事务保护。</p>
+          <dl class="map-ai-managed-scope" aria-label="当前托管授权范围">
+            <div><dt>范围</dt><dd id="mapAiManagedThread">--</dd></div>
+            <div><dt>工程</dt><dd id="mapAiManagedProject">--</dd></div>
+            <div><dt>版本</dt><dd id="mapAiManagedMapVersion">--</dd></div>
+          </dl>
+          <div class="map-ai-managed-form">
+            <label class="is-wide"><span>协作模式</span><select id="mapAiManagedMode" aria-describedby="mapAiManagedApprovalHelp"><option value="suggest">建议模式：AI 分析全工程并提交修改建议</option><option value="apply">自动应用：AI 可在安全规则内统一修改工程</option></select><small>工程路径、资源版本、跨文件事务和安全校验由服务端自动处理。</small></label>
+            <div class="map-ai-managed-legacy-fields" hidden aria-hidden="true">
+              <span>每条询问 · AI 审查 · 完全授权</span><select id="mapAiManagedApprovalPolicy"><option value="ai_review">AI 审查</option></select><select id="mapAiManagedTtl"><option value="1800000">30 分钟</option></select>
+              <input id="mapAiManagedAllowRead" type="checkbox" checked /><input id="mapAiManagedAllowPropose" type="checkbox" checked /><input id="mapAiManagedAllowApply" type="checkbox" />
+              <input id="mapAiManagedMaxBatches" value="100" /><input id="mapAiManagedMaxOperations" value="100000" /><input id="mapAiManagedProtectedTargets" value="" />
+            </div>
+          </div>
+          <section class="map-ai-collaboration-policy" aria-labelledby="mapAiCollaborationPolicyTitle" hidden>
+            <header><div><strong id="mapAiCollaborationPolicyTitle">协同区域</strong><small>人工区和锁定区会硬拒绝 AI 写入；策略变更只影响新任务</small></div><span id="mapAiCollaborationPolicyRevision">策略 0</span></header>
+            <label class="is-wide"><span>人工所有/锁定目标</span><textarea id="mapAiHumanOwnedTargets" rows="2" maxlength="8000" placeholder='JSON，例如 [{"kind":"layer","mapPath":"maps/world.tmj","layerId":3}]'></textarea></label>
+            <div class="map-ai-policy-quick-actions" aria-label="快速标记当前编辑范围">
+              <span>当前范围：</span>
+              <button class="secondary-button" type="button" data-collaboration-quick-target="human"><i data-lucide="user-round"></i><span>标为人工区</span></button>
+              <button class="secondary-button" type="button" data-collaboration-quick-target="locked"><i data-lucide="lock-keyhole"></i><span>标为锁定区</span></button>
+            </div>
+            <label class="is-wide"><span>AI 所有目标</span><textarea id="mapAiAiOwnedTargets" rows="2" maxlength="8000" placeholder="可选：JSON 目标数组"></textarea></label>
+            <label class="is-wide"><span>共享目标</span><textarea id="mapAiSharedTargets" rows="2" maxlength="8000" placeholder="可选：JSON 目标数组"></textarea></label>
+            <label class="is-wide"><span>锁定目标/保护文件</span><textarea id="mapAiLockedTargets" rows="2" maxlength="8000" placeholder='可选：JSON 目标数组；文件可写成 [{"kind":"file","path":"maps/world.tmj"}]'></textarea></label>
+            <div class="map-ai-managed-actions"><button class="secondary-button" id="saveMapAiCollaborationPolicyButton" type="button"><i data-lucide="shield-check"></i><span>保存协同策略</span></button></div>
+            <p class="dialog-state" id="mapAiCollaborationPolicyState" role="status" aria-live="polite"></p>
+          </section>
+          <p class="map-ai-managed-approval-help" id="mapAiManagedApprovalHelp">建议模式只生成可审阅的跨资源方案；自动应用会统一修改工程，但不绕过路径、版本、引用、原子保存和破坏性操作确认。固定风险规则始终生效。</p>
+          <label class="map-ai-managed-confirm"><input id="mapAiManagedConfirm" type="checkbox" />我确认以上范围，并允许 AI 协作当前工程中的设计资源</label>
+          <div class="map-ai-managed-actions"><button class="primary-button" id="createMapAiManagedAuthorizationButton" type="button"><i data-lucide="key-round"></i><span>创建托管授权</span></button></div>
+          <p class="dialog-state" id="mapAiManagedAuthorizationState" role="status" aria-live="polite"></p>
+          <div class="map-ai-managed-list" id="mapAiManagedAuthorizationList" aria-label="当前托管授权列表"></div>
+        </section>
+      </section>
+      <div class="map-ai-manual-heading">
+        <strong>手工提示词与补丁</strong>
+        <span>无需连接对话</span>
+      </div>
+      <label class="dialog-field" for="aiEditRequest">
+        <span>地图修改要求</span>
+        <textarea id="aiEditRequest" rows="3" maxlength="4000" spellcheck="true"></textarea>
+      </label>
+      <div class="ai-prompt-action">
+        <button class="secondary-button" id="copyAiPromptButton" type="button"><i data-lucide="copy"></i><span>复制地图编辑提示词</span></button>
+      </div>
+      <label class="dialog-field" for="aiPatchSource">
+        <span>结构化补丁 JSON</span>
+        <textarea id="aiPatchSource" rows="9" spellcheck="false" autocomplete="off"></textarea>
+      </label>
+      <p class="dialog-state" id="aiPatchState" role="status" aria-live="polite"></p>
+      <section class="ai-patch-preview" id="aiPatchPreview" aria-labelledby="aiPatchPreviewSummary" hidden>
+        <header>
+          <strong id="aiPatchPreviewSummary"></strong>
+          <span id="aiPatchPreviewCount"></span>
+        </header>
+        <ol id="aiPatchPreviewList"></ol>
+      </section>
+      <div class="dialog-actions ai-patch-actions">
+        <button class="secondary-button" id="cancelAiPatchButton" type="button"><span>关闭</span></button>
+        <button class="secondary-button" id="previewAiPatchButton" type="button"><i data-lucide="scan-search"></i><span>预览补丁</span></button>
+        <button class="primary-button" id="applyAiPatchButton" type="button" disabled><i data-lucide="check"></i><span>应用到当前窗口</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog automap-dialog" id="autoMapDialog" aria-labelledby="autoMapTitle">
+      <div class="dialog-heading automap-heading">
+        <i data-lucide="workflow"></i>
+        <div>
+          <h2 id="autoMapTitle">Tiled AutoMap</h2>
+          <p>按 Tiled 规则生成确定性预览；只有明确应用后才修改当前窗口，且不会自动保存。</p>
+        </div>
+        <button class="mini-icon-button" id="closeAutoMapDialogButton" type="button" title="关闭" aria-label="关闭 Tiled AutoMap"><i data-lucide="x"></i></button>
+      </div>
+      <section class="automap-source" aria-label="Automapping 规则来源">
+        <span>实际规则入口</span>
+        <output id="autoMapRulesPath">正在查找地图旁 rules.txt</output>
+        <small id="autoMapRulesOrigin">地图旁规则优先；否则使用 .tiled-project 的 automappingRulesFile。</small>
+      </section>
+      <div class="automap-controls">
+        <label class="dialog-field" for="autoMapSeed">
+          <span>Seed</span>
+          <span class="automap-seed-input"><input id="autoMapSeed" type="number" min="0" max="4294967295" step="1" value="1" inputmode="numeric" /><button class="mini-icon-button" id="randomizeAutoMapSeedButton" type="button" title="生成随机 Seed" aria-label="生成随机 AutoMap Seed"><i data-lucide="shuffle"></i></button></span>
+          <small>相同地图、规则和 Seed 会得到相同预览。</small>
+        </label>
+        <label class="automap-while-drawing" for="autoMapWhileDrawing">
+          <input id="autoMapWhileDrawing" type="checkbox" />
+          <span><strong>AutoMap While Drawing</strong><small>默认关闭。开启后，每笔画笔结束时只处理受影响区域，并与该笔合并为一个撤销项。</small></span>
+        </label>
+      </div>
+      <p class="dialog-state" id="autoMapState" role="status" aria-live="polite"></p>
+      <section class="automap-preview" id="autoMapPreview" aria-labelledby="autoMapPreviewSummary" hidden>
+        <header><strong id="autoMapPreviewSummary"></strong><span id="autoMapPreviewCount"></span></header>
+        <dl id="autoMapPreviewStats"></dl>
+        <ol id="autoMapRuleList"></ol>
+      </section>
+      <div class="dialog-actions automap-actions">
+        <button class="secondary-button" id="cancelAutoMapButton" type="button"><span>取消</span></button>
+        <button class="secondary-button" id="previewAutoMapButton" type="button" disabled><i data-lucide="scan-search"></i><span>生成预览</span></button>
+        <button class="primary-button" id="applyAutoMapButton" type="button" disabled><i data-lucide="check"></i><span>应用预览</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="map-dialog map-image-dialog" id="mapImageDialog" aria-labelledby="mapImageTitle">
+      <div class="dialog-heading map-image-heading">
+        <i data-lucide="image-plus"></i>
+        <div>
+          <h2 id="mapImageTitle">地图 AI / 内置生图</h2>
+          <p>生成、编辑或扩展地图美术候选。候选不会自动加入地图、保存或进入对话上下文。</p>
+        </div>
+        <button class="mini-icon-button" id="closeMapImageDialogButton" type="button" title="关闭" aria-label="关闭地图内置生图"><i data-lucide="x"></i></button>
+      </div>
+      <form id="mapImageForm">
+        <div class="map-image-form-grid">
+          <fieldset class="map-image-operation-field is-wide" id="mapImageOperation">
+            <legend>操作</legend>
+            <div class="map-image-operation-segments" role="radiogroup" aria-describedby="mapImageOperationState">
+              <label data-map-image-operation-item="generate">
+                <input id="mapImageOperationGenerate" type="radio" name="mapImageOperation" value="generate" checked />
+                <span><i data-lucide="wand-sparkles"></i><b>生成</b></span>
+              </label>
+              <label data-map-image-operation-item="edit">
+                <input id="mapImageOperationEdit" type="radio" name="mapImageOperation" value="edit" />
+                <span><i data-lucide="paintbrush"></i><b>编辑</b></span>
+              </label>
+              <label data-map-image-operation-item="outpaint">
+                <input id="mapImageOperationOutpaint" type="radio" name="mapImageOperation" value="outpaint" />
+                <span><i data-lucide="expand"></i><b>裁剪/扩图</b></span>
+              </label>
+            </div>
+            <output id="mapImageOperationState" role="status" aria-live="polite">正在读取操作能力</output>
+          </fieldset>
+          <label class="dialog-field" for="mapImageKind">
+            <span>候选类型</span>
+            <select id="mapImageKind">
+              <option value="plant">透明植物</option>
+              <option value="prop">透明地图物件</option>
+              <option value="tileset">瓦片集图集</option>
+              <option value="terrain">无缝地块</option>
+              <option value="background">完整背景</option>
+            </select>
+            <small id="mapImageKindState">透明单体或小型植物簇，保留完整轮廓和地面接触点，适合素材库重复摆放。</small>
+          </label>
+          <label class="dialog-field" for="mapImageSize">
+            <span>图片尺寸</span>
+            <select id="mapImageSize" disabled></select>
+          </label>
+          <label class="dialog-field" for="mapImageQuality">
+            <span>图片质量</span>
+            <select id="mapImageQuality" disabled></select>
+          </label>
+          <div class="dialog-field map-image-source-field" id="mapImageSourceField" hidden>
+            <span>源图片（仅当前窗口授权资源）</span>
+            <div class="map-image-source-control"><output id="mapImageSourceState">尚未选择</output><div class="map-image-source-actions"><button class="secondary-button" id="mapImageSourceButton" type="button"><i data-lucide="folder-open"></i><span>选择工程图片</span></button><button class="secondary-button" id="mapImageLayerSourceButton" type="button"><i data-lucide="layers-3"></i><span>当前图片层</span></button></div></div>
+            <div class="map-image-selection-control"><output id="mapImageSelectionState">未使用地图选区</output><button class="secondary-button" id="mapImageSelectionButton" type="button"><i data-lucide="scan-area"></i><span>使用当前选区截图</span></button></div>
+            <label class="map-image-local-input"><span>或选择本地源图</span><input id="mapImageSourceFile" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" /></label>
+          </div>
+          <div class="dialog-field map-image-mask-field" id="mapImageMaskField" hidden>
+            <span>编辑蒙版（可选，透明区域表示编辑）</span>
+            <div class="map-image-source-control"><output id="mapImageMaskState">未选择蒙版</output><button class="secondary-button" id="mapImageMaskButton" type="button"><i data-lucide="scan"></i><span>选择蒙版图片</span></button><button class="secondary-button" id="mapImageMaskClearButton" type="button">清除</button></div>
+            <label class="map-image-local-input"><span>或选择本地 PNG 蒙版</span><input id="mapImageMaskFile" type="file" accept="image/png,.png" /></label>
+          </div>
+          <fieldset class="map-image-outpaint-fields" id="mapImageOutpaintFields" hidden>
+            <legend>裁剪 / 扩图边界</legend>
+            <div class="map-image-boundary-workspace">
+              <canvas id="mapImageBoundaryCanvas" aria-label="源图裁剪和扩图边界；拖动四边手柄调整"></canvas>
+              <p id="mapImageBoundaryEmpty">选择源图片后可拖动四边边界</p>
+            </div>
+            <div class="map-image-boundary-controls">
+              <label><span>单位</span><select id="mapImageBoundaryUnit"><option value="pixel">像素</option><option value="tile">瓦片</option></select></label>
+              <label><span>步长</span><input id="mapImageBoundaryStep" type="number" min="1" max="1024" step="1" value="1" /></label>
+              <button class="secondary-button" id="mapImageBoundaryResetButton" type="button"><i data-lucide="rotate-ccw"></i><span>重置边界</span></button>
+              <small>正数向外扩图，负数向内裁剪</small>
+            </div>
+            <label><span>上边界</span><input id="mapImageExpandTop" type="number" min="-3840" max="3840" step="1" value="0" /></label>
+            <label><span>右边界</span><input id="mapImageExpandRight" type="number" min="-3840" max="3840" step="1" value="0" /></label>
+            <label><span>下边界</span><input id="mapImageExpandBottom" type="number" min="-3840" max="3840" step="1" value="0" /></label>
+            <label><span>左边界</span><input id="mapImageExpandLeft" type="number" min="-3840" max="3840" step="1" value="0" /></label>
+            <label><span>原图保留</span><select id="mapImagePreserveSource"><option value="exact">精确保留</option><option value="seamless">无缝过渡</option></select></label>
+            <label><span>过渡宽度</span><input id="mapImageBlendMargin" type="number" min="1" max="512" step="1" value="64" /></label>
+            <label class="is-wide"><span>尺寸对齐</span><select id="mapImageAlignmentPolicy"><option value="reject">不自动调整</option><option value="pad-and-crop">补边后裁切</option><option value="rescale-and-crop">缩放后裁切</option></select></label>
+            <dl class="map-image-boundary-summary">
+              <div><dt>源图</dt><dd id="mapImageBoundarySourceSize">--</dd></div>
+              <div><dt>裁后源图</dt><dd id="mapImageBoundaryCroppedSize">--</dd></div>
+              <div><dt>逻辑目标</dt><dd id="mapImageBoundaryTargetSize">--</dd></div>
+              <div><dt>供应商画布</dt><dd id="mapImageBoundaryProviderSize">--</dd></div>
+            </dl>
+            <p class="map-image-boundary-state" id="mapImageBoundaryState" role="status" aria-live="polite"></p>
+          </fieldset>
+          <label class="dialog-field is-wide" for="mapImagePrompt">
+            <span>素材描述</span>
+            <textarea id="mapImagePrompt" rows="4" maxlength="4000" placeholder="例如：与当前森林地图一致的手绘蕨类植物，俯视角，完整轮廓，可复用单体素材" spellcheck="true"></textarea>
+          </label>
+        </div>
+        <p class="map-image-capabilities" id="mapImageCapabilities">正在读取图片能力</p>
+        <p class="dialog-state" id="mapImageState" role="status" aria-live="polite"></p>
+        <div class="dialog-actions map-image-form-actions">
+          <button class="secondary-button" id="refreshMapImageButton" type="button"><i data-lucide="refresh-cw"></i><span>刷新状态</span></button>
+          <button class="primary-button" id="mapImageSubmitButton" type="submit" disabled><i data-lucide="sparkles"></i><span>生成候选</span></button>
+        </div>
+      </form>
+      <section class="map-image-results" aria-labelledby="mapImageResultsTitle">
+        <header>
+          <h3 id="mapImageResultsTitle">本窗口候选任务</h3>
+          <span>先发布工程文件，再明确加入图片层或瓦片集草稿</span>
+        </header>
+        <div class="map-image-job-list" id="mapImageJobList"></div>
+      </section>
+    </dialog>
+
+        <dialog class="map-dialog" id="gamePreviewDialog" aria-labelledby="gamePreviewTitle">
+      <div class="dialog-heading"><i data-lucide="gamepad-2"></i><h2 id="gamePreviewTitle">游戏预览</h2></div>
+      <label class="dialog-field" for="gamePreviewEntry">
+        <span>HTML 入口</span>
+        <select id="gamePreviewEntry"></select>
+      </label>
+      <p class="dialog-state" id="gamePreviewState" role="status"></p>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="cancelGamePreviewButton" type="button"><span>取消</span></button>
+        <button class="primary-button" id="openGamePreviewButton" type="button" disabled><i data-lucide="external-link"></i><span>打开预览</span></button>
+      </div>
+        </dialog>
+
+        <dialog class="map-dialog managed-task-dialog" id="managedTaskDialog" aria-labelledby="managedTaskTitle">
+          <div class="dialog-heading">
+            <i data-lucide="list-checks"></i>
+            <h2 id="managedTaskTitle">AI 托管任务详情</h2>
+            <button class="mini-icon-button" id="closeManagedTaskDialogButton" type="button" title="关闭" aria-label="关闭托管任务详情"><i data-lucide="x"></i></button>
+          </div>
+          <section class="managed-task-summary" aria-label="托管任务状态">
+            <header><strong id="managedTaskSummaryTitle">地图 AI 托管</strong><span id="managedTaskStatusBadge"></span></header>
+            <dl>
+              <div><dt>阶段</dt><dd id="managedTaskStage">--</dd></div>
+              <div><dt>操作</dt><dd id="managedTaskOperation">--</dd></div>
+              <div><dt>Worker</dt><dd id="managedTaskWorker">--</dd></div>
+              <div><dt>校验</dt><dd id="managedTaskValidation">--</dd></div>
+              <div><dt>基础版本</dt><dd id="managedTaskBaseVersion">--</dd></div>
+              <div><dt>当前版本</dt><dd id="managedTaskCurrentVersion">--</dd></div>
+            </dl>
+          </section>
+          <p class="dialog-state" id="managedTaskDetailState" role="status" aria-live="polite"></p>
+          <section class="managed-task-receipt" aria-labelledby="managedTaskRiskTitle">
+            <h3 id="managedTaskRiskTitle">风险收据</h3>
+            <pre id="managedTaskRiskReceipt"></pre>
+          </section>
+          <section class="managed-task-receipt" aria-labelledby="managedTaskDiffTitle">
+            <h3 id="managedTaskDiffTitle">结构化差异</h3>
+            <div id="managedTaskDiffReceipt"></div>
+          </section>
+          <section class="managed-task-receipt" aria-labelledby="managedTaskEventsTitle">
+            <h3 id="managedTaskEventsTitle">最近事件</h3>
+            <ol id="managedTaskEventReceipt"></ol>
+          </section>
+          <div class="dialog-actions managed-task-actions">
+            <button class="secondary-button" id="managedTaskPauseButton" type="button">暂停</button>
+            <button class="secondary-button" id="managedTaskResumeButton" type="button">恢复</button>
+            <button class="secondary-button" id="managedTaskTakeoverButton" type="button">人工接管</button>
+            <button class="secondary-button is-danger" id="managedTaskCancelButton" type="button">取消</button>
+            <button class="primary-button" id="managedTaskApproveButton" type="button">批准并执行</button>
+          </div>
+        </dialog>
+
+        <dialog class="map-dialog managed-authorization-confirm-dialog" id="managedAuthorizationConfirmDialog" aria-labelledby="managedAuthorizationConfirmTitle">
+          <div class="dialog-heading">
+            <i data-lucide="shield-alert"></i>
+            <h2 id="managedAuthorizationConfirmTitle">撤销 AI 托管授权？</h2>
+          </div>
+          <p id="managedAuthorizationConfirmDetail">撤销后不能再用此授权创建托管任务，已运行任务也会停止后续批次。地图文件不会被删除或回滚。</p>
+          <p class="dialog-state" id="managedAuthorizationConfirmState" role="status" aria-live="polite"></p>
+          <div class="dialog-actions">
+            <button class="secondary-button" id="cancelManagedAuthorizationConfirmButton" type="button">取消</button>
+            <button class="secondary-button is-danger" id="confirmManagedAuthorizationRevokeButton" type="button"><i data-lucide="ban"></i><span>确认撤销</span></button>
+          </div>
+        </dialog>
+
+        <dialog class="map-dialog managed-authorization-transfer-dialog" id="managedAuthorizationTransferDialog" aria-labelledby="managedAuthorizationTransferTitle">
+          <div class="dialog-heading">
+            <i data-lucide="git-branch"></i>
+            <h2 id="managedAuthorizationTransferTitle">转交 AI 托管授权</h2>
+          </div>
+          <p id="managedAuthorizationTransferDetail">转交后，旧 Thread 不能再创建或继续执行此授权的任务；地图文件和批准策略保持不变。目标 Thread 必须属于同一工程。</p>
+          <label class="dialog-field" for="managedAuthorizationTransferTarget">
+            <span>目标 Thread</span>
+            <select id="managedAuthorizationTransferTarget" aria-label="选择托管授权目标 Thread"></select>
+          </label>
+          <p class="dialog-state" id="managedAuthorizationTransferState" role="status" aria-live="polite"></p>
+          <div class="dialog-actions">
+            <button class="secondary-button" id="cancelManagedAuthorizationTransferButton" type="button">取消</button>
+            <button class="primary-button" id="confirmManagedAuthorizationTransferButton" type="button"><i data-lucide="arrow-right-left"></i><span>确认转交</span></button>
+          </div>
+        </dialog>
+
+        <dialog class="map-dialog managed-authorization-audit-dialog" id="managedAuthorizationAuditDialog" aria-labelledby="managedAuthorizationAuditTitle">
+          <div class="dialog-heading">
+            <i data-lucide="list-checks"></i>
+            <h2 id="managedAuthorizationAuditTitle">托管授权审计</h2>
+            <button class="mini-icon-button" id="closeManagedAuthorizationAuditButton" type="button" title="关闭" aria-label="关闭托管授权审计"><i data-lucide="x"></i></button>
+          </div>
+          <p id="managedAuthorizationAuditSummary" class="dialog-state">--</p>
+          <ol id="managedAuthorizationAuditList" class="managed-authorization-audit-list" aria-label="托管授权审计记录"></ol>
+        </dialog>
+
+        <dialog class="map-dialog export-dialog" id="exportDialog" aria-labelledby="exportDialogTitle">
+      <div class="dialog-heading export-dialog-heading">
+        <i data-lucide="package-open"></i>
+        <h2 id="exportDialogTitle">地图导出</h2>
+        <button class="mini-icon-button" id="closeExportDialogButton" type="button" title="关闭导出" aria-label="关闭导出"><i data-lucide="x"></i></button>
+      </div>
+      <div class="export-tabs" role="tablist" aria-label="地图导出视图">
+        <button id="exportCreateTab" type="button" role="tab" aria-controls="exportCreatePanel" aria-selected="true"><i data-lucide="plus"></i><span>新建</span></button>
+        <button id="exportJobsTab" type="button" role="tab" aria-controls="exportJobsPanel" aria-selected="false"><i data-lucide="list-checks"></i><span>任务</span></button>
+      </div>
+
+      <section id="exportCreatePanel" role="tabpanel" aria-labelledby="exportCreateTab">
+        <form id="exportForm">
+          <div class="export-form-grid">
+            <label class="dialog-field" for="exportKind">
+              <span>类型</span>
+              <select id="exportKind">
+                <option value="map-screenshot">地图截图</option>
+                <option value="game-screenshot">游戏截图</option>
+                <option value="map-panorama">完整全景图</option>
+                <option value="map-tiles">地图切片</option>
+                <option value="map-animation">动画帧序列</option>
+                <option value="map-video">视频</option>
+                <option value="map-batch">批量导出</option>
+              </select>
+            </label>
+            <label class="dialog-field" for="exportOutputRoot">
+              <span>工程输出目录</span>
+              <input id="exportOutputRoot" value="map-exports" maxlength="512" autocomplete="off" required />
+            </label>
+          </div>
+
+          <div class="export-fields" data-export-kinds="map-screenshot">
+            <label class="dialog-field" for="screenshotWidth"><span>宽度</span><input id="screenshotWidth" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="dialog-field" for="screenshotHeight"><span>高度</span><input id="screenshotHeight" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="dialog-field" for="screenshotFormat"><span>格式</span><select id="screenshotFormat"><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+            <label class="dialog-field" for="screenshotMode"><span>视图</span><select id="screenshotMode"><option value="fit">适合画布</option><option value="scale">精确比例</option></select></label>
+            <label class="dialog-field" for="screenshotScale"><span>比例</span><input id="screenshotScale" type="number" min="0.01" max="16" step="0.01" value="1" required /></label>
+            <label class="dialog-field" for="screenshotTime"><span>动画时间 ms</span><input id="screenshotTime" type="number" min="0" max="3600000" step="1" value="0" required /></label>
+            <label class="dialog-field" for="screenshotOffsetX"><span>X 偏移</span><input id="screenshotOffsetX" type="number" min="-1000000000" max="1000000000" step="1" value="0" required /></label>
+            <label class="dialog-field" for="screenshotOffsetY"><span>Y 偏移</span><input id="screenshotOffsetY" type="number" min="-1000000000" max="1000000000" step="1" value="0" required /></label>
+          </div>
+
+          <div class="export-fields" data-export-kinds="game-screenshot" hidden>
+            <label class="dialog-field is-wide" for="exportGameEntry"><span>HTML 入口</span><select id="exportGameEntry" required></select></label>
+            <label class="dialog-field" for="gameScreenshotWidth"><span>宽度</span><input id="gameScreenshotWidth" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="dialog-field" for="gameScreenshotHeight"><span>高度</span><input id="gameScreenshotHeight" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="export-toggle is-wide"><input id="gameScreenshotFullPage" type="checkbox" /><span>完整页面</span></label>
+          </div>
+
+          <div class="export-fields" data-export-kinds="map-panorama" hidden>
+            <label class="dialog-field" for="panoramaScale"><span>比例</span><input id="panoramaScale" type="number" min="0.01" max="16" step="0.01" required /></label>
+            <label class="dialog-field" for="panoramaFormat"><span>格式</span><select id="panoramaFormat"><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+            <label class="dialog-field" for="panoramaTime"><span>动画时间 ms</span><input id="panoramaTime" type="number" min="0" max="3600000" step="1" value="0" required /></label>
+          </div>
+
+          <div class="export-fields" data-export-kinds="map-tiles" hidden>
+            <label class="dialog-field" for="tileExportWidth"><span>切片宽度</span><input id="tileExportWidth" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="dialog-field" for="tileExportHeight"><span>切片高度</span><input id="tileExportHeight" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="dialog-field" for="tileExportScale"><span>比例</span><input id="tileExportScale" type="number" min="0.01" max="16" step="0.01" required /></label>
+            <label class="dialog-field" for="tileExportFormat"><span>格式</span><select id="tileExportFormat"><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+            <label class="dialog-field" for="tileExportTime"><span>动画时间 ms</span><input id="tileExportTime" type="number" min="0" max="3600000" step="1" value="0" required /></label>
+          </div>
+
+          <div class="export-fields" data-export-kinds="map-animation" hidden>
+            <label class="dialog-field" for="animationWidth"><span>宽度</span><input id="animationWidth" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="dialog-field" for="animationHeight"><span>高度</span><input id="animationHeight" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="dialog-field" for="animationFps"><span>帧率</span><input id="animationFps" type="number" min="1" max="240" step="1" required /></label>
+            <label class="dialog-field" for="animationDuration"><span>时长 ms</span><input id="animationDuration" type="number" min="100" max="3600000" step="100" required /></label>
+            <label class="dialog-field" for="animationFormat"><span>格式</span><select id="animationFormat"><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+          </div>
+
+          <div class="export-fields" data-export-kinds="map-video" hidden>
+            <label class="dialog-field" for="videoWidth"><span>宽度</span><input id="videoWidth" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="dialog-field" for="videoHeight"><span>高度</span><input id="videoHeight" type="number" min="1" max="32767" step="1" required /></label>
+            <label class="dialog-field" for="videoFps"><span>帧率</span><input id="videoFps" type="number" min="1" max="240" step="1" required /></label>
+            <label class="dialog-field" for="videoDuration"><span>时长 ms</span><input id="videoDuration" type="number" min="100" max="3600000" step="100" required /></label>
+            <label class="dialog-field" for="videoCodec"><span>编码</span><select id="videoCodec"><option value="libvpx-vp9">WebM VP9</option><option value="libx264">MP4 H.264</option></select></label>
+            <label class="dialog-field" for="videoCrf"><span>CRF</span><input id="videoCrf" type="number" min="0" max="63" step="1" required /></label>
+          </div>
+
+          <fieldset class="export-batch" data-export-kinds="map-batch" hidden>
+            <legend>输出项</legend>
+            <label><input type="checkbox" value="map-screenshot" checked /><span>地图截图</span></label>
+            <label><input type="checkbox" value="map-panorama" checked /><span>完整全景图</span></label>
+            <label><input type="checkbox" value="map-tiles" /><span>地图切片</span></label>
+            <label><input type="checkbox" value="map-animation" /><span>动画帧序列</span></label>
+            <label><input type="checkbox" value="map-video" /><span>视频</span></label>
+          </fieldset>
+
+          <p class="dialog-state export-create-state" id="exportCreateState" role="status" aria-live="polite"></p>
+          <div class="dialog-actions">
+            <button class="secondary-button" id="cancelExportButton" type="button"><span>关闭</span></button>
+            <button class="primary-button" id="startExportButton" type="submit" disabled><i data-lucide="play"></i><span>创建任务</span></button>
+          </div>
+        </form>
+      </section>
+
+      <section id="exportJobsPanel" role="tabpanel" aria-labelledby="exportJobsTab" hidden>
+        <div class="export-job-list" id="exportJobList"></div>
+        <div class="export-job-detail" id="exportJobDetail">
+          <p class="dialog-state" id="exportJobState" role="status" aria-live="polite">暂无导出任务</p>
+          <div class="export-file-list" id="exportFileList"></div>
+          <div class="dialog-actions export-job-actions">
+            <button class="secondary-button" id="cancelRenderJobButton" type="button" hidden><i data-lucide="square"></i><span>取消任务</span></button>
+            <a class="primary-button" id="downloadRenderArchive" href="#" download hidden><i data-lucide="archive"></i><span>下载整包</span></a>
+          </div>
+        </div>
+      </section>
+    </dialog>
+
+    <script src="/vendor/lucide/lucide.min.js?v=0.44.55"></script>
+    <script src="/vendor/pixi/pixi.min.js?v=0.44.55"></script>
+    <script src="/vendor/pixi/packages/advanced-blend-modes.min.js?v=0.44.55"></script>
+    <script src="/vendor/pixi/packages/unsafe-eval.min.js?v=0.44.55"></script>
+    <script type="module" src="/map-editor/map-editor.js?v=0.44.55"></script>
+  </body>
+</html>

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>WFL 瓦片集编辑器</title>
+    <link rel="stylesheet" href="/map-editor/tileset-editor.css?v=0.44.55" />
+  </head>
+  <body>
+    <div class="tileset-app" id="tilesetApp" data-state="loading">
+      <header class="tileset-topbar">
+        <button class="icon-button mobile-only" id="tilesPanelButton" type="button" title="瓦片列表" aria-label="打开瓦片列表"><i data-lucide="layout-grid"></i></button>
+        <div class="tileset-identity">
+          <span class="tileset-product">WFL TILESET</span>
+          <div>
+            <h1 id="tilesetTitle">瓦片集编辑器</h1>
+            <p id="tilesetMeta">正在建立会话</p>
+          </div>
+        </div>
+        <div class="tileset-toolbar" role="toolbar" aria-label="瓦片集编辑工具">
+          <button class="icon-button mobile-only" id="inspectorPanelButton" type="button" title="属性" aria-label="打开瓦片集属性"><i data-lucide="panel-right"></i></button>
+          <button class="icon-button" id="saveButton" type="button" title="保存瓦片集" aria-label="保存瓦片集" disabled><i data-lucide="save"></i></button>
+          <button class="icon-button" id="undoButton" type="button" title="撤销" aria-label="撤销" disabled><i data-lucide="undo-2"></i></button>
+          <button class="icon-button" id="redoButton" type="button" title="重做" aria-label="重做" disabled><i data-lucide="redo-2"></i></button>
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <button class="icon-button" id="zoomOutButton" type="button" title="缩小" aria-label="缩小" disabled><i data-lucide="zoom-out"></i></button>
+          <output id="zoomLabel" aria-label="当前缩放">100%</output>
+          <button class="icon-button" id="zoomInButton" type="button" title="放大" aria-label="放大" disabled><i data-lucide="zoom-in"></i></button>
+          <button class="icon-button" id="fitButton" type="button" title="适合窗口" aria-label="适合窗口" disabled><i data-lucide="scan"></i></button>
+          <button class="icon-button" id="closeButton" type="button" title="关闭窗口" aria-label="关闭窗口"><i data-lucide="x"></i></button>
+        </div>
+      </header>
+
+      <div class="tileset-workspace">
+        <aside class="tileset-tile-panel" aria-labelledby="tileListTitle">
+          <header>
+            <div><h2 id="tileListTitle">瓦片</h2><span id="tileCount">0</span></div>
+            <div class="tile-list-actions">
+              <button class="mini-icon-button" id="addCollectionImageButton" type="button" title="添加集合图片" aria-label="添加集合图片" disabled><i data-lucide="image-plus"></i></button>
+              <button class="mini-icon-button is-danger" id="removeCollectionImageButton" type="button" title="移除所选图片" aria-label="移除所选集合图片" disabled><i data-lucide="trash-2"></i></button>
+            </div>
+          </header>
+          <div class="tileset-tile-list" id="tileList" role="listbox" aria-label="瓦片列表"></div>
+          <footer class="tile-pager">
+            <button class="mini-icon-button" id="previousPageButton" type="button" title="上一页" aria-label="上一页" disabled><i data-lucide="chevron-left"></i></button>
+            <output id="pageLabel">0 / 0</output>
+            <button class="mini-icon-button" id="nextPageButton" type="button" title="下一页" aria-label="下一页" disabled><i data-lucide="chevron-right"></i></button>
+          </footer>
+        </aside>
+
+        <main class="tileset-stage" id="tilesetStage">
+          <canvas id="tilesetCanvas" aria-label="瓦片集预览画布"></canvas>
+          <div class="tileset-load-state" id="loadState" role="status" aria-live="polite">
+            <span class="tileset-loader" aria-hidden="true"></span>
+            <strong id="loadTitle">正在读取瓦片集</strong>
+            <span id="loadDetail">0%</span>
+            <button class="secondary-button" id="retryButton" type="button" hidden><i data-lucide="rotate-ccw"></i><span>重试</span></button>
+          </div>
+          <div class="canvas-hint"><i data-lucide="move"></i><span>拖动画布</span></div>
+        </main>
+
+        <aside class="tileset-inspector" aria-labelledby="inspectorTitle">
+          <section class="inspector-section">
+            <header><h2 id="inspectorTitle">瓦片集</h2><span id="tilesetKind">-</span></header>
+            <form id="identityForm" class="inspector-form" autocomplete="off">
+              <label><span>名称</span><input id="tilesetName" type="text" maxlength="255" required disabled /></label>
+              <label><span>Class</span><input id="tilesetClass" type="text" maxlength="255" disabled /></label>
+              <button class="secondary-button inspector-submit" id="applyIdentityButton" type="submit" disabled><i data-lucide="check"></i><span>应用基本属性</span></button>
+            </form>
+          </section>
+
+          <section class="inspector-section" id="atlasSection">
+            <header><h2>图集网格</h2><span id="atlasDimensions">-</span></header>
+            <p class="resource-path" id="atlasImagePath">未加载图片</p>
+            <form id="atlasForm" class="inspector-form" autocomplete="off">
+              <div class="field-grid">
+                <label><span>瓦片宽</span><input id="tileWidth" type="number" min="1" step="1" disabled /></label>
+                <label><span>瓦片高</span><input id="tileHeight" type="number" min="1" step="1" disabled /></label>
+                <label><span>边距</span><input id="tileMargin" type="number" min="0" step="1" disabled /></label>
+                <label><span>间距</span><input id="tileSpacing" type="number" min="0" step="1" disabled /></label>
+              </div>
+              <label class="color-line"><input id="transparentEnabled" type="checkbox" disabled /><span>透明色</span><input id="transparentColor" type="color" value="#ff00ff" disabled /></label>
+              <button class="secondary-button inspector-submit" id="applyAtlasButton" type="submit" disabled><i data-lucide="grid-3x3"></i><span>应用网格</span></button>
+            </form>
+          </section>
+
+          <section class="inspector-section">
+            <header><h2>渲染属性</h2></header>
+            <form id="renderingForm" class="inspector-form" autocomplete="off">
+              <label><span>对象对齐</span><select id="objectAlignment" disabled><option value="unspecified">未指定</option><option value="topleft">左上</option><option value="top">上</option><option value="topright">右上</option><option value="left">左</option><option value="center">中心</option><option value="right">右</option><option value="bottomleft">左下</option><option value="bottom">下</option><option value="bottomright">右下</option></select></label>
+              <div class="field-grid">
+                <label><span>渲染尺寸</span><select id="tileRenderSize" disabled><option value="tile">Tile</option><option value="grid">Grid</option></select></label>
+                <label><span>填充</span><select id="fillMode" disabled><option value="stretch">Stretch</option><option value="preserve-aspect-fit">保持比例</option></select></label>
+                <label><span>偏移 X</span><input id="tileOffsetX" type="number" step="1" disabled /></label>
+                <label><span>偏移 Y</span><input id="tileOffsetY" type="number" step="1" disabled /></label>
+                <label><span>Grid 方向</span><select id="gridOrientation" disabled><option value="orthogonal">正交</option><option value="isometric">等距</option></select></label>
+                <span></span>
+                <label><span>Grid 宽</span><input id="gridWidth" type="number" min="1" step="1" disabled /></label>
+                <label><span>Grid 高</span><input id="gridHeight" type="number" min="1" step="1" disabled /></label>
+              </div>
+              <fieldset class="transform-fieldset">
+                <legend>允许变换</legend>
+                <label><input id="allowHFlip" type="checkbox" disabled /><span>水平翻转</span></label>
+                <label><input id="allowVFlip" type="checkbox" disabled /><span>垂直翻转</span></label>
+                <label><input id="allowRotate" type="checkbox" disabled /><span>旋转</span></label>
+                <label><input id="preferUntransformed" type="checkbox" disabled /><span>优先原图</span></label>
+              </fieldset>
+              <button class="secondary-button inspector-submit" id="applyRenderingButton" type="submit" disabled><i data-lucide="check"></i><span>应用渲染属性</span></button>
+            </form>
+          </section>
+
+          <section class="inspector-section terrain-section" id="wangSetSection">
+            <header><h2>Terrain / Wang</h2><div><button class="mini-icon-button" id="addWangSetButton" type="button" title="添加 Terrain Set" aria-label="添加 Terrain Set" disabled><i data-lucide="plus"></i></button><button class="mini-icon-button is-danger" id="removeWangSetButton" type="button" title="删除 Terrain Set" aria-label="删除 Terrain Set" disabled><i data-lucide="trash-2"></i></button></div></header>
+            <div class="wang-set-picker"><select id="wangSetSelect" aria-label="当前 Terrain Set" disabled></select></div>
+            <form id="wangSetForm" class="inspector-form" autocomplete="off" hidden>
+              <label><span>名称</span><input id="wangSetName" type="text" maxlength="255" required disabled /></label>
+              <label><span>Class</span><input id="wangSetClass" type="text" maxlength="255" disabled /></label>
+              <div class="field-grid">
+                <label><span>类型</span><select id="wangSetType" disabled><option value="mixed">混合</option><option value="edge">边</option><option value="corner">角</option></select></label>
+                <label><span>代表瓦片</span><input id="wangSetTile" type="number" min="-1" step="1" value="-1" disabled /></label>
+              </div>
+              <button class="secondary-button inspector-submit" id="applyWangSetButton" type="submit" disabled><i data-lucide="check"></i><span>应用 Terrain Set</span></button>
+            </form>
+            <div class="wang-color-heading" id="wangColorHeading" hidden><span>Terrain 颜色</span><button class="mini-icon-button" id="addWangColorButton" type="button" title="添加 Terrain 颜色" aria-label="添加 Terrain 颜色" disabled><i data-lucide="plus"></i></button></div>
+            <div class="wang-color-rows" id="wangColorRows"></div>
+            <form id="tileWangForm" class="tile-wang-form" autocomplete="off" hidden>
+              <span>当前瓦片的 8 个边角</span>
+              <div class="tile-wang-grid" id="tileWangGrid"></div>
+              <button class="secondary-button" id="applyTileWangButton" type="submit" disabled><i data-lucide="check"></i><span>应用边角</span></button>
+            </form>
+          </section>
+
+          <section class="inspector-section selected-section">
+            <header><h2>当前瓦片</h2><span id="selectedTileId">未选择</span></header>
+            <p class="resource-path" id="selectedTileImage">在画布或左侧列表选择瓦片</p>
+            <form id="tileMetadataForm" class="inspector-form tile-detail" autocomplete="off" hidden>
+              <label><span>Class</span><input id="tileClass" type="text" maxlength="255" disabled /></label>
+              <label class="probability-line"><input id="tileProbabilityEnabled" type="checkbox" disabled /><span>随机权重</span><input id="tileProbability" type="number" min="0" step="any" value="1" disabled /></label>
+              <button class="secondary-button inspector-submit" id="applyTileMetadataButton" type="submit" disabled><i data-lucide="check"></i><span>应用瓦片属性</span></button>
+            </form>
+          </section>
+
+          <section class="inspector-section tile-detail" id="tilePropertiesSection" hidden>
+            <header><h2>自定义属性</h2><button class="mini-icon-button" id="addTilePropertyButton" type="button" title="添加属性" aria-label="添加瓦片属性" disabled><i data-lucide="plus"></i></button></header>
+            <div class="tile-property-rows" id="tilePropertyRows"></div>
+          </section>
+
+          <section class="inspector-section tile-detail" id="tileAnimationSection" hidden>
+            <header><h2>动画</h2><button class="mini-icon-button" id="addAnimationFrameButton" type="button" title="添加帧" aria-label="添加动画帧" disabled><i data-lucide="plus"></i></button></header>
+            <canvas class="animation-preview" id="animationPreviewCanvas" width="276" height="104" aria-label="瓦片动画预览"></canvas>
+            <div class="animation-frame-rows" id="animationFrameRows"></div>
+          </section>
+
+          <section class="inspector-section tile-detail" id="tileCollisionSection" hidden>
+            <header><h2>碰撞</h2><span id="collisionCount">0 个</span></header>
+            <div class="collision-add-row">
+              <select id="newCollisionShape" aria-label="新碰撞形状" disabled><option value="rectangle">矩形</option><option value="ellipse">椭圆</option><option value="capsule">胶囊</option><option value="polygon">多边形</option><option value="polyline">折线</option></select>
+              <button class="secondary-button" id="addCollisionButton" type="button" disabled><i data-lucide="plus"></i><span>添加</span></button>
+            </div>
+            <div class="collision-object-rows" id="collisionObjectRows"></div>
+          </section>
+          <p class="inspector-state" id="inspectorState" role="status" aria-live="polite"></p>
+        </aside>
+      </div>
+
+      <footer class="tileset-statusbar">
+        <span class="tileset-state" id="tilesetState" data-status="loading"><i data-lucide="loader-circle"></i><span>读取中</span></span>
+        <span id="selectionState">未选择瓦片</span>
+        <span class="status-spacer"></span>
+        <span id="documentState">只读</span>
+      </footer>
+    </div>
+
+    <dialog class="tileset-dialog" id="closeDialog" aria-labelledby="closeTitle">
+      <div class="dialog-heading"><i data-lucide="save"></i><h2 id="closeTitle">保存瓦片集改动</h2></div>
+      <p>这个瓦片集有尚未保存的改动。</p>
+      <div class="dialog-actions">
+        <button class="secondary-button" id="closeCancelButton" type="button">取消</button>
+        <button class="secondary-button is-danger" id="discardCloseButton" type="button">放弃修改</button>
+        <button class="primary-button" id="saveCloseButton" type="button"><i data-lucide="save"></i><span>保存并关闭</span></button>
+      </div>
+    </dialog>
+
+    <dialog class="tileset-dialog collection-image-dialog" id="collectionImageDialog" aria-labelledby="collectionImageTitle">
+      <form id="collectionImageForm" autocomplete="off">
+        <div class="dialog-heading">
+          <i data-lucide="image-plus"></i><h2 id="collectionImageTitle">添加集合图片</h2>
+          <button class="mini-icon-button dialog-close" id="collectionImageCloseButton" type="button" title="关闭" aria-label="关闭添加集合图片"><i data-lucide="x"></i></button>
+        </div>
+        <label class="dialog-field"><span>搜索工程图片</span><input id="collectionImageSearch" type="search" maxlength="100" placeholder="PNG、JPEG 或 WebP" /></label>
+        <div class="collection-image-list" id="collectionImageList" role="listbox" aria-label="可添加的工程图片"></div>
+        <p class="dialog-state" id="collectionImageState" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button class="secondary-button" id="collectionImageCancelButton" type="button">取消</button>
+          <button class="primary-button" id="collectionImageSubmitButton" type="submit" disabled><i data-lucide="plus"></i><span>添加图片</span></button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/vendor/lucide/lucide.min.js?v=0.44.55"></script>
+    <script type="module" src="/map-editor/tileset-editor.js?v=0.44.55"></script>
+  </body>
+</html>

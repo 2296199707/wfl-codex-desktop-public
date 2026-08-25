@@ -1,0 +1,28 @@
+{
+  "name": "@wfl/windows-host",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Outbound-only Windows companion for WFL Codex Desktop.",
+  "files": [
+    "README.zh-CN.md",
+    "npm-shrinkwrap.json",
+    "scripts",
+    "src",
+    "start.cmd"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/main.mjs start",
+    "pair": "node src/main.mjs pair",
+    "status": "node src/main.mjs status",
+    "check": "node --check src/main.mjs && node --check src/agent.mjs && node --check src/config.mjs && node --check src/codex-host.mjs && node --check src/codex-rpc-client.mjs && node --check src/creator-host.mjs && node --check src/windows-host-policy.mjs"
+  },
+  "dependencies": {
+    "docx": "^9.5.1",
+    "pptxgenjs": "^4.0.1"
+  }
+}

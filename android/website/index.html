@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="SyncVault - Cross-platform file sync app for Windows, Android, macOS, and Linux. Sync your local files with cloud storage automatically in the background."
+    />
+    <meta
+      name="keywords"
+      content="file sync, cloud storage, backup, rclone, cross-platform, windows, android, macos, linux"
+    />
+    <title>SyncVault</title>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@100..900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="header">
+      <div class="title">
+        <span>SyncVault</span>
+      </div>
+      <nav>
+        <ul
+          class="nav-links"
+          x-data="{ nav: [
+            { text: 'Features', link: '#features' },
+            { text: 'Platforms', link: '#platforms' },
+            { text: 'Providers', link: '#providers' },
+            { text: 'Download', link: '#download' },
+            { text: 'GitHub', link: 'https://github.com/dhzdhd/SyncVault' }
+          ] }"
+        >
+          <template x-for="item in nav">
+            <li>
+              <a :href="item.link" x-text="item.text"></a>
+            </li>
+          </template>
+        </ul>
+      </nav>
+    </header>
+
+    <main>
+      <!-- Hero Section -->
+      <section id="hero">
+        <div class="hero-content">
+          <h1 class="hero-title">
+            <span class="top-title"> Sync Your Files </span>
+            <br />
+            <span class="bottom-title">Seamlessly Across Clouds</span>
+          </h1>
+          <p class="hero-subtitle">
+            A cross-platform app to sync your local files in the background with
+            the drive of your choice using RClone.
+          </p>
+          <div class="hero-buttons">
+            <a href="#download" class="btn btn-primary">Download Now</a>
+            <a
+              href="https://github.com/dhzdhd/SyncVault"
+              target="_blank"
+              class="btn btn-secondary"
+            >
+              View on GitHub
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features Section -->
+      <section id="features" class="features">
+        <h2 class="section-title">Why Choose SyncVault?</h2>
+        <div
+          class="grid features-grid"
+          x-data="{ cards: [
+              { href: 'images/sync.svg', title: 'Automatic Background Sync', desc: 'Set up folders to sync automatically in the background without interrupting your workflow.' },
+              { href: 'images/cloud.svg', title: 'Multiple Cloud Providers', desc: 'Support for OneDrive, Google Drive, Dropbox, Minio, Nextcloud and Proton Drive.' },
+              { href: 'images/desktop.svg', title: 'Cross-Platform', desc: 'Available on Windows, Android, macOS, and Linux with full feature support.' },
+              { href: 'images/clock.svg', title: 'Real-time Syncing', desc: 'Keep your files up-to-date across all devices with real-time synchronization.' },
+              { href: 'images/folder.svg', title: 'Folder Management', desc: 'Organize and manage which folders to sync with an intuitive tree view.' },
+            ] }"
+        >
+          <template x-for="card in cards">
+            <div class="card feature-card">
+              <svg>
+                <use :href="card.href" />
+              </svg>
+              <h3 x-text="card.title"></h3>
+              <p x-text="card.desc"></p>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- Platforms Section -->
+      <section id="platforms" class="platforms">
+        <h2 class="section-title">Platform Support</h2>
+        <div
+          class="grid platforms-grid"
+          x-data="{ platforms: [
+              { href: 'images/windows.svg', title: 'Windows', status: '✅ Released', statusClass: 'status-complete', desc: 'Full feature support with real-time syncing' },
+              { href: 'images/linux.svg', title: 'Linux', status: '✅ Released', statusClass: 'status-complete', desc: 'Full feature support with real-time syncing' },
+              { href: 'images/macos.svg', title: 'macOS', status: '✅ Released', statusClass: 'status-complete', desc: 'Full feature support with real-time syncing' },
+              { href: 'images/android.svg', title: 'Android', status: '✅ Released', statusClass: 'status-complete', desc: 'Background sync with WorkManager (15-min minimum interval)' },
+              { href: 'images/ios.svg', title: 'iOS', status: '❌ Planned', statusClass: 'status-pending', desc: 'Coming in a future release' }
+            ] }"
+        >
+          <template x-for="platform in platforms">
+            <div class="card platform-card">
+              <svg>
+                <use :href="platform.href" />
+              </svg>
+              <h3 x-text="platform.title"></h3>
+              <div
+                class="status"
+                :class="platform.statusClass"
+                x-text="platform.status"
+              ></div>
+              <p x-text="platform.desc"></p>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- Providers Section -->
+      <section id="providers">
+        <h2 class="section-title">Supported Cloud Providers</h2>
+        <div
+          class="grid providers-grid"
+          x-data="{ providers: [
+              { icon: 'images/onedrive.svg', title: 'OneDrive', badges: [{ text: 'RClone Support', class: 'badge-success' }] },
+              { icon: 'images/googledrive.svg', title: 'Google Drive', badges: [{ text: 'RClone Support', class: 'badge-success' }, { text: 'Manual Support', class: 'badge-success' }] },
+              { icon: 'images/dropbox.svg', title: 'Dropbox', badges: [{ text: 'RClone Support', class: 'badge-success' }] },
+              { icon: 'images/minio.svg', title: 'Minio', badges: [{ text: 'Limited Support', class: 'badge-warning' }] },
+              { icon: 'images/nextcloud.svg', title: 'Nextcloud', badges: [{ text: 'Limited Support', class: 'badge-warning' }] },
+              { icon: 'images/protondrive.svg', title: 'Proton Drive', badges: [{ text: 'Limited Support', class: 'badge-warning' }] }
+            ] }"
+        >
+          <template x-for="provider in providers">
+            <div class="card provider-card">
+              <svg>
+                <use :href="provider.icon" />
+              </svg>
+              <h3 x-text="provider.title"></h3>
+              <div class="badge-container">
+                <template x-for="badge in provider.badges">
+                  <span
+                    class="badge"
+                    :class="badge.class"
+                    x-text="badge.text"
+                  ></span>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- Download Section -->
+      <section id="download">
+        <h2 class="section-title">Get Started Today</h2>
+        <p class="download-subtitle">
+          Download SyncVault for your platform and start syncing your files
+          effortlessly.
+        </p>
+        <div class="download-buttons">
+          <a
+            href="https://github.com/dhzdhd/SyncVault/releases"
+            target="_blank"
+            class="btn btn-secondary btn-large"
+          >
+            View All Releases
+          </a>
+        </div>
+        <div class="download-note">
+          <p>
+            ⚠️ <strong>Alpha Release:</strong> The app is functional but still
+            under active development. Expect regular updates and improvements.
+          </p>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <div class="container">
+          <div class="footer-content">
+            <div class="footer-section">
+              <h4>SyncVault</h4>
+              <p>Cross-platform cloud sync made simple.</p>
+            </div>
+            <div class="footer-section">
+              <h4>Links</h4>
+              <ul>
+                <li><a href="#features">Features</a></li>
+                <li><a href="#platforms">Platforms</a></li>
+                <li><a href="#providers">Providers</a></li>
+                <li><a href="#download">Download</a></li>
+              </ul>
+            </div>
+            <div class="footer-section">
+              <h4>Resources</h4>
+              <ul>
+                <li>
+                  <a href="https://github.com/dhzdhd/SyncVault" target="_blank"
+                    >GitHub</a
+                  >
+                </li>
+                <li>
+                  <a
+                    href="https://github.com/dhzdhd/SyncVault/issues"
+                    target="_blank"
+                    >Issues</a
+                  >
+                </li>
+                <li>
+                  <a
+                    href="https://github.com/dhzdhd/SyncVault/blob/master/CONTRIBUTING.md"
+                    target="_blank"
+                    >Contributing</a
+                  >
+                </li>
+                <li>
+                  <a
+                    href="https://github.com/dhzdhd/SyncVault/blob/master/CHANGELOG.md"
+                    target="_blank"
+                    >Changelog</a
+                  >
+                </li>
+              </ul>
+            </div>
+            <div class="footer-section">
+              <h4>Legal</h4>
+              <ul>
+                <li>
+                  <a
+                    href="https://github.com/dhzdhd/SyncVault/blob/master/LICENSE.md"
+                    target="_blank"
+                    >License</a
+                  >
+                </li>
+              </ul>
+            </div>
+          </div>
+          <div class="footer-bottom">
+            <p>&copy; 2026 SyncVault. Built using Flutter & RClone.</p>
+          </div>
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>
