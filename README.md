@@ -6,7 +6,7 @@ A browser-based workspace backed by the installed Codex `app-server`. It uses
 Codex's own thread, model, configuration, and approval
 protocols instead of reading the local SQLite database.
 
-Current release: `v0.44.59-beta`. See [CHANGELOG.md](CHANGELOG.md) for release notes.
+Current release: `v0.44.60-beta`. See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Quick server installation
 
@@ -285,9 +285,9 @@ extract them, then run the same top-level installer. The wizard asks for the
 archive/checksum paths when they are not next to the extracted directory:
 
 ```bash
-sha256sum -c wfl-codex-desktop-v0.44.59-beta.tar.gz.sha256
-sudo tar -xzf wfl-codex-desktop-v0.44.59-beta.tar.gz -C /srv
-sudo mv /srv/wfl-codex-desktop-v0.44.59-beta /srv/wfl-codex-desktop
+sha256sum -c wfl-codex-desktop-v0.44.60-beta.tar.gz.sha256
+sudo tar -xzf wfl-codex-desktop-v0.44.60-beta.tar.gz -C /srv
+sudo mv /srv/wfl-codex-desktop-v0.44.60-beta /srv/wfl-codex-desktop
 cd /srv/wfl-codex-desktop
 sudo bash install.sh
 ```

@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.59-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.59-beta";
+} from "./thread-state.js?v=0.44.60-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.60-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.59-beta";
+} from "./image-context-policy.js?v=0.44.60-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.59-beta";
+} from "./image-attachment-context.js?v=0.44.60-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.59-beta";
+} from "./game-work-mode.js?v=0.44.60-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.59-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.60-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.59-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.60-beta";
 import {
   createConversationState,
   reduceConversationNotification,
@@ -61,11 +61,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.59-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.59-beta";
+} from "./conversation-state.js?v=0.44.60-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.60-beta";
 
-const UI_VERSION = "0.44.59-beta";
-const UI_VERSION_LABEL = "0.44.59-beta";
+const UI_VERSION = "0.44.60-beta";
+const UI_VERSION_LABEL = "0.44.60-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -34826,7 +34826,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.59-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.60-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(

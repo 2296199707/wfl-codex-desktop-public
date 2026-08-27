@@ -1,7 +1,7 @@
 import {
   relativeTiledProjectReference,
   resolveTiledProjectReference,
-} from "./tiled-document.js?v=0.44.59-beta";
+} from "./tiled-document.js?v=0.44.60-beta";
 
 export class TiledCompositeError extends Error {
   constructor(code, message) {

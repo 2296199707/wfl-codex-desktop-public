@@ -81,10 +81,15 @@ const systemctlTimeoutMs = boundedDuration(
 const MAX_DRAIN_DEADLINE_FUTURE_MS = MAX_RELEASE_DRAIN_MS;
 const DRAIN_RECOVERY_MARGIN_MS = 1_000;
 const DRAIN_COMPLETION_RESERVE_MS = DEPLOYMENT_RECOVERY_RESERVE_MS;
-// The backend settles one Codex Turn for up to 15 seconds during auth handoff.
-// Keep one second for the HTTP response and journal flush; the old 5-second
-// client timeout could abort a healthy handoff before writer transfer.
-const AUTH_HANDOFF_REQUEST_BUDGET_MS = 16_000;
+// The backend can spend 15 seconds settling one Codex Turn, followed by bridge
+// shutdown and journal flush. Keep a larger controller budget so a long task
+// is handed off instead of being mistaken for a failed deployment.
+const AUTH_HANDOFF_REQUEST_BUDGET_MS = boundedDuration(
+  process.env.CODEX_DESKTOP_AUTH_HANDOFF_TIMEOUT_MS || 30_000,
+  "auth handoff request timeout",
+  { min: 16_000, max: 120_000 },
+);
+const AUTH_HANDOFF_ACTIVATION_MINIMUM_BUDGET_MS = 16_000;
 const ACTIVATION_JOURNAL_BUDGET_MS = 3_000;
 const RECOVERY_SYSTEMCTL_TIMEOUT_MS = 1_500;
 // Codex thread-list recovery can legitimately take longer than the short
@@ -1397,7 +1402,7 @@ function activationWriterTransferMinimumRemaining() {
 }
 
 function activationPreHandoffMinimumRemaining() {
-  return AUTH_HANDOFF_REQUEST_BUDGET_MS + activationWriterTransferMinimumRemaining();
+  return AUTH_HANDOFF_ACTIVATION_MINIMUM_BUDGET_MS + activationWriterTransferMinimumRemaining();
 }
 
 function activationDeadlineAt() {
