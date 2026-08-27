@@ -1666,6 +1666,8 @@ test("conversation recovery preserves metadata but never reconstructs chat outsi
   assert.match(resume, /scrollToBottom = !preserveExisting/);
   assert.match(recovery, /scrollToBottom: true/);
   assert.match(resume, /persistThreadRecovery\(thread, "failed"\)/);
+  assert.match(resume, /previousProject/);
+  assert.match(resume, /已保留当前对话/);
   assert.doesNotMatch(recovery, /clearThreadRecovery\(\)/);
 });
 
@@ -1687,7 +1689,15 @@ test("the conversation sidebar paginates and preserves account-isolated cached h
   assert.match(app, /THREAD_LIST_CACHE_PREFIX = "codexDesktop\.threadLists\.v1"/);
   assert.match(app, /restoreThreadListSessionCache\(data\.user\)/);
   assert.match(app, /async function loadCodexThreadListPages/);
-  assert.match(app, /const result = await rpc\("thread\/list", params\)/);
+  assert.match(app, /rpc\("thread\/list", params, \{ timeoutMs \}\)/);
+  assert.match(app, /const THREAD_LIST_RPC_TIMEOUT_MS = 400_000/);
+  assert.match(app, /const THREAD_RESUME_RPC_TIMEOUT_MS = 750_000/);
+  assert.match(app, /onPage: \(threads\) => applyThreads\(threads, \{ cache: false \}\)/);
+  assert.match(app, /if \(result\.partial\)/);
+  assert.match(app, /Section ordering is a presentation enhancement/);
+  assert.match(server, /const CODEX_THREAD_LIST_TIMEOUT_MS = environmentDuration\([\s\S]*?300_000/);
+  assert.match(server, /const CODEX_THREAD_RESUME_TIMEOUT_MS = environmentDuration\([\s\S]*?600_000/);
+  assert.match(server, /codexConversationRpcOptions\(method\)/);
   assert.match(app, /seenCursors\.has\(nextCursor\)/);
   const loader = app.match(/async function loadThreads\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(loader);

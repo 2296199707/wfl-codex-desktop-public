@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.55";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.55";
+} from "./thread-state.js?v=0.44.56-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.56-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.55";
+} from "./image-context-policy.js?v=0.44.56-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.55";
+} from "./image-attachment-context.js?v=0.44.56-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.55";
+} from "./game-work-mode.js?v=0.44.56-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.55";
+} from "./map-editor/map-tab-channel.js?v=0.44.56-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.55";
+} from "./map-editor/map-conversation-channel.js?v=0.44.56-beta";
 import {
   createConversationState,
   reduceConversationNotification,
@@ -61,11 +61,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.55";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.55";
+} from "./conversation-state.js?v=0.44.56-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.56-beta";
 
-const UI_VERSION = "0.44.55";
-const UI_VERSION_LABEL = "0.44.55";
+const UI_VERSION = "0.44.56-beta";
+const UI_VERSION_LABEL = "0.44.56-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -77,6 +77,11 @@ const THREAD_SUBAGENT_CACHE_LIMIT = 100;
 const THREAD_SUBAGENT_LIMIT = 200;
 const THREAD_LIST_PAGE_LIMIT = 100;
 const THREAD_LIST_MAX_ITEMS = 1_000;
+const THREAD_LIST_RPC_TIMEOUT_MS = 400_000;
+const THREAD_SECTION_RPC_TIMEOUT_MS = 200_000;
+const THREAD_RESUME_RPC_TIMEOUT_MS = 750_000;
+const THREAD_HISTORY_RPC_TIMEOUT_MS = 600_000;
+const THREAD_READ_RPC_TIMEOUT_MS = 400_000;
 const THREAD_LIST_CACHE_MAX_VIEWS = 12;
 const THREAD_LIST_CACHE_MAX_BYTES = 2 * 1024 * 1024;
 const THREAD_LIST_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
@@ -10197,7 +10202,10 @@ function rpc(method, params = {}, options = {}) {
       : 125_000;
     const timer = setTimeout(() => {
       state.pendingRpc.delete(String(requestId));
-      reject(rpcError(`${method} 请求超时`, true));
+      const error = rpcError(`${method} 请求超时`, true);
+      error.code = "ERR_RPC_CLIENT_TIMEOUT";
+      error.method = method;
+      reject(error);
     }, timeoutMs);
     state.pendingRpc.set(String(requestId), {
       resolve,
@@ -12156,7 +12164,7 @@ async function openTaskCenterThread(row) {
     const result = await rpc("thread/read", {
       threadId: row.threadId,
       includeTurns: false,
-    }, { timeoutMs: 15_000 });
+    }, { timeoutMs: THREAD_READ_RPC_TIMEOUT_MS });
     thread = result?.thread || null;
   }
   if (!thread?.id) throw new Error("当前任务对应的对话无法读取");
@@ -15737,11 +15745,19 @@ async function loadThreads() {
       : '<div class="list-loading">连接后读取对话</div>';
   }
   if (!state.bridgeReady) return;
+  const applyThreads = (threads, { cache = true } = {}) => {
+    if (loadVersion !== state.threadListLoadVersion) return;
+    state.threads = Array.isArray(threads) ? threads : [];
+    if (cache) rememberThreadList(viewKey, state.threads);
+    renderThreads();
+  };
   try {
     const persistentSections = codexRuntimeFeatureAvailable("conversationSections");
-    const sectionSnapshot = persistentSections
-      ? await loadThreadSections({ silent: true })
-      : null;
+    // Section ordering is a presentation enhancement. Start it in parallel,
+    // but never make the ordinary conversation list wait for it.
+    const sectionPromise = persistentSections
+      ? loadThreadSections({ silent: true })
+      : Promise.resolve(null);
     if (!persistentSections) state.threadSections = [];
     const params = {
       limit: THREAD_LIST_PAGE_LIMIT,
@@ -15750,38 +15766,57 @@ async function loadThreads() {
       archived: elements.archivedThreadsToggle.checked,
     };
     if (!elements.allThreadsToggle.checked) params.cwd = project.path;
-    // Codex 0.147 only accepts section_position when sectionId is an
-    // explicit filter (including null for unsectioned threads). Fetch each
-    // section in its persisted order, then merge the pages in that same
-    // order. A failed optional section discovery falls back to the ordinary
-    // timestamp sort so core conversation browsing remains available.
-    const sectionIds = Array.isArray(sectionSnapshot)
-      ? [...sectionSnapshot.map((section) => section.id), null]
-      : null;
-    let result;
-    try {
-      result = await loadCodexThreadListPages(params, {
-        loadVersion,
-        sectionIds,
-      });
-    } catch (error) {
-      // A mixed-version Codex process (or a proxy that has not picked up the
-      // 0.147 schema yet) can still reject a filtered section_position call.
-      // Retry once with the universally supported timestamp ordering. This
-      // is a compatibility fallback only; it never changes a running task.
-      if (!Array.isArray(sectionIds) || !isCodexSectionPositionFilterError(error)) throw error;
-      console.warn("Codex rejected section_position filtering; falling back to timestamp ordering", error);
-      result = await loadCodexThreadListPages(params, {
-        loadVersion,
-        sectionIds: null,
-      });
-    }
+    // The global timestamp order is supported by every runtime and lets the
+    // first page paint immediately. Remaining pages continue in this bounded
+    // request and are rendered incrementally instead of blocking the sidebar.
+    const result = await loadCodexThreadListPages(params, {
+      loadVersion,
+      sectionIds: null,
+      onPage: (threads) => applyThreads(threads, { cache: false }),
+    });
     if (result.stale) return;
-    const threads = result.threads;
-    if (loadVersion !== state.threadListLoadVersion) return;
-    state.threads = threads;
-    rememberThreadList(viewKey, state.threads);
-    renderThreads();
+    applyThreads(result.threads, { cache: !result.partial });
+    if (result.partial) {
+      toast("对话列表只加载了部分内容，请点击刷新重试", "warning");
+      return;
+    }
+
+    // Codex 0.147 only accepts section_position when sectionId is an
+    // explicit filter (including null for unsectioned threads). Once the
+    // ordinary list is visible, optionally replace it with persisted section
+    // order. A slow or incompatible optional request leaves the usable
+    // timestamp-sorted list untouched.
+    void sectionPromise.then(async (sectionSnapshot) => {
+      if (
+        loadVersion !== state.threadListLoadVersion
+        || !Array.isArray(sectionSnapshot)
+        || !sectionSnapshot.length
+      ) return null;
+      const sectionIds = [...sectionSnapshot.map((section) => section.id), null];
+      try {
+        return await loadCodexThreadListPages(params, {
+          loadVersion,
+          sectionIds,
+          allowPartial: false,
+        });
+      } catch (error) {
+        if (isCodexSectionPositionFilterError(error)) {
+          console.warn("Codex rejected section_position filtering; keeping timestamp ordering", error);
+          return null;
+        }
+        throw error;
+      }
+    }).then((ordered) => {
+      if (
+        !ordered
+        || ordered.stale
+        || ordered.partial
+        || loadVersion !== state.threadListLoadVersion
+      ) return;
+      applyThreads(ordered.threads);
+    }).catch((error) => {
+      console.warn("Unable to refresh optional Codex section ordering:", error);
+    });
   } catch (error) {
     if (loadVersion !== state.threadListLoadVersion) return;
     if (state.threads.length) renderThreads();
@@ -15798,7 +15833,17 @@ function codexThreadListErrorMessage(error) {
   if (isCodexSectionPositionFilterError(error)) {
     return "对话分区排序参数不兼容，已回退到普通时间排序";
   }
+  if (isCodexHistoryTimeoutError(error)) {
+    return "对话列表响应较慢，请点击刷新重试";
+  }
   return String(error?.message || "暂时无法读取对话");
+}
+
+function isCodexHistoryTimeoutError(error) {
+  return ["ERR_CODEX_RPC_TIMEOUT", "ERR_RPC_CLIENT_TIMEOUT"].includes(error?.code)
+    || /(?:thread\/(?:list|read|resume|turns\/list)|请求超时|timed out)/i.test(
+      String(error?.message || ""),
+    );
 }
 
 /**
@@ -15806,7 +15851,16 @@ function codexThreadListErrorMessage(error) {
  * section_position request. The sectionIds array is ordered by Codex's
  * persistent section order and ends with null for unsectioned threads.
  */
-async function loadCodexThreadListPages(baseParams, { loadVersion, sectionIds = null } = {}) {
+async function loadCodexThreadListPages(
+  baseParams,
+  {
+    loadVersion,
+    sectionIds = null,
+    timeoutMs = THREAD_LIST_RPC_TIMEOUT_MS,
+    onPage = null,
+    allowPartial = true,
+  } = {},
+) {
   const threads = [];
   const seenThreadIds = new Set();
   const scopes = Array.isArray(sectionIds) ? sectionIds : [undefined];
@@ -15822,7 +15876,15 @@ async function loadCodexThreadListPages(baseParams, { loadVersion, sectionIds = 
         params.sortDirection = "asc";
       }
       if (cursor) params.cursor = cursor;
-      const result = await rpc("thread/list", params);
+      let result;
+      try {
+        result = await rpc("thread/list", params, { timeoutMs });
+      } catch (error) {
+        if (allowPartial && threads.length && isCodexHistoryTimeoutError(error)) {
+          return { stale: false, threads, partial: true, error };
+        }
+        throw error;
+      }
       if (loadVersion !== state.threadListLoadVersion) return { stale: true, threads };
       for (const thread of Array.isArray(result?.data) ? result.data : []) {
         if (!thread?.id || seenThreadIds.has(thread.id)) continue;
@@ -15831,6 +15893,7 @@ async function loadCodexThreadListPages(baseParams, { loadVersion, sectionIds = 
         if (thread.cwd) state.conversationThreadProjects.set(thread.id, thread.cwd);
         if (threads.length >= THREAD_LIST_MAX_ITEMS) break;
       }
+      onPage?.(threads.slice(), { sectionId, cursor });
       const nextCursor = typeof result?.nextCursor === "string" && result.nextCursor
         ? result.nextCursor
         : null;
@@ -15840,10 +15903,12 @@ async function loadCodexThreadListPages(baseParams, { loadVersion, sectionIds = 
     } while (cursor);
     if (threads.length >= THREAD_LIST_MAX_ITEMS) break;
   }
-  return { stale: false, threads };
+  return { stale: false, threads, partial: false };
 }
 
-async function loadThreadSections({ silent = false } = {}) {
+async function loadThreadSections(
+  { silent = false, timeoutMs = THREAD_SECTION_RPC_TIMEOUT_MS } = {},
+) {
   if (
     state.runtime !== "codex"
     || !state.bridgeReady
@@ -15861,7 +15926,7 @@ async function loadThreadSections({ silent = false } = {}) {
       const result = await rpc("threadSection/list", {
         limit: 100,
         ...(cursor ? { cursor } : {}),
-      });
+      }, { timeoutMs });
       for (const section of Array.isArray(result?.data) ? result.data : []) {
         if (!section?.id || seen.has(section.id)) continue;
         seen.add(section.id);
@@ -18642,8 +18707,18 @@ async function resumeThread(
     preserveExisting ? "正在同步对话" : "正在恢复对话",
     { threadId: thread.id },
   );
-  sendClientState(thread.id);
   const previousThread = state.activeThread;
+  const previousProject = state.currentProject;
+  const previousThreadListProjectPath = state.threadListProjectPath;
+  const previousSelectedCodexWorktreeId = state.selectedCodexWorktreeId;
+  const previousActiveTurnId = state.activeTurnId;
+  const previousCodexActiveTurnId = state.codexActiveTurnId;
+  const previousActiveThreadNeedsResume = state.activeThreadNeedsResume;
+  const previousThreadHistoryCursor = state.threadHistoryCursor;
+  const previousThreadHistoryTopTriggerThreadId = state.threadHistoryTopTriggerThreadId;
+  const previousThreadHistoryTopTriggerArmed = state.threadHistoryTopTriggerArmed;
+  const previousTaskStatusBarHidden = elements.taskStatusBar.hidden;
+  sendClientState(thread.id);
   const previousPendingMessage = state.pendingUserMessage;
   let targetSnapshot = null;
   if (preserveExisting && previousThread?.id === thread.id) {
@@ -18683,8 +18758,13 @@ async function resumeThread(
 
   if (showLoading) {
     state.threadSelectionPending = !preserveExisting;
-    elements.messageList.innerHTML = '<div class="list-loading">正在恢复对话</div>';
-    elements.emptyState.hidden = true;
+    // Keep the currently visible conversation while another history entry is
+    // being opened. A slow App Server must not turn a usable conversation into
+    // a blank page before the new selection is confirmed.
+    if (!previousThread?.id || previousThread.id === thread.id) {
+      elements.messageList.innerHTML = '<div class="list-loading">正在恢复对话</div>';
+      elements.emptyState.hidden = true;
+    }
     if (state.threadSelectionPending) setTurnBusy(true, "正在切换");
   }
   closeMobilePanels();
@@ -18706,6 +18786,7 @@ async function resumeThread(
     };
     addPolicyParams(params);
     const result = await rpc("thread/resume", params, {
+      timeoutMs: THREAD_RESUME_RPC_TIMEOUT_MS,
       onResponseMetrics: ({ approxBytes }) => {
         updateConversationLoadProgress(loadProgress, {
           stage: "已接收对话，正在整理",
@@ -18858,14 +18939,44 @@ async function resumeThread(
     });
     state.threadSelectionPending = false;
     state.activeThreadNeedsResume = true;
-    if (
-      preserveExisting
-      && previousThread?.id === thread.id
-      && state.activeThread?.id === thread.id
-    ) {
+    if (previousThread?.id === thread.id && state.activeThread?.id === thread.id) {
+      renderActiveThread({ scrollToBottom: false });
+      state.activeThreadNeedsResume = true;
+      persistThreadRecovery(thread, "failed");
+      toast(`当前对话恢复失败：${error.message}`, "error");
+      return false;
+    }
+    if (previousThread?.id && state.activeThread?.id === previousThread.id) {
+      // The requested Thread failed, so restore the last usable conversation
+      // and its project context. This keeps a transient App Server timeout
+      // from discarding the only rendered copy of the current chat.
+      state.currentProject = previousProject;
+      state.threadListProjectPath = previousThreadListProjectPath;
+      state.selectedCodexWorktreeId = previousSelectedCodexWorktreeId;
+      state.activeThread = previousThread;
+      state.activeTurnId = previousActiveTurnId;
+      state.codexActiveTurnId = previousCodexActiveTurnId;
+      state.activeThreadNeedsResume = previousActiveThreadNeedsResume;
+      state.threadHistoryCursor = previousThreadHistoryCursor;
+      state.threadHistoryTopTriggerThreadId = previousThreadHistoryTopTriggerThreadId;
+      state.threadHistoryTopTriggerArmed = previousThreadHistoryTopTriggerArmed;
+      state.pendingUserMessage = previousPendingMessage;
+      state.threadSelectionPending = false;
+      elements.taskStatusBar.hidden = previousTaskStatusBarHidden;
+      sendClientState(previousThread.id);
+      void releaseThreadSubscription(thread.id);
+      renderProjects();
+      renderProjectContext();
+      renderSidebarWorktrees();
       renderActiveThread({ scrollToBottom: false });
       persistThreadRecovery(thread, "failed");
-      toast(error.message, "error");
+      reloadMapManagedAuthorizationsForCurrentContext();
+      finishConversationLoadProgress(loadProgress, {
+        label: "目标对话加载失败",
+        stage: `已保留当前对话：${error.message}`,
+        error: true,
+      });
+      toast(`无法加载目标对话：${error.message}，已保留当前对话`, "warning");
       return false;
     }
     state.activeThread = null;
@@ -24645,6 +24756,7 @@ async function loadEarlierTurns() {
   renderMessages();
   try {
     const page = await rpc("thread/turns/list", recentTurnsParams(threadId, cursor), {
+      timeoutMs: THREAD_HISTORY_RPC_TIMEOUT_MS,
       onResponseMetrics: ({ approxBytes }) => {
         responseApproxBytes = approxBytes;
       },
@@ -26404,7 +26516,9 @@ async function forkThread({ beforeTurnId = null, lastTurnId = null, branchDraft 
     const result = await rpc("thread/fork", params);
     settleDurableOperation(durableOperation);
     const [turnsPage] = await Promise.all([
-      rpc("thread/turns/list", recoveryTurnsParams(result.thread.id)),
+      rpc("thread/turns/list", recoveryTurnsParams(result.thread.id), {
+        timeoutMs: THREAD_HISTORY_RPC_TIMEOUT_MS,
+      }),
       loadThreadGoal(result.thread.id, { silent: true }),
     ]);
     state.threadSelectionVersion += 1;
@@ -34619,7 +34733,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.55");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.56-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -40793,7 +40907,9 @@ async function refreshRecentTurns(threadId) {
   const selectionVersion = state.threadSelectionVersion;
   const historyCursor = state.threadHistoryCursor;
   try {
-    const result = await rpc("thread/turns/list", recoveryTurnsParams(threadId));
+    const result = await rpc("thread/turns/list", recoveryTurnsParams(threadId), {
+      timeoutMs: THREAD_HISTORY_RPC_TIMEOUT_MS,
+    });
     if (
       state.threadRecentRefreshVersions.get(threadId) !== refreshVersion
       || state.threadSelectionVersion !== selectionVersion

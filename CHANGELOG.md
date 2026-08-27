@@ -3,6 +3,10 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.56-beta] - 2026-08-27
+
+- 将聊天记录列表、对话恢复和历史分页的客户端与服务端超时整体放大约 10 倍；列表支持先显示已加载内容，超时不会清空当前对话。
+
 ## [0.44.55] - 2026-08-25
 
 - 修复服务器文件管理器点击目录名称无法进入下一级的问题；目录名称现在支持单击进入，其他列仍可用于选中操作。

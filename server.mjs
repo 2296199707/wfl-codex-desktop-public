@@ -477,6 +477,36 @@ const CODEX_CONNECTIVITY_PROGRESS_METHODS = new Set([
 ]);
 const CODEX_READINESS_PROBE_TIMEOUT_MS = 15_000;
 const CODEX_READINESS_CACHE_MS = 5_000;
+const CODEX_THREAD_LIST_TIMEOUT_MS = environmentDuration(
+  "CODEX_DESKTOP_THREAD_LIST_TIMEOUT_MS",
+  300_000,
+  5_000,
+  10 * 60_000,
+);
+const CODEX_THREAD_SECTION_TIMEOUT_MS = environmentDuration(
+  "CODEX_DESKTOP_THREAD_SECTION_TIMEOUT_MS",
+  150_000,
+  5_000,
+  10 * 60_000,
+);
+const CODEX_THREAD_READ_TIMEOUT_MS = environmentDuration(
+  "CODEX_DESKTOP_THREAD_READ_TIMEOUT_MS",
+  300_000,
+  5_000,
+  10 * 60_000,
+);
+const CODEX_THREAD_TURNS_LIST_TIMEOUT_MS = environmentDuration(
+  "CODEX_DESKTOP_THREAD_TURNS_LIST_TIMEOUT_MS",
+  450_000,
+  5_000,
+  10 * 60_000,
+);
+const CODEX_THREAD_RESUME_TIMEOUT_MS = environmentDuration(
+  "CODEX_DESKTOP_THREAD_RESUME_TIMEOUT_MS",
+  600_000,
+  10_000,
+  10 * 60_000,
+);
 const CODEX_MCP_RPC_RESULT_LIMIT_BYTES = 2 * 1024 * 1024;
 const CODEX_MCP_TOOL_ARGUMENT_LIMIT_BYTES = 256 * 1024;
 const CODEX_MCP_LIST_LIMIT = 100;
@@ -25100,7 +25130,11 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
   if (method === "thread/list") {
     const effectiveParams = safeCodexThreadListParams(params);
     try {
-      const result = await requestThreadListAcrossProviders(runtime.bridge, effectiveParams);
+      const result = await requestThreadListAcrossProviders(
+        runtime.bridge,
+        effectiveParams,
+        codexConversationRpcOptions(method),
+      );
       const merged = RESCUE_MODE
         ? await filterRescueThreadList(runtime, result, effectiveParams)
         : mergeImportedThreadList(runtime, result, effectiveParams);
@@ -25121,7 +25155,11 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
   }
   if (method.startsWith("threadSection/")) {
     const bridgeParams = normalizeCodexThreadSectionParams(method, params);
-    const result = await runtime.bridge.request(method, bridgeParams, { timeoutMs: 30_000 });
+    const result = await runtime.bridge.request(
+      method,
+      bridgeParams,
+      codexConversationRpcOptions(method),
+    );
     return sanitizeCodexThreadSectionResult(method, result, bridgeParams.limit);
   }
 
@@ -25333,7 +25371,11 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
 
   if (imported && method === "thread/resume") {
     const { initialTurnsPage, ...resumeParams } = bridgeParams;
-    const raw = await runtime.bridge.request(method, resumeParams);
+    const raw = await runtime.bridge.request(
+      method,
+      resumeParams,
+      codexConversationRpcOptions(method),
+    );
     const transcript = await runtime.threadImportStore.read(imported.id);
     const result = publicizeImportedResult(raw, imported);
     result.thread = mergeImportedThread(imported, transcript, result.thread, []);
@@ -25824,7 +25866,7 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
             params: bridgeParams,
             timeoutMs: CONVERSATION_SUBMISSION_TIMEOUT_MS,
           })
-        : runtime.bridge.request(method, bridgeParams),
+        : runtime.bridge.request(method, bridgeParams, codexConversationRpcOptions(method)),
     );
     const safeResult = method === "config/read" ? redactCodexMcpSecretsFromConfigRead(result) : result;
     const publicResult = imported ? publicizeImportedResult(safeResult, imported) : safeResult;
@@ -26167,6 +26209,16 @@ async function requestThreadListAcrossProviders(bridge, params, options) {
     const { modelProviders: _ignored, ...legacyParams } = safeParams;
     return bridge.request("thread/list", legacyParams, options);
   }
+}
+
+function codexConversationRpcOptions(method) {
+  let timeoutMs = null;
+  if (method === "thread/list") timeoutMs = CODEX_THREAD_LIST_TIMEOUT_MS;
+  else if (method.startsWith("threadSection/")) timeoutMs = CODEX_THREAD_SECTION_TIMEOUT_MS;
+  else if (method === "thread/read") timeoutMs = CODEX_THREAD_READ_TIMEOUT_MS;
+  else if (method === "thread/turns/list") timeoutMs = CODEX_THREAD_TURNS_LIST_TIMEOUT_MS;
+  else if (method === "thread/resume") timeoutMs = CODEX_THREAD_RESUME_TIMEOUT_MS;
+  return timeoutMs === null ? undefined : { timeoutMs };
 }
 
 function safeCodexThreadListParams(params = {}) {
@@ -29058,12 +29110,16 @@ async function prepareImportedThreadExclusive(runtime, inputRecord, requestParam
   if (runtime.preparedImportedThreads.get(record.id) === record.codexThreadId) return record;
 
   if (record.materialized) {
-    await runtime.bridge.request("thread/resume", {
-      threadId: record.codexThreadId,
-      cwd: record.cwd,
-      developerInstructions: null,
-      excludeTurns: true,
-    });
+    await runtime.bridge.request(
+      "thread/resume",
+      {
+        threadId: record.codexThreadId,
+        cwd: record.cwd,
+        developerInstructions: null,
+        excludeTurns: true,
+      },
+      codexConversationRpcOptions("thread/resume"),
+    );
     runtime.rememberImportedThread(record, { prepared: true });
     return record;
   }

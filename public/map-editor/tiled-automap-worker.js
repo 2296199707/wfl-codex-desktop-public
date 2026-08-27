@@ -1,5 +1,5 @@
-import { previewTiledAutomapping } from "./tiled-automap.js?v=0.44.55";
-import { applyTiledFillResultToSnapshot } from "./tiled-fill.js?v=0.44.55";
+import { previewTiledAutomapping } from "./tiled-automap.js?v=0.44.56-beta";
+import { applyTiledFillResultToSnapshot } from "./tiled-fill.js?v=0.44.56-beta";
 
 self.addEventListener("message", (event) => {
   const request = event.data;

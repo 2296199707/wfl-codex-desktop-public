@@ -1,7 +1,7 @@
 import {
   imageContextPolicy,
   sanitizeVisualReviewReport,
-} from "./image-context-policy.js?v=0.44.55";
+} from "./image-context-policy.js?v=0.44.56-beta";
 
 // Visual review is deliberately a browser-local, bounded operation.  It reads
 // one already-authorized project image, performs a small raster inspection,
