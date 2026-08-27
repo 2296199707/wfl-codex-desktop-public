@@ -12145,10 +12145,14 @@ app.get("/api/task/status", async (request, response, next) => {
       const localTurnId = typeof local.turnId === "string" && local.turnId
         ? local.turnId
         : null;
-      const clientTurnMismatch = typeof clientActiveTurnId === "string"
-        && clientActiveTurnId
-        && (!localActive || (localTurnId && localTurnId !== clientActiveTurnId));
-      if (!localActive || !localTurnId || clientTurnMismatch) {
+      const hasExplicitClientTurnId = typeof clientActiveTurnId === "string"
+        && Boolean(clientActiveTurnId);
+      const clientTurnMismatch = hasExplicitClientTurnId
+        && (!localActive || !localTurnId || localTurnId !== clientActiveTurnId);
+      // An ordinary status poll is informational. Only a request that carries
+      // the client's concrete Turn identity may trigger the expensive native
+      // turns/list -> thread/read reconciliation fallback.
+      if (clientTurnMismatch) {
         await runtime.reconcileNativeTaskStatus(threadId, {
           requestedTurnId: clientActiveTurnId || localTurnId,
           cwd: local.cwd,

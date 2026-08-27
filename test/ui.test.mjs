@@ -1476,7 +1476,7 @@ test("active conversations survive provider restarts and browser reloads", () =>
   assert.match(app, /replaceConversationThread\([\s\S]*?resumedThread/);
   assert.doesNotMatch(app, /mergeThreadWithRecentPage\(targetSnapshot\.thread, recentThread\)/);
   assert.match(app, /rememberActiveThread\(state\.activeThread\)/);
-  assert.match(app, /if \(state\.activeThread && state\.activeThreadNeedsResume\)/);
+  assert.match(app, /if \(state\.activeThread && codexThreadNeedsResume\(state\.activeThread\.id\)\)/);
 });
 
 test("browser persistence is account-scoped without erasing server recovery", () => {
@@ -2026,7 +2026,7 @@ test("the main window can rebuild its socket and open the independent rescue win
   assert.match(app, /refreshConversationButton\.addEventListener\("click", refreshConversation\)/);
   assert.match(app, /state\.socket = null/);
   assert.match(app, /state\.bootstrapped = false/);
-  assert.match(app, /state\.activeThreadNeedsResume = true/);
+  assert.match(app, /if \(state\.activeThread\) markCodexThreadNeedsResume\(state\.activeThread\.id, true\)/);
   assert.match(app, /connectSocket\(\)/);
   assert.match(app, /async function waitForConversationReady\(timeoutMs = 15_000\)/);
   assert.match(app, /const refreshed = await resumeThread\(activeThread, \{ preserveExisting: true, showLoading: false \}\)/);
@@ -2164,14 +2164,41 @@ test("an unloaded Thread resumes from the official snapshot before the composer 
   assert.match(app, /async function prepareActiveThreadForSend\(\)/);
   assert.match(app, /lightweight: false/);
   assert.match(app, /state\.taskStatusSnapshot = null;[\s\S]*?setTurnBusy\(true, "正在恢复对话"\)/);
-  assert.match(app, /await loadTaskStatus\(\{ force: true \}\)/);
-  assert.match(app, /state\.activeThread && state\.activeThreadNeedsResume[\s\S]*?await prepareActiveThreadForSend\(\)/);
+  const prepare = app.match(/async function prepareActiveThreadForSend\(\)[\s\S]*?\n}\n\nfunction recentTurnsParams/)?.[0] || "";
+  assert.match(prepare, /void loadTaskStatus\(\)/);
+  assert.doesNotMatch(prepare, /await loadTaskStatus\(\{ force: true \}\)/);
+  assert.match(app, /state\.activeThread && codexThreadNeedsResume\(state\.activeThread\.id\)[\s\S]*?await prepareActiveThreadForSend\(\)/);
   assert.doesNotMatch(
     app.match(/const composerReady = Boolean\([\s\S]*?\n  \);/)?.[0] || "",
     /activeThreadNeedsResume/,
   );
   assert.match(app, /function commitPendingTurnRequest\(request\)/);
   assert.match(app, /function reconcilePendingTurnRequestFromTurns\(threadId, turns = \[\]\)/);
+});
+
+test("Codex recovery and interruption stay bound to their Thread identity", () => {
+  assert.match(app, /codexThreadRecoveryStates: new Map\(\)/);
+  assert.match(app, /threadResumePromises: new Map\(\)/);
+  assert.match(app, /function beginCodexThreadResume\(threadId\)/);
+  assert.match(app, /const recoveryGeneration = beginCodexThreadResume\(thread\.id\)/);
+  const resume = app.match(/async function resumeThread\(\s*thread,[\s\S]*?\n\}\n\nfunction recentTurnsParams/)?.[0] || "";
+  assert.match(resume, /markCodexThreadNeedsResume\(thread\.id, false, \{ expectedGeneration: recoveryGeneration \}\)/);
+  assert.match(resume, /markCodexThreadNeedsResume\(thread\.id, true, \{ expectedGeneration: recoveryGeneration \}\)/);
+  const interrupt = app.match(/async function interruptTurn\(\)[\s\S]*?\n\}\n\nasync function toggleClaudePause/)?.[0] || "";
+  assert.match(interrupt, /const threadId = state\.activeThread\.id;\s*const turnId = state\.activeTurnId;/);
+  assert.match(interrupt, /rpc\("turn\/interrupt", \{\s*threadId,\s*turnId,\s*\}\)/);
+  assert.match(interrupt, /targetIsActive/);
+});
+
+test("ordinary task status polls do not trigger native full-history reconciliation", () => {
+  const start = server.indexOf('app.get("/api/task/status"');
+  const end = server.indexOf('app.post("/api/task/admission/cancel"', start);
+  const route = server.slice(start, end);
+  assert.ok(start >= 0 && end > start, "task status route was not found");
+  assert.match(route, /const hasExplicitClientTurnId/);
+  assert.match(route, /const clientTurnMismatch = hasExplicitClientTurnId/);
+  assert.match(route, /if \(clientTurnMismatch\) \{[\s\S]*?reconcileNativeTaskStatus/);
+  assert.doesNotMatch(route, /if \(!localActive \|\| !localTurnId \|\| clientTurnMismatch\)/);
 });
 
 test("the resource explorer edits existing text files with guarded conflict-aware saves", () => {

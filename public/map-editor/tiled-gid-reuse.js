@@ -1,13 +1,13 @@
 import {
   relativeTiledProjectReference,
   resolveTiledProjectReference,
-} from "./tiled-document.js?v=0.44.56-beta";
-import { normalizeTileStamp } from "./tile-tool-model.js?v=0.44.56-beta";
+} from "./tiled-document.js?v=0.44.59-beta";
+import { normalizeTileStamp } from "./tile-tool-model.js?v=0.44.59-beta";
 import {
   nextTiledTilesetFirstGid,
   validateTiledTilesetRanges,
-} from "./tiled-tileset-model.js?v=0.44.56-beta";
-import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.56-beta";
+} from "./tiled-tileset-model.js?v=0.44.59-beta";
+import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.59-beta";
 
 /**
  * Plan reusing the tilesets (and the GIDs in a stamp) from one map in another

@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.56-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.56-beta";
+} from "./thread-state.js?v=0.44.59-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.59-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.56-beta";
+} from "./image-context-policy.js?v=0.44.59-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.56-beta";
+} from "./image-attachment-context.js?v=0.44.59-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.56-beta";
+} from "./game-work-mode.js?v=0.44.59-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.56-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.59-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.56-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.59-beta";
 import {
   createConversationState,
   reduceConversationNotification,
@@ -61,11 +61,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.56-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.56-beta";
+} from "./conversation-state.js?v=0.44.59-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.59-beta";
 
-const UI_VERSION = "0.44.56-beta";
-const UI_VERSION_LABEL = "0.44.56-beta";
+const UI_VERSION = "0.44.59-beta";
+const UI_VERSION_LABEL = "0.44.59-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -266,12 +266,14 @@ function conversationProjectForThread(threadId, fallback = null) {
 function replaceActiveConversationThread(thread) {
   if (!thread?.id) {
     state.activeThread = null;
+    syncCodexActiveThreadRecoveryProjection();
     return null;
   }
   if (thread.cwd) state.conversationThreadProjects.set(thread.id, thread.cwd);
   const scope = activeConversationScope(thread.cwd || state.currentProject?.path);
   state.conversationState = replaceConversationThread(state.conversationState, scope, thread);
   state.activeThread = selectConversationThread(state.conversationState, scope, thread.id);
+  syncCodexActiveThreadRecoveryProjection();
   return state.activeThread;
 }
 
@@ -288,8 +290,58 @@ function conversationThreadById(threadId, project = null) {
   );
 }
 
+function codexThreadNeedsResume(threadId = state.activeThread?.id) {
+  if (typeof threadId !== "string" || !threadId) return false;
+  return state.codexThreadRecoveryStates.get(threadId)?.needsResume === true;
+}
+
+function markCodexThreadNeedsResume(
+  threadId,
+  needsResume,
+  { expectedGeneration = null } = {},
+) {
+  if (typeof threadId !== "string" || !threadId) return false;
+  const previous = state.codexThreadRecoveryStates.get(threadId) || { generation: 0 };
+  if (expectedGeneration !== null && previous.generation !== expectedGeneration) return false;
+  state.codexThreadRecoveryStates.set(threadId, {
+    needsResume: Boolean(needsResume),
+    generation: previous.generation + 1,
+  });
+  if (state.activeThread?.id === threadId) {
+    state.activeThreadNeedsResume = Boolean(needsResume);
+  }
+  return true;
+}
+
+function beginCodexThreadResume(threadId) {
+  if (typeof threadId !== "string" || !threadId) return 0;
+  const previous = state.codexThreadRecoveryStates.get(threadId) || { generation: 0 };
+  state.codexThreadRecoveryStates.set(threadId, {
+    needsResume: previous.needsResume === true,
+    generation: previous.generation + 1,
+  });
+  if (state.activeThread?.id === threadId) {
+    state.activeThreadNeedsResume = previous.needsResume === true;
+  }
+  return previous.generation + 1;
+}
+
+function syncCodexActiveThreadRecoveryProjection() {
+  state.activeThreadNeedsResume = codexThreadNeedsResume();
+  return state.activeThreadNeedsResume;
+}
+
+function forgetCodexThreadRecovery(threadId) {
+  if (typeof threadId !== "string" || !threadId) return false;
+  const removed = state.codexThreadRecoveryStates.delete(threadId);
+  state.threadResumePromises.delete(threadId);
+  if (state.activeThread?.id === threadId) syncCodexActiveThreadRecoveryProjection();
+  return removed;
+}
+
 function forgetConversationThread(threadId) {
   if (!threadId) return;
+  forgetCodexThreadRecovery(threadId);
   const projectId = conversationProjectForThread(threadId);
   state.conversationState = removeConversationThread(
     state.conversationState,
@@ -599,7 +651,6 @@ const state = {
   codexTerminalTurnStatuses: new Map(),
   codexTerminalTaskAuthorities: new Map(),
   activeThreadNeedsResume: false,
-  activeThreadResumePromise: null,
   threadGoals: new Map(),
   threadGoalTombstones: new Map(),
   threadGoalRequestVersions: new Map(),
@@ -614,6 +665,8 @@ const state = {
   goalDraftEnabled: false,
   threadSelectionPending: false,
   threadSelectionVersion: 0,
+  codexThreadRecoveryStates: new Map(),
+  threadResumePromises: new Map(),
   runtimeSwitchPending: false,
   threadHistoryCursor: null,
   threadHistoryPageRequests: new Map(),
@@ -7106,6 +7159,8 @@ async function loadAccount({ summary = false } = {}) {
       resetMapWorkspaceView();
       void previousMapWorkspaceClient?.close().catch(() => {});
       state.threadRecovery = storedThreadRecovery;
+      state.codexThreadRecoveryStates.clear();
+      state.threadResumePromises.clear();
       state.selectedModel = null;
       state.selectedEffort = null;
       state.config = {};
@@ -9482,7 +9537,7 @@ function invalidateConversationRecovery() {
   state.bootstrapped = false;
   state.conversationReady = false;
   finishContextCompaction(state.contextCompactionThreadId);
-  if (state.activeThread) state.activeThreadNeedsResume = true;
+  if (state.activeThread) markCodexThreadNeedsResume(state.activeThread.id, true);
 }
 
 function applyCodexRecoveryStatus(payload = {}) {
@@ -10924,7 +10979,7 @@ async function startEmptyCodexWorktreeConversation(worktree, project) {
   state.activeThread = null;
   state.activeTurnId = null;
   state.codexActiveTurnId = null;
-  state.activeThreadNeedsResume = false;
+  syncCodexActiveThreadRecoveryProjection();
   state.threadHistoryCursor = null;
   state.threadHistoryTopTriggerThreadId = null;
   state.threadHistoryTopTriggerArmed = true;
@@ -10954,7 +11009,7 @@ async function startEmptyCodexWorktreeConversation(worktree, project) {
     const thread = result.thread;
     replaceActiveConversationThread(thread);
     state.threadHistoryCursor = null;
-    state.activeThreadNeedsResume = false;
+    markCodexThreadNeedsResume(thread.id, false);
     state.loadedThreadIds.add(thread.id);
     if (thread.status) state.threadRuntimeStatuses.set(thread.id, thread.status);
     state.selectedModel = resolveRememberedCodexModel(result.model || state.selectedModel);
@@ -10994,7 +11049,7 @@ function clearActiveCodexThreadForWorktreeSelection() {
   state.activeThread = null;
   state.activeTurnId = null;
   state.codexActiveTurnId = null;
-  state.activeThreadNeedsResume = false;
+  syncCodexActiveThreadRecoveryProjection();
   state.threadHistoryCursor = null;
   state.threadHistoryTopTriggerThreadId = null;
   state.threadHistoryTopTriggerArmed = true;
@@ -11064,7 +11119,7 @@ async function selectProject(project) {
     state.codexActiveTurnId = null;
   }
   state.activeTurnId = null;
-  state.activeThreadNeedsResume = false;
+  syncCodexActiveThreadRecoveryProjection();
   state.threadHistoryCursor = null;
   state.threadHistoryTopTriggerThreadId = null;
   state.threadHistoryTopTriggerArmed = true;
@@ -16149,14 +16204,14 @@ async function reconcileThreadLifecycle(threadId, { closed = false } = {}) {
       );
     }
     if (closed && state.activeThread?.id === threadId) {
-      state.activeThreadNeedsResume = false;
+      markCodexThreadNeedsResume(threadId, false);
     }
     return;
   }
   applyThreadRuntimeStatus(threadId, { type: "notLoaded" });
   settleThreadSubagents(threadId, "completed", { persist: true });
   if (state.activeThread?.id !== threadId) return;
-  state.activeThreadNeedsResume = true;
+  markCodexThreadNeedsResume(threadId, true);
   const refreshed = await refreshRecentTurns(threadId);
   if (refreshed === true && state.activeThread?.id === threadId) {
     setTurnBusy(conversationBusy(), conversationBusyLabel());
@@ -18593,7 +18648,7 @@ async function selectThread(thread) {
     return;
   }
   const isActive = thread.id === state.activeThread?.id;
-  if (isActive && !state.activeThreadNeedsResume) {
+  if (isActive && !codexThreadNeedsResume(thread.id)) {
     closeMobilePanels();
     scrollMessagesToBottom();
     return;
@@ -18653,7 +18708,7 @@ async function resumeClaudeSession(session, { showLoading = true } = {}) {
     selectClaudeLaunchSettings(state.activeClaudeSession);
     localStorage.setItem(accountStorageKey("codexDesktop.activeClaudeSession"), session.id);
     state.activeThread = null;
-    state.activeThreadNeedsResume = false;
+    syncCodexActiveThreadRecoveryProjection();
     state.threadSelectionPending = false;
     state.activeTurnId = null;
     sendClientState(state.activeClaudeSession.id);
@@ -18696,6 +18751,7 @@ async function resumeThread(
     toast("任务正在准备，完成后再切换对话", "error");
     return false;
   }
+  const recoveryGeneration = beginCodexThreadResume(thread.id);
   if (
     state.activeThread?.id !== thread.id
     || state.currentProject?.path !== (thread.cwd || state.currentProject?.path)
@@ -18713,7 +18769,9 @@ async function resumeThread(
   const previousSelectedCodexWorktreeId = state.selectedCodexWorktreeId;
   const previousActiveTurnId = state.activeTurnId;
   const previousCodexActiveTurnId = state.codexActiveTurnId;
-  const previousActiveThreadNeedsResume = state.activeThreadNeedsResume;
+  const previousActiveThreadRecovery = previousThread?.id
+    ? state.codexThreadRecoveryStates.get(previousThread.id) || null
+    : null;
   const previousThreadHistoryCursor = state.threadHistoryCursor;
   const previousThreadHistoryTopTriggerThreadId = state.threadHistoryTopTriggerThreadId;
   const previousThreadHistoryTopTriggerArmed = state.threadHistoryTopTriggerArmed;
@@ -18794,6 +18852,7 @@ async function resumeThread(
         });
       },
     });
+    if (!result?.thread?.id) throw new Error("Codex 未返回恢复的对话");
     if (
       lightweight
       && preserveExisting
@@ -18801,6 +18860,7 @@ async function resumeThread(
       && state.activeThread?.id === thread.id
     ) {
       if (selectionVersion !== state.threadSelectionVersion) {
+        markCodexThreadNeedsResume(thread.id, false, { expectedGeneration: recoveryGeneration });
         finishConversationLoadProgress(loadProgress, { cancelled: true });
         return false;
       }
@@ -18817,7 +18877,7 @@ async function resumeThread(
         result.reasoningEffort || requestedEffort,
       );
       state.threadSelectionPending = false;
-      state.activeThreadNeedsResume = false;
+      syncCodexActiveThreadRecoveryProjection();
       state.loadedThreadIds.add(thread.id);
       if (state.activeThread.status) {
         state.threadRuntimeStatuses.set(thread.id, state.activeThread.status);
@@ -18828,10 +18888,12 @@ async function resumeThread(
         label: "对话同步完成",
         stage: "Thread 已恢复",
       });
+      markCodexThreadNeedsResume(thread.id, false, { expectedGeneration: recoveryGeneration });
       return true;
     }
     const recentThread = threadWithTurnPage(result.thread, result.initialTurnsPage);
     const resumedThread = recentThread;
+    markCodexThreadNeedsResume(thread.id, false, { expectedGeneration: recoveryGeneration });
     const historyCursor = result.initialTurnsPage?.nextCursor || null;
     const pendingUserMessage = pendingMessageAfterTurns(
       targetSnapshot?.pendingUserMessage || null,
@@ -18861,7 +18923,7 @@ async function resumeThread(
     for (const turn of state.activeThread.turns || []) settlePendingUserMessage(turn);
     const activeTurn = recentThread.turns?.find((turn) => turnStatusType(turn) === "inProgress");
     applyTaskAuthorityToActiveTurn(state.activeThread.id, activeTurn?.id || null);
-    state.activeThreadNeedsResume = false;
+    syncCodexActiveThreadRecoveryProjection();
     state.loadedThreadIds.add(state.activeThread.id);
     if (state.activeThread.status) {
       state.threadRuntimeStatuses.set(state.activeThread.id, state.activeThread.status);
@@ -18920,6 +18982,7 @@ async function resumeThread(
         state.activeTurnId = null;
         state.codexActiveTurnId = null;
         state.threadHistoryCursor = null;
+        syncCodexActiveThreadRecoveryProjection();
       }
       state.threadSelectionPending = false;
       renderActiveThread();
@@ -18929,6 +18992,7 @@ async function resumeThread(
       return false;
     }
     if (selectionVersion !== state.threadSelectionVersion) {
+      markCodexThreadNeedsResume(thread.id, true, { expectedGeneration: recoveryGeneration });
       finishConversationLoadProgress(loadProgress, { cancelled: true });
       return false;
     }
@@ -18938,10 +19002,10 @@ async function resumeThread(
       error: true,
     });
     state.threadSelectionPending = false;
-    state.activeThreadNeedsResume = true;
+    markCodexThreadNeedsResume(thread.id, true, { expectedGeneration: recoveryGeneration });
     if (previousThread?.id === thread.id && state.activeThread?.id === thread.id) {
       renderActiveThread({ scrollToBottom: false });
-      state.activeThreadNeedsResume = true;
+      syncCodexActiveThreadRecoveryProjection();
       persistThreadRecovery(thread, "failed");
       toast(`当前对话恢复失败：${error.message}`, "error");
       return false;
@@ -18956,7 +19020,16 @@ async function resumeThread(
       state.activeThread = previousThread;
       state.activeTurnId = previousActiveTurnId;
       state.codexActiveTurnId = previousCodexActiveTurnId;
-      state.activeThreadNeedsResume = previousActiveThreadNeedsResume;
+      if (previousThread?.id && previousActiveThreadRecovery) {
+        const currentRecovery = state.codexThreadRecoveryStates.get(previousThread.id);
+        if (currentRecovery?.generation === previousActiveThreadRecovery.generation) {
+          markCodexThreadNeedsResume(
+            previousThread.id,
+            previousActiveThreadRecovery.needsResume,
+          );
+        }
+      }
+      syncCodexActiveThreadRecoveryProjection();
       state.threadHistoryCursor = previousThreadHistoryCursor;
       state.threadHistoryTopTriggerThreadId = previousThreadHistoryTopTriggerThreadId;
       state.threadHistoryTopTriggerArmed = previousThreadHistoryTopTriggerArmed;
@@ -18983,6 +19056,7 @@ async function resumeThread(
     state.activeTurnId = null;
     state.codexActiveTurnId = null;
     state.threadHistoryCursor = null;
+    syncCodexActiveThreadRecoveryProjection();
     renderActiveThread();
     persistThreadRecovery(thread, "failed");
     toast(error.message, "error");
@@ -18992,10 +19066,10 @@ async function resumeThread(
 
 async function prepareActiveThreadForSend() {
   const thread = state.activeThread;
-  if (!thread?.id || !state.activeThreadNeedsResume) return true;
+  if (!thread?.id || !codexThreadNeedsResume(thread.id)) return true;
   if (!state.bridgeReady || state.socket?.readyState !== WebSocket.OPEN) return false;
-  const existing = state.activeThreadResumePromise;
-  if (existing?.threadId === thread.id) return existing.promise;
+  const existing = state.threadResumePromises.get(thread.id);
+  if (existing) return existing.promise;
 
   if (state.taskStatusSnapshot?.threadId === thread.id) {
     state.taskStatusSnapshot = null;
@@ -19013,17 +19087,17 @@ async function prepareActiveThreadForSend() {
       lightweight: false,
     });
     if (!recovered || state.activeThread?.id !== thread.id) return false;
-    await loadTaskStatus({ force: true });
-    return !state.activeThreadNeedsResume;
+    void loadTaskStatus();
+    return !codexThreadNeedsResume(thread.id);
   })().finally(() => {
-    if (state.activeThreadResumePromise === holder) {
-      state.activeThreadResumePromise = null;
+    if (state.threadResumePromises.get(thread.id) === holder) {
+      state.threadResumePromises.delete(thread.id);
     }
     if (state.activeThread?.id === thread.id) {
       setTurnBusy(conversationBusy(), conversationBusyLabel());
     }
   });
-  state.activeThreadResumePromise = holder;
+  state.threadResumePromises.set(thread.id, holder);
   return holder.promise;
 }
 
@@ -19650,7 +19724,6 @@ function activateEmptyWorktreeThread(thread, { selectionVersion = state.threadSe
   state.activeThread = null;
   state.activeTurnId = null;
   state.codexActiveTurnId = null;
-  state.activeThreadNeedsResume = false;
   state.threadSelectionPending = false;
   state.threadHistoryCursor = null;
   state.threadHistoryTopTriggerThreadId = thread.id;
@@ -19663,6 +19736,7 @@ function activateEmptyWorktreeThread(thread, { selectionVersion = state.threadSe
     status: { type: "idle" },
     turns: [],
   });
+  markCodexThreadNeedsResume(thread.id, false);
   state.loadedThreadIds.add(thread.id);
   state.threadRuntimeStatuses.set(thread.id, { type: "idle" });
   sendClientState(thread.id);
@@ -19758,7 +19832,7 @@ function newThread({ cacheCurrent = true, targetProject = null } = {}) {
   invalidateMapManagedAuthorizations();
   state.activeTurnId = null;
   state.codexActiveTurnId = null;
-  state.activeThreadNeedsResume = false;
+  syncCodexActiveThreadRecoveryProjection();
   state.threadHistoryCursor = null;
   state.threadHistoryTopTriggerThreadId = null;
   state.threadHistoryTopTriggerArmed = true;
@@ -20280,7 +20354,7 @@ async function sendPromptOnce() {
     toast("请先移除一个附件再生成图片", "error");
     return;
   }
-  if (state.activeThread && state.activeThreadNeedsResume) {
+  if (state.activeThread && codexThreadNeedsResume(state.activeThread.id)) {
     const recovered = await prepareActiveThreadForSend();
     if (!recovered) return;
   }
@@ -20518,7 +20592,7 @@ async function sendPromptOnce() {
       forgetThreadGoal(result.thread.id, { persist: false });
       rememberThreadSubagentSnapshot(result.thread.id, [], { persist: false });
       bindImageTaskStatusToThread(result.thread.id);
-      state.activeThreadNeedsResume = false;
+      markCodexThreadNeedsResume(result.thread.id, false);
       state.threadHistoryCursor = null;
       state.selectedModel = resolveRememberedCodexModel(result.model || state.selectedModel);
       state.selectedEffort = resolveRememberedCodexEffort(
@@ -21494,7 +21568,8 @@ function rebindActiveCodexWorktreeThread({ previousThreadId, thread, silent = fa
   state.threadRuntimeStatuses.delete(previousThreadId);
   if (rebound.status) state.threadRuntimeStatuses.set(thread.id, rebound.status);
   state.threadHistoryCursor = null;
-  state.activeThreadNeedsResume = false;
+  forgetCodexThreadRecovery(previousThreadId);
+  markCodexThreadNeedsResume(thread.id, false);
   if (thread.worktree?.id) {
     state.codexWorktrees = state.codexWorktrees.map((worktree) => (
       worktree.id === thread.worktree.id ? thread.worktree : worktree
@@ -22131,16 +22206,23 @@ async function interruptTurn() {
   }
   if (!state.activeThread || !state.activeTurnId || elements.stopTurnButton.disabled) return;
   const threadId = state.activeThread.id;
+  const turnId = state.activeTurnId;
+  const targetIsActive = () => (
+    state.activeThread?.id === threadId
+    && (state.activeTurnId === turnId || state.codexActiveTurnId === turnId)
+  );
   state.interruptRequestPending = true;
   elements.stopTurnButton.disabled = true;
   elements.interruptButton.disabled = true;
   setTurnBusy(true, "正在终止");
   try {
     const result = await rpc("turn/interrupt", {
-      threadId: state.activeThread.id,
-      turnId: state.activeTurnId,
+      threadId,
+      turnId,
     });
-    if (result?.taskStatus) renderTaskStatus(result.taskStatus);
+    if (result?.taskStatus && state.activeThread?.id === threadId) {
+      renderTaskStatus(result.taskStatus);
+    }
     const returnedTaskIsInactive = Boolean(
       result?.taskStatus
       && !ACTIVE_TASK_STATUSES.has(result.taskStatus.status),
@@ -22152,8 +22234,10 @@ async function interruptTurn() {
       && returnedTaskIsInactive;
     if (cleanupConfirmed) {
       state.interruptRequestPending = false;
-      state.activeTurnId = null;
-      state.codexActiveTurnId = null;
+      if (targetIsActive()) {
+        state.activeTurnId = null;
+        state.codexActiveTurnId = null;
+      }
       toast("已向 Codex 核实任务已结束，遗留状态已清理");
     } else if (result.goalPauseConfirmed === false && result?.goalPausePending !== true) {
       state.interruptRequestPending = false;
@@ -22161,6 +22245,7 @@ async function interruptTurn() {
         returnedTaskIsInactive
         && result?.confirmedInactive === true
         && result?.nativeVerified === true
+        && targetIsActive()
       ) {
         state.activeTurnId = null;
         state.codexActiveTurnId = null;
@@ -26530,7 +26615,7 @@ async function forkThread({ beforeTurnId = null, lastTurnId = null, branchDraft 
     forgetThreadSubagents(result.thread.id, { persist: false });
     rebuildThreadSubagents(state.activeThread, { reset: true });
     state.activeTurnId = null;
-    state.activeThreadNeedsResume = false;
+    markCodexThreadNeedsResume(result.thread.id, false);
     state.threadHistoryCursor = turnsPage.nextCursor || null;
     rememberActiveThread(state.activeThread);
     sendClientState(state.activeThread.id);
@@ -32930,19 +33015,27 @@ async function activateDefaultProvider({ preferOfficial = true } = {}) {
 }
 
 function prepareProviderSwitch() {
+  const activeThreadId = state.activeThread?.id || null;
   const previous = {
     activeTurnId: state.activeTurnId,
-    activeThreadNeedsResume: state.activeThreadNeedsResume,
+    activeThreadId,
+    activeThreadNeedsResume: activeThreadId ? codexThreadNeedsResume(activeThreadId) : false,
     bootstrapped: state.bootstrapped,
   };
   if (state.activeThread) rememberActiveThread(state.activeThread);
   state.activeTurnId = null;
-  state.activeThreadNeedsResume = Boolean(state.activeThread);
+  if (activeThreadId) markCodexThreadNeedsResume(activeThreadId, true);
+  syncCodexActiveThreadRecoveryProjection();
   state.bootstrapped = false;
   renderActiveThread({ preserveOptimistic: true });
   return () => {
     if (!state.bridgeReady || state.bootstrapped) return;
-    Object.assign(state, previous);
+    state.activeTurnId = previous.activeTurnId;
+    state.bootstrapped = previous.bootstrapped;
+    if (previous.activeThreadId) {
+      markCodexThreadNeedsResume(previous.activeThreadId, previous.activeThreadNeedsResume);
+    }
+    syncCodexActiveThreadRecoveryProjection();
     renderActiveThread();
   };
 }
@@ -34733,7 +34826,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.56-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.59-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -41139,7 +41232,7 @@ function conversationBusyLabel() {
   if (state.imageGenerating) return "正在生成图片";
   if (state.turnPreparationPending) return "正在准备";
   if (state.threadSelectionPending) return "正在切换";
-  if (state.activeThread?.id && state.activeThreadNeedsResume) return "发送时自动恢复对话";
+  if (state.activeThread?.id && codexThreadNeedsResume(state.activeThread.id)) return "发送时自动恢复对话";
   return "就绪";
 }
 

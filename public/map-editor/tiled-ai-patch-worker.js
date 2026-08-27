@@ -1,4 +1,4 @@
-import { prepareTiledAiPatchFills } from "./tiled-ai-patch.js?v=0.44.56-beta";
+import { prepareTiledAiPatchFills } from "./tiled-ai-patch.js?v=0.44.59-beta";
 
 self.addEventListener("message", (event) => {
   const request = event.data;

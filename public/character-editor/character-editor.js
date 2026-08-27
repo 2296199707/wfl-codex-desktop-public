@@ -1,5 +1,5 @@
-import { MapProjectWorkspaceClient } from "/map-project-session.js?v=0.44.56-beta";
-import { createMapAccountSessionGuard } from "/map-editor/map-account-session-guard.js?v=0.44.56-beta";
+import { MapProjectWorkspaceClient } from "/map-project-session.js?v=0.44.59-beta";
+import { createMapAccountSessionGuard } from "/map-editor/map-account-session-guard.js?v=0.44.59-beta";
 import {
   CHARACTER_PROFILES,
   clipFrameAt,
@@ -8,7 +8,7 @@ import {
   frameRect,
   normalizeCharacterAnimationDocument,
   normalizeProjectRelativePath,
-} from "/character-editor/character-animation-model.js?v=0.44.56-beta";
+} from "/character-editor/character-animation-model.js?v=0.44.59-beta";
 
 // The editor is always loaded with the release asset query.  Never fall back
 // to an older release: a direct reload must not mix editor code with an old
