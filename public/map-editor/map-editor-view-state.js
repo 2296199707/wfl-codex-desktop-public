@@ -1,4 +1,4 @@
-import { normalizeMapGuides } from "./map-guide-controller.js?v=0.44.60-beta";
+import { normalizeMapGuides } from "./map-guide-controller.js?v=0.44.61-beta";
 
 export const MAP_EDITOR_VIEW_STATE_VERSION = 3;
 

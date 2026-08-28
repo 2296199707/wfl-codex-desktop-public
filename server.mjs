@@ -2844,6 +2844,7 @@ class UserRuntime {
     { requestedTurnId = null, cwd = null } = {},
   ) {
     if (!threadId || !this.bridge?.ready) return null;
+    if (await this.canReuseIdleThreadRuntimeStatus(threadId, { requestedTurnId })) return null;
     if (await this.codexThreadIsUnmaterialized(threadId)) return null;
     let native;
     try {
@@ -5045,6 +5046,19 @@ class UserRuntime {
     return this.taskStatus.threadIsActive(threadId);
   }
 
+  async canReuseIdleThreadRuntimeStatus(publicThreadId, { requestedTurnId = null } = {}) {
+    if (
+      typeof publicThreadId !== "string"
+      || !publicThreadId
+      || requestedTurnId
+      || !this.browserHasThreadSubscription(publicThreadId)
+    ) return false;
+    const runtimeStatus = this.threadRuntimeStatuses.get(publicThreadId);
+    if (codexThreadStatus(runtimeStatus) !== "idle") return false;
+    if (this.threadHasActiveWork(publicThreadId)) return false;
+    return !(await this.codexThreadIsUnmaterialized(publicThreadId));
+  }
+
   codexThreadMaterializationKeys(threadId) {
     if (typeof threadId !== "string" || !threadId) return [];
     const nativeThreadId = this.nativeThreadIdForPublic(threadId);
@@ -5103,6 +5117,7 @@ class UserRuntime {
   async ensureNativeThreadLoadedForTurn(publicThreadId, params = {}) {
     if (RESCUE_MODE) return null;
     const nativeThreadId = params.threadId || this.nativeThreadIdForPublic(publicThreadId);
+    if (await this.canReuseIdleThreadRuntimeStatus(publicThreadId)) return null;
     if (await this.codexThreadIsUnmaterialized(publicThreadId)) return null;
     let loaded = false;
     let loadedListKnown = false;
@@ -25719,10 +25734,20 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
         return started;
       });
       const allowUnmaterializedReadFailure = await runtime.codexThreadIsUnmaterialized(publicThreadId);
+      const skipRead = allowUnmaterializedReadFailure
+        && !runtime.taskStatus.submissionIsUncertain(
+          publicThreadId,
+          bridgeParams.clientUserMessageId,
+        )
+        && !runtime.taskStatus.threadIsActive(publicThreadId);
       result = await runtime.turnStartDeduplicator.run(
         bridgeParams,
         startTurn,
-        { allowRecoverableReadFailure: true, allowUnmaterializedReadFailure },
+        {
+          allowRecoverableReadFailure: true,
+          allowUnmaterializedReadFailure,
+          skipRead,
+        },
       );
     } catch (error) {
       if (effectiveThreadId !== publicThreadId) {

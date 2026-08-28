@@ -10,6 +10,7 @@ const mobileDependencyManager = await fs.readFile(new URL("../lib/mobile-app-dep
 const conversationState = await fs.readFile(new URL("../public/conversation-state.js", import.meta.url), "utf8");
 const css = await fs.readFile(new URL("../public/styles.css", import.meta.url), "utf8");
 const server = await fs.readFile(new URL("../server.mjs", import.meta.url), "utf8");
+const turnStartDeduplicator = await fs.readFile(new URL("../lib/turn-start-deduplicator.mjs", import.meta.url), "utf8");
 const androidBuilder = await fs.readFile(new URL("../lib/android-apk-builder.mjs", import.meta.url), "utf8");
 const claudeRuntime = await fs.readFile(new URL("../lib/claude-runtime.mjs", import.meta.url), "utf8");
 const feedback = await fs.readFile(new URL("../lib/codex-feedback.mjs", import.meta.url), "utf8");
@@ -1684,6 +1685,8 @@ test("conversation content is restored from the App Server instead of browser sn
 });
 
 test("the conversation sidebar paginates and preserves account-isolated cached history on refresh failures", () => {
+  const loader = app.match(/async function loadThreads\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(loader);
   assert.match(app, /THREAD_LIST_PAGE_LIMIT = 100/);
   assert.match(app, /THREAD_LIST_MAX_ITEMS = 1_000/);
   assert.match(app, /THREAD_LIST_CACHE_PREFIX = "codexDesktop\.threadLists\.v1"/);
@@ -1694,13 +1697,15 @@ test("the conversation sidebar paginates and preserves account-isolated cached h
   assert.match(app, /const THREAD_RESUME_RPC_TIMEOUT_MS = 750_000/);
   assert.match(app, /onPage: \(threads\) => applyThreads\(threads, \{ cache: false \}\)/);
   assert.match(app, /if \(result\.partial\)/);
-  assert.match(app, /Section ordering is a presentation enhancement/);
+  assert.match(app, /Section metadata is still needed for grouping and section actions/);
+  assert.match(app, /threadListLoadInFlight\?\.key === requestKey/);
+  assert.match(app, /threadListLoadInFlight\.version === state\.threadListLoadVersion/);
+  assert.match(app, /return state\.threadListLoadInFlight\.promise/);
+  assert.doesNotMatch(loader, /sectionPromise/);
   assert.match(server, /const CODEX_THREAD_LIST_TIMEOUT_MS = environmentDuration\([\s\S]*?300_000/);
   assert.match(server, /const CODEX_THREAD_RESUME_TIMEOUT_MS = environmentDuration\([\s\S]*?600_000/);
   assert.match(server, /codexConversationRpcOptions\(method\)/);
   assert.match(app, /seenCursors\.has\(nextCursor\)/);
-  const loader = app.match(/async function loadThreads\(\) \{[\s\S]*?\n\}/)?.[0];
-  assert.ok(loader);
   assert.match(loader, /if \(state\.threads\.length\) renderThreads\(\)/);
   assert.doesNotMatch(loader, /state\.threads = \[\][\s\S]*catch/);
   assert.match(app, /removeThreadSessionCacheItem\(state\.threadListCacheStorageKey\)/);
@@ -1752,8 +1757,17 @@ test("long conversations load recent turns first and fetch older pages on demand
   assert.doesNotMatch(runtimeStatus, /type === "idle"[\s\S]*?scheduleRecentTurnsRefresh/);
   const historyLoader = app.match(/async function loadEarlierTurns\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.match(historyLoader, /recentTurnsParams\(threadId, cursor\)/);
-  const recentRefresh = app.match(/async function refreshRecentTurns\(threadId\) \{[\s\S]*?\n\}/)?.[0];
+  const recentRefresh = app.match(/async function refreshRecentTurns\(threadId, \{ allowFollowup = true \} = \{\}\) \{[\s\S]*?\n\}/)?.[0];
+  assert.match(app, /threadRecentRefreshInFlight: new Map\(\)/);
   assert.match(recentRefresh, /recoveryTurnsParams\(threadId\)/);
+  assert.match(recentRefresh, /const existing = state\.threadRecentRefreshInFlight\.get\(threadId\)/);
+  assert.match(recentRefresh, /existing\.dirty = true/);
+  assert.match(recentRefresh, /entry\.allowFollowup/);
+  assert.match(recentRefresh, /allowFollowup: false/);
+  assert.match(app, /function sameThreadRuntimeStatus\(previous, next\)/);
+  assert.match(app, /reconcileThreadLifecycle\(threadId, \{ forceLoadedCheck: true \}\)/);
+  assert.match(app, /if \(closed\) existing\.closed = true/);
+  assert.match(app, /if \(forceLoadedCheck\) existing\.forceLoadedCheck = true/);
   const fork = app.match(/async function forkThread\([^]*?\n\}/)?.[0];
   assert.match(fork, /recoveryTurnsParams\(result\.thread\.id\)/);
 });
@@ -1822,6 +1836,10 @@ test("thread lifecycle uses native loaded subscriptions and bounded item paginat
   assert.match(app, /turn\._itemPageState = \{ \.\.\.pageState \}/);
   assert.match(app, /mergeRecentTurnPage\(/);
   assert.match(app, /async function loadLoadedThreads/);
+  assert.match(app, /loadedThreadsRequestInFlight: null/);
+  assert.match(app, /existing\?\.key === requestKey/);
+  assert.match(app, /if \(force\) existing\.needsFollowup = true/);
+  assert.match(app, /state\.loadedThreadsRequestInFlight = entry/);
   assert.match(app, /async function releaseThreadSubscription/);
   assert.match(app, /method === "thread\/status\/changed"/);
   assert.match(app, /method === "thread\/closed"/);
@@ -2174,6 +2192,9 @@ test("an unloaded Thread resumes from the official snapshot before the composer 
   );
   assert.match(app, /function commitPendingTurnRequest\(request\)/);
   assert.match(app, /function reconcilePendingTurnRequestFromTurns\(threadId, turns = \[\]\)/);
+  assert.match(app, /async function resumeThread\(thread, options = \{\}\)/);
+  assert.match(app, /const existing = state\.threadResumePromises\.get\(threadId\)/);
+  assert.match(app, /resumeThreadRequest\(thread, options\)\.finally/);
 });
 
 test("Codex recovery and interruption stay bound to their Thread identity", () => {
@@ -2199,6 +2220,23 @@ test("ordinary task status polls do not trigger native full-history reconciliati
   assert.match(route, /const clientTurnMismatch = hasExplicitClientTurnId/);
   assert.match(route, /if \(clientTurnMismatch\) \{[\s\S]*?reconcileNativeTaskStatus/);
   assert.doesNotMatch(route, /if \(!localActive \|\| !localTurnId \|\| clientTurnMismatch\)/);
+});
+
+test("turn starts reuse only a subscribed idle Thread and keep uncertain delivery checks", () => {
+  assert.match(
+    server,
+    /async canReuseIdleThreadRuntimeStatus\(publicThreadId, \{ requestedTurnId = null \} = \{\}\)/,
+  );
+  assert.match(server, /codexThreadStatus\(runtimeStatus\) !== "idle"/);
+  assert.match(server, /!this\.browserHasThreadSubscription\(publicThreadId\)/);
+  assert.match(server, /if \(this\.threadHasActiveWork\(publicThreadId\)\) return false;/);
+  assert.match(server, /const skipRead = allowUnmaterializedReadFailure/);
+  assert.match(server, /!runtime\.taskStatus\.submissionIsUncertain\(/);
+  assert.match(server, /skipRead,/);
+  assert.match(
+    turnStartDeduplicator,
+    /A caller may skip this read only after proving that the Thread is an\n\s+\/\/ unmaterialized shell\./,
+  );
 });
 
 test("the resource explorer edits existing text files with guarded conflict-aware saves", () => {
@@ -2295,7 +2333,13 @@ test("the main window reconnects promptly without retry storms", () => {
   assert.match(app, /pending\.socketGeneration !== socketGeneration/);
   assert.match(app, /function scheduleCodexConnectionRecovery\(payload, socketGeneration\)/);
   assert.match(app, /state\.reconnectRecoverySocketGeneration === socketGeneration[\s\S]*return state\.reconnectRecoveryPromise/);
-  assert.match(app, /state\.reconnectRecoveryPromise !== recovery[\s\S]*request\.socketGeneration !== state\.socketGeneration/);
+  assert.match(app, /function codexRecoveryPayloadKey\(payload = \{\}\)/);
+  const recoveryKey = app.match(/function codexRecoveryPayloadKey\(payload = \{\}\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(recoveryKey);
+  assert.doesNotMatch(recoveryKey, /observedAt/);
+  assert.match(app, /state\.reconnectRecoveryActiveKey === key/);
+  assert.match(app, /state\.reconnectRecoveryLastSocketGeneration === socketGeneration[\s\S]*state\.reconnectRecoveryLastKey === key/);
+  assert.match(app, /state\.reconnectRecoveryPromise !== recovery[\s\S]*currentRequest\.socketGeneration !== state\.socketGeneration/);
   assert.match(app, /SOCKET_CLOSE_BROWSER_OFFLINE = 4001/);
   assert.match(app, /SOCKET_CLOSE_REPLACED = 4002/);
   assert.doesNotMatch(app, /socket\.close\(1001/);

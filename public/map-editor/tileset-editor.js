@@ -3,11 +3,11 @@ import {
   relativeTiledProjectReference,
   resolveTiledProjectReference,
   serializeTiledDocument,
-} from "./tiled-document.js?v=0.44.60-beta";
-import { TiledTilesetEditDocument } from "./tiled-tileset-edit-document.js?v=0.44.60-beta";
-import { tiledObjectShape } from "./map-object-model.js?v=0.44.60-beta";
-import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.60-beta";
-import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.60-beta";
+} from "./tiled-document.js?v=0.44.61-beta";
+import { TiledTilesetEditDocument } from "./tiled-tileset-edit-document.js?v=0.44.61-beta";
+import { tiledObjectShape } from "./map-object-model.js?v=0.44.61-beta";
+import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.61-beta";
+import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.61-beta";
 
 const PAGE_SIZE = 200;
 const COLLECTION_COLUMNS = 6;

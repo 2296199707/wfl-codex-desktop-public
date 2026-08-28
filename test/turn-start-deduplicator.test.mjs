@@ -71,6 +71,44 @@ test("concurrent turn retries share one turn/start request", async () => {
   assert.strictEqual(firstResult, secondResult);
 });
 
+test("a proven unmaterialized shell can skip the duplicate snapshot read", async () => {
+  let reads = 0;
+  const deduplicator = new TurnStartDeduplicator(async () => {
+    reads += 1;
+    throw new Error("snapshot read should not run");
+  });
+  let starts = 0;
+  const result = await deduplicator.run(
+    { threadId: "thread-new", clientUserMessageId: "client-first" },
+    async () => {
+      starts += 1;
+      return { turn: { id: "turn-first" } };
+    },
+    { skipRead: true },
+  );
+
+  assert.equal(reads, 0);
+  assert.equal(starts, 1);
+  assert.equal(result.turn.id, "turn-first");
+});
+
+test("turn snapshot reads remain enabled by default", async () => {
+  let reads = 0;
+  const deduplicator = new TurnStartDeduplicator(async () => {
+    reads += 1;
+    throw new Error("thread/read timed out");
+  });
+
+  await assert.rejects(
+    deduplicator.run(
+      { threadId: "thread-1", clientUserMessageId: "client-1" },
+      async () => ({ turn: { id: "unexpected" } }),
+    ),
+    /thread\/read timed out/,
+  );
+  assert.equal(reads, 1);
+});
+
 test("an existing client message returns its turn without starting another", async () => {
   const existingTurn = {
     id: "turn-existing",

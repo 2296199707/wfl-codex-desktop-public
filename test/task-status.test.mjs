@@ -429,6 +429,44 @@ test("notifications from an older turn cannot mutate the active turn", () => {
   assert.equal(tracker.snapshot("thread-shared").turnId, "turn-current");
 });
 
+test("a delayed older turn/started cannot reopen or fence a newer Turn", () => {
+  const tracker = new TaskStatusTracker();
+  tracker.start({ threadId: "thread-late-start" });
+  tracker.started({ threadId: "thread-late-start", turn: { id: "turn-finished" } });
+  tracker.notification({
+    method: "turn/completed",
+    params: {
+      threadId: "thread-late-start",
+      turn: { id: "turn-finished", status: "completed" },
+    },
+  });
+
+  tracker.start({ threadId: "thread-late-start" });
+  tracker.started({ threadId: "thread-late-start", turn: { id: "turn-current" } });
+  tracker.notification({
+    method: "turn/started",
+    params: {
+      threadId: "thread-late-start",
+      turn: { id: "turn-finished", status: "inProgress" },
+    },
+  });
+
+  assert.equal(tracker.snapshot("thread-late-start").status, "running");
+  assert.equal(tracker.snapshot("thread-late-start").turnId, "turn-current");
+
+  tracker.notification({
+    method: "turn/completed",
+    params: {
+      threadId: "thread-late-start",
+      turn: { id: "turn-current", status: "completed" },
+    },
+  });
+
+  assert.equal(tracker.snapshot("thread-late-start").status, "completed");
+  assert.equal(tracker.snapshot("thread-late-start").turnId, "turn-current");
+  assert.equal(tracker.hasActiveTasks(), false);
+});
+
 test("late thread lifecycle events cannot settle or revive an identified turn", () => {
   const tracker = new TaskStatusTracker();
   tracker.start({ threadId: "thread-current", turnId: "turn-current" });

@@ -3,6 +3,11 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.61-beta] - 2026-08-28
+
+- 收敛对话列表、历史恢复、Thread 状态和连接恢复的并发请求；同一对话的在途读取共享，迟到的旧任务事件不会重新打开或覆盖当前任务。
+- 发送路径仅在已确认的未物化 Thread 上跳过重复快照读取，保留不确定投递的核验，降低正常发送和长任务切换期间的重复同步。
+
 ## [0.44.60-beta] - 2026-08-27
 
 - 延长并允许配置蓝绿部署的后端认证交接等待时间，避免长任务或线程加载期间被 16 秒固定超时误判为发布失败。

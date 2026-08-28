@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.60-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.60-beta";
+} from "./thread-state.js?v=0.44.61-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.61-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.60-beta";
+} from "./image-context-policy.js?v=0.44.61-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.60-beta";
+} from "./image-attachment-context.js?v=0.44.61-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.60-beta";
+} from "./game-work-mode.js?v=0.44.61-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.60-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.61-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.60-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.61-beta";
 import {
   createConversationState,
   reduceConversationNotification,
@@ -61,11 +61,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.60-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.60-beta";
+} from "./conversation-state.js?v=0.44.61-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.61-beta";
 
-const UI_VERSION = "0.44.60-beta";
-const UI_VERSION_LABEL = "0.44.60-beta";
+const UI_VERSION = "0.44.61-beta";
+const UI_VERSION_LABEL = "0.44.61-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -393,6 +393,9 @@ const state = {
   reconnectRecoveryPromise: null,
   reconnectRecoveryRequest: null,
   reconnectRecoverySocketGeneration: null,
+  reconnectRecoveryActiveKey: null,
+  reconnectRecoveryLastKey: null,
+  reconnectRecoveryLastSocketGeneration: null,
   queuedPromptAfterReconnect: false,
   refreshingConversation: false,
   taskStatusRequestPending: false,
@@ -453,6 +456,7 @@ const state = {
   threadListCacheStorageKey: null,
   threadListViewKey: null,
   threadListLoadVersion: 0,
+  threadListLoadInFlight: null,
   activeThread: null,
   activeClaudeSession: null,
   claudeSessions: [],
@@ -679,14 +683,17 @@ const state = {
   conversationLoadProgressHideTimer: null,
   loadedThreadIds: new Set(),
   loadedThreadsRequestVersion: 0,
+  loadedThreadsRequestInFlight: null,
   threadRuntimeStatuses: new Map(),
   threadTaskAuthorityVersions: new Map(),
   threadItemPages: new Map(),
   threadItemHydrationGeneration: 0,
   threadLifecycleReconcileVersions: new Map(),
+  threadLifecycleReconcileInFlight: new Map(),
   threadMetadataSyncKeys: new Map(),
   threadRecentRefreshTimers: new Map(),
   threadRecentRefreshVersions: new Map(),
+  threadRecentRefreshInFlight: new Map(),
   nativeThreadSearchTimer: null,
   nativeThreadSearchVersion: 0,
   nativeThreadSearchQuery: "",
@@ -7167,12 +7174,14 @@ async function loadAccount({ summary = false } = {}) {
       state.conversationState = createConversationState();
       state.conversationThreadProjects.clear();
       state.loadedThreadsRequestVersion += 1;
+      state.loadedThreadsRequestInFlight = null;
       state.threadGoals.clear();
       state.threadGoalTombstones.clear();
       state.threadGoalControls.clear();
       state.threadGoalRequestVersions.clear();
       state.threadGoalControlRequestVersions.clear();
       state.threadRecentRefreshVersions.clear();
+      state.threadRecentRefreshInFlight.clear();
       state.threadSubagents.clear();
       state.threadTaskStatuses.clear();
       state.threadTaskStatusesReady = false;
@@ -9625,7 +9634,11 @@ function refreshCodexRuntimeFeatureControls() {
   }
 }
 
-async function restoreCodexConnection(payload, socketGeneration = state.socketGeneration) {
+async function restoreCodexConnection(
+  payload,
+  socketGeneration = state.socketGeneration,
+  { transportReconnect = true } = {},
+) {
   const recoveryGeneration = ++state.reconnectRecoveryGeneration;
   const hadSoftConversation = codexSoftReconnectEligible();
   const runtimeStatus = applyCodexRuntimeStatus(payload);
@@ -9648,8 +9661,9 @@ async function restoreCodexConnection(payload, socketGeneration = state.socketGe
     state.connectionPhase = "recovering";
     await bootstrapCodex();
   } else {
-    state.connectionPhase = runtimeStatus.missedEvents ? "synchronizing" : "online";
-    if (runtimeStatus.missedEvents) {
+    const shouldSynchronize = runtimeStatus.missedEvents && transportReconnect;
+    state.connectionPhase = shouldSynchronize ? "synchronizing" : "online";
+    if (shouldSynchronize) {
       await synchronizeCodexAfterReconnect(recoveryGeneration, socketGeneration);
     } else {
       void loadTaskStatus({ force: true });
@@ -10120,40 +10134,80 @@ function handleSocketMessage(message, socketGeneration = state.socketGeneration,
   if (message.type === "error") toast(message.message, "error");
 }
 
+function codexRecoveryPayloadKey(payload = {}) {
+  const recovery = payload?.codexRecovery && typeof payload.codexRecovery === "object"
+    ? payload.codexRecovery
+    : {};
+  const pendingThreadIds = Array.isArray(recovery.pendingThreadIds)
+    ? [...new Set(recovery.pendingThreadIds.filter((value) => typeof value === "string" && value))].sort()
+    : [];
+  return JSON.stringify({
+    status: typeof payload.status === "string" ? payload.status : "",
+    runtimeEpoch: typeof payload.runtimeEpoch === "string" ? payload.runtimeEpoch : "",
+    recoveryState: typeof recovery.state === "string" ? recovery.state : "",
+    recoveryReady: recovery.ready === true,
+    pendingThreadIds,
+    recoveryError: typeof recovery.error === "string" ? recovery.error : null,
+  });
+}
+
 function scheduleCodexConnectionRecovery(payload, socketGeneration) {
   if (socketGeneration !== state.socketGeneration) return state.reconnectRecoveryPromise;
+  const key = codexRecoveryPayloadKey(payload);
+  const transportReconnect = state.reconnectRecoverySocketGeneration !== socketGeneration
+    && state.reconnectRecoveryLastSocketGeneration !== socketGeneration;
+  const request = { payload, socketGeneration, key, transportReconnect };
   if (
     state.reconnectRecoveryPromise
     && state.reconnectRecoverySocketGeneration === socketGeneration
   ) {
-    state.reconnectRecoveryRequest = { payload, socketGeneration };
+    if (
+      state.reconnectRecoveryActiveKey === key
+      || state.reconnectRecoveryRequest?.key === key
+    ) return state.reconnectRecoveryPromise;
+    state.reconnectRecoveryRequest = request;
     return state.reconnectRecoveryPromise;
   }
+  if (
+    state.reconnectRecoveryLastSocketGeneration === socketGeneration
+    && state.reconnectRecoveryLastKey === key
+  ) return state.reconnectRecoveryPromise;
   state.reconnectRecoveryRequest = null;
+  state.reconnectRecoveryActiveKey = key;
   const recovery = (async () => {
-    let request = { payload, socketGeneration };
-    while (request) {
+    let currentRequest = request;
+    while (currentRequest) {
+      state.reconnectRecoveryActiveKey = currentRequest.key;
       try {
-        await restoreCodexConnection(request.payload, request.socketGeneration);
+        await restoreCodexConnection(
+          currentRequest.payload,
+          currentRequest.socketGeneration,
+          { transportReconnect: currentRequest.transportReconnect },
+        );
       } catch (error) {
-        if (state.bridgeReady && request.socketGeneration === state.socketGeneration) {
+        if (state.bridgeReady && currentRequest.socketGeneration === state.socketGeneration) {
           setConnection("error", "恢复失败");
           toast(error.message, "error");
         }
       }
+      state.reconnectRecoveryLastKey = currentRequest.key;
+      state.reconnectRecoveryLastSocketGeneration = currentRequest.socketGeneration;
       if (
         state.reconnectRecoveryPromise !== recovery
-        || request.socketGeneration !== state.socketGeneration
+        || currentRequest.socketGeneration !== state.socketGeneration
       ) return;
-      request = state.reconnectRecoveryRequest?.socketGeneration === socketGeneration
+      const nextRequest = state.reconnectRecoveryRequest?.socketGeneration === socketGeneration
+        && state.reconnectRecoveryRequest.key !== currentRequest.key
         ? state.reconnectRecoveryRequest
         : null;
       state.reconnectRecoveryRequest = null;
+      currentRequest = nextRequest;
     }
   })().finally(() => {
     if (state.reconnectRecoveryPromise !== recovery) return;
     state.reconnectRecoveryPromise = null;
     state.reconnectRecoverySocketGeneration = null;
+    state.reconnectRecoveryActiveKey = null;
     state.reconnectRecoveryRequest = null;
   });
   state.reconnectRecoveryPromise = recovery;
@@ -15777,42 +15831,61 @@ async function loadAllPermissionProfiles() {
 async function loadThreads() {
   const project = threadListProject();
   if (!project) return;
-  if (state.runtime === "claude") {
-    await loadClaudeSessions().catch((error) => {
-      if (!state.claudeSessions.length) elements.threadList.innerHTML = '<div class="list-empty">暂时无法读取 Claude 对话</div>';
-      toast(error.message, "error");
-    });
-    return;
-  }
   const viewKey = currentThreadListViewKey();
-  const loadVersion = ++state.threadListLoadVersion;
-  if (state.threadListViewKey !== viewKey) {
-    state.threadListViewKey = viewKey;
-    const cached = getCachedThreadList(viewKey);
-    state.threads = cached || [];
-    if (cached) renderThreads();
-    else elements.threadList.innerHTML = state.bridgeReady
-      ? '<div class="list-loading">正在读取对话</div>'
-      : '<div class="list-loading">连接后读取对话</div>';
-  } else if (!state.threads.length) {
-    elements.threadList.innerHTML = state.bridgeReady
-      ? '<div class="list-loading">正在读取对话</div>'
-      : '<div class="list-loading">连接后读取对话</div>';
+  const accountKey = state.account?.id || "legacy";
+  const requestKey = `${accountKey}:${state.runtime}:${viewKey}`;
+  if (
+    state.threadListLoadInFlight?.key === requestKey
+    && state.threadListLoadInFlight.version === state.threadListLoadVersion
+  ) {
+    return state.threadListLoadInFlight.promise;
   }
-  if (!state.bridgeReady) return;
-  const applyThreads = (threads, { cache = true } = {}) => {
-    if (loadVersion !== state.threadListLoadVersion) return;
-    state.threads = Array.isArray(threads) ? threads : [];
-    if (cache) rememberThreadList(viewKey, state.threads);
-    renderThreads();
+  let resolveInFlight;
+  const inFlight = {
+    key: requestKey,
+    version: state.threadListLoadVersion,
+    promise: new Promise((resolve) => {
+      resolveInFlight = resolve;
+    }),
   };
+  state.threadListLoadInFlight = inFlight;
+  let loadVersion = null;
   try {
+    if (state.runtime === "claude") {
+      await loadClaudeSessions().catch((error) => {
+        if (!state.claudeSessions.length) elements.threadList.innerHTML = '<div class="list-empty">暂时无法读取 Claude 对话</div>';
+        toast(error.message, "error");
+      });
+      return;
+    }
+    loadVersion = ++state.threadListLoadVersion;
+    inFlight.version = loadVersion;
+    if (state.threadListViewKey !== viewKey) {
+      state.threadListViewKey = viewKey;
+      const cached = getCachedThreadList(viewKey);
+      state.threads = cached || [];
+      if (cached) renderThreads();
+      else elements.threadList.innerHTML = state.bridgeReady
+        ? '<div class="list-loading">正在读取对话</div>'
+        : '<div class="list-loading">连接后读取对话</div>';
+    } else if (!state.threads.length) {
+      elements.threadList.innerHTML = state.bridgeReady
+        ? '<div class="list-loading">正在读取对话</div>'
+        : '<div class="list-loading">连接后读取对话</div>';
+    }
+    if (!state.bridgeReady) return;
+    const applyThreads = (threads, { cache = true } = {}) => {
+      if (loadVersion !== state.threadListLoadVersion) return;
+      state.threads = Array.isArray(threads) ? threads : [];
+      if (cache) rememberThreadList(viewKey, state.threads);
+      renderThreads();
+    };
     const persistentSections = codexRuntimeFeatureAvailable("conversationSections");
-    // Section ordering is a presentation enhancement. Start it in parallel,
-    // but never make the ordinary conversation list wait for it.
-    const sectionPromise = persistentSections
-      ? loadThreadSections({ silent: true })
-      : Promise.resolve(null);
+    // Section metadata is still needed for grouping and section actions, but
+    // it must not trigger a second full conversation-list request.
+    if (persistentSections && !state.threadSectionsLoading) {
+      void loadThreadSections({ silent: true });
+    }
     if (!persistentSections) state.threadSections = [];
     const params = {
       limit: THREAD_LIST_PAGE_LIMIT,
@@ -15835,48 +15908,16 @@ async function loadThreads() {
       toast("对话列表只加载了部分内容，请点击刷新重试", "warning");
       return;
     }
-
-    // Codex 0.147 only accepts section_position when sectionId is an
-    // explicit filter (including null for unsectioned threads). Once the
-    // ordinary list is visible, optionally replace it with persisted section
-    // order. A slow or incompatible optional request leaves the usable
-    // timestamp-sorted list untouched.
-    void sectionPromise.then(async (sectionSnapshot) => {
-      if (
-        loadVersion !== state.threadListLoadVersion
-        || !Array.isArray(sectionSnapshot)
-        || !sectionSnapshot.length
-      ) return null;
-      const sectionIds = [...sectionSnapshot.map((section) => section.id), null];
-      try {
-        return await loadCodexThreadListPages(params, {
-          loadVersion,
-          sectionIds,
-          allowPartial: false,
-        });
-      } catch (error) {
-        if (isCodexSectionPositionFilterError(error)) {
-          console.warn("Codex rejected section_position filtering; keeping timestamp ordering", error);
-          return null;
-        }
-        throw error;
-      }
-    }).then((ordered) => {
-      if (
-        !ordered
-        || ordered.stale
-        || ordered.partial
-        || loadVersion !== state.threadListLoadVersion
-      ) return;
-      applyThreads(ordered.threads);
-    }).catch((error) => {
-      console.warn("Unable to refresh optional Codex section ordering:", error);
-    });
   } catch (error) {
-    if (loadVersion !== state.threadListLoadVersion) return;
+    if (loadVersion !== null && loadVersion !== state.threadListLoadVersion) return;
     if (state.threads.length) renderThreads();
     else elements.threadList.innerHTML = '<div class="list-empty">暂时无法读取对话</div>';
     toast(codexThreadListErrorMessage(error), "error");
+  } finally {
+    resolveInFlight();
+    if (state.threadListLoadInFlight === inFlight) {
+      state.threadListLoadInFlight = null;
+    }
   }
 }
 
@@ -16116,49 +16157,79 @@ async function reorderThreadInSection(thread, direction, peers, peerIndex) {
   );
 }
 
-async function loadLoadedThreads() {
+async function loadLoadedThreads({ force = false } = {}) {
+  if (state.runtime !== "codex" || !state.bridgeReady) return new Set();
+  const requestKey = JSON.stringify({
+    accountId: state.account?.id || "legacy",
+    runtime: state.runtime,
+    socketGeneration: state.socketGeneration,
+    runtimeEpoch: state.codexRuntimeEpoch || "",
+  });
+  const existing = state.loadedThreadsRequestInFlight;
+  if (
+    existing?.key === requestKey
+    && existing.version === state.loadedThreadsRequestVersion
+  ) {
+    if (force) existing.needsFollowup = true;
+    return existing.promise;
+  }
+
   const requestVersion = state.loadedThreadsRequestVersion + 1;
   state.loadedThreadsRequestVersion = requestVersion;
-  if (state.runtime !== "codex" || !state.bridgeReady) return new Set();
-  const loaded = new Set();
-  const seenCursors = new Set();
-  let cursor = null;
-  for (let page = 0; page < 10; page += 1) {
-    if (
-      state.loadedThreadsRequestVersion !== requestVersion
-      || state.runtime !== "codex"
-      || !state.bridgeReady
-    ) return null;
-    const result = await rpc("thread/loaded/list", {
-      limit: 100,
-      ...(cursor ? { cursor } : {}),
-    }, { timeoutMs: 15_000 });
-    if (
-      state.loadedThreadsRequestVersion !== requestVersion
-      || state.runtime !== "codex"
-      || !state.bridgeReady
-    ) {
-      return null;
+  const entry = {
+    key: requestKey,
+    version: requestVersion,
+    needsFollowup: false,
+    promise: null,
+  };
+  const isCurrent = () => (
+    state.loadedThreadsRequestInFlight === entry
+    && state.loadedThreadsRequestVersion === requestVersion
+    && state.runtime === "codex"
+    && state.bridgeReady
+    && JSON.stringify({
+      accountId: state.account?.id || "legacy",
+      runtime: state.runtime,
+      socketGeneration: state.socketGeneration,
+      runtimeEpoch: state.codexRuntimeEpoch || "",
+    }) === requestKey
+  );
+  state.loadedThreadsRequestInFlight = entry;
+  entry.promise = (async () => {
+    let latest = null;
+    do {
+      entry.needsFollowup = false;
+      const loaded = new Set();
+      const seenCursors = new Set();
+      let cursor = null;
+      for (let page = 0; page < 10; page += 1) {
+        if (!isCurrent()) return null;
+        const result = await rpc("thread/loaded/list", {
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        }, { timeoutMs: 15_000 });
+        if (!isCurrent()) return null;
+        for (const threadId of Array.isArray(result?.data) ? result.data : []) {
+          if (typeof threadId === "string" && threadId) loaded.add(threadId);
+        }
+        const nextCursor = typeof result?.nextCursor === "string" && result.nextCursor
+          ? result.nextCursor
+          : null;
+        if (!nextCursor || seenCursors.has(nextCursor)) break;
+        seenCursors.add(nextCursor);
+        cursor = nextCursor;
+      }
+      if (!isCurrent()) return null;
+      state.loadedThreadIds = loaded;
+      latest = loaded;
+    } while (entry.needsFollowup && isCurrent());
+    return latest;
+  })().finally(() => {
+    if (state.loadedThreadsRequestInFlight === entry) {
+      state.loadedThreadsRequestInFlight = null;
     }
-    for (const threadId of Array.isArray(result?.data) ? result.data : []) {
-      if (typeof threadId === "string" && threadId) loaded.add(threadId);
-    }
-    const nextCursor = typeof result?.nextCursor === "string" && result.nextCursor
-      ? result.nextCursor
-      : null;
-    if (!nextCursor || seenCursors.has(nextCursor)) break;
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-  if (
-    state.loadedThreadsRequestVersion !== requestVersion
-    || state.runtime !== "codex"
-    || !state.bridgeReady
-  ) {
-    return null;
-  }
-  state.loadedThreadIds = loaded;
-  return loaded;
+  });
+  return entry.promise;
 }
 
 function applyThreadRuntimeStatus(threadId, status) {
@@ -16172,64 +16243,100 @@ function applyThreadRuntimeStatus(threadId, status) {
   renderThreads();
 }
 
-async function reconcileThreadLifecycle(threadId, { closed = false } = {}) {
+async function reconcileThreadLifecycle(
+  threadId,
+  { closed = false, forceLoadedCheck = false } = {},
+) {
   if (!threadId) return;
-  const version = (state.threadLifecycleReconcileVersions.get(threadId) || 0) + 1;
-  state.threadLifecycleReconcileVersions.set(threadId, version);
-  let loaded = state.loadedThreadIds;
-  if (closed || !loaded.has(threadId)) {
-    try {
-      loaded = await loadLoadedThreads();
-    } catch (error) {
-      console.error(`Unable to reconcile loaded thread ${threadId}:`, error);
+  const existing = state.threadLifecycleReconcileInFlight.get(threadId);
+  if (existing) {
+    if (closed) existing.closed = true;
+    if (forceLoadedCheck) existing.forceLoadedCheck = true;
+    return existing.promise;
+  }
+  const entry = {
+    closed: Boolean(closed),
+    forceLoadedCheck: Boolean(forceLoadedCheck),
+    promise: null,
+  };
+  state.threadLifecycleReconcileInFlight.set(threadId, entry);
+  entry.promise = (async () => {
+    const version = (state.threadLifecycleReconcileVersions.get(threadId) || 0) + 1;
+    state.threadLifecycleReconcileVersions.set(threadId, version);
+    let loaded = state.loadedThreadIds;
+    if (entry.closed || entry.forceLoadedCheck || !loaded.has(threadId)) {
+      try {
+        loaded = await loadLoadedThreads({ force: entry.closed || entry.forceLoadedCheck });
+      } catch (error) {
+        console.error(`Unable to reconcile loaded thread ${threadId}:`, error);
+        return;
+      }
+      if (!loaded) return;
+    }
+    if (
+      state.threadLifecycleReconcileVersions.get(threadId) !== version
+      || state.runtime !== "codex"
+    ) return;
+    if (loaded.has(threadId)) {
+      if (state.threadRuntimeStatuses.get(threadId)?.type === "notLoaded") {
+        const task = state.threadTaskStatuses.get(threadId);
+        applyThreadRuntimeStatus(
+          threadId,
+          ACTIVE_TASK_STATUSES.has(task?.status)
+            ? {
+              type: "active",
+              activeFlags: task.status === "waiting" ? ["waitingOnApproval"] : [],
+            }
+            : { type: "idle" },
+        );
+      }
+      if (entry.closed && state.activeThread?.id === threadId) {
+        markCodexThreadNeedsResume(threadId, false);
+      }
       return;
     }
-    if (!loaded) return;
-  }
-  if (
-    state.threadLifecycleReconcileVersions.get(threadId) !== version
-    || state.runtime !== "codex"
-  ) return;
-  if (loaded.has(threadId)) {
-    if (state.threadRuntimeStatuses.get(threadId)?.type === "notLoaded") {
-      const task = state.threadTaskStatuses.get(threadId);
-      applyThreadRuntimeStatus(
-        threadId,
-        ACTIVE_TASK_STATUSES.has(task?.status)
-          ? {
-            type: "active",
-            activeFlags: task.status === "waiting" ? ["waitingOnApproval"] : [],
-          }
-          : { type: "idle" },
-      );
+    applyThreadRuntimeStatus(threadId, { type: "notLoaded" });
+    settleThreadSubagents(threadId, "completed", { persist: true });
+    if (state.activeThread?.id !== threadId) return;
+    markCodexThreadNeedsResume(threadId, true);
+    const refreshed = await refreshRecentTurns(threadId);
+    if (refreshed === true && state.activeThread?.id === threadId) {
+      setTurnBusy(conversationBusy(), conversationBusyLabel());
     }
-    if (closed && state.activeThread?.id === threadId) {
-      markCodexThreadNeedsResume(threadId, false);
+    if (refreshed === false && state.activeThread?.id === threadId) {
+      state.activeTurnId = null;
+      setTurnBusy(false, "对话已卸载，发送消息时会自动恢复");
+      refreshTaskStatusVisibility();
     }
-    return;
+  })();
+  try {
+    return await entry.promise;
+  } finally {
+    if (state.threadLifecycleReconcileInFlight.get(threadId) === entry) {
+      state.threadLifecycleReconcileInFlight.delete(threadId);
+    }
   }
-  applyThreadRuntimeStatus(threadId, { type: "notLoaded" });
-  settleThreadSubagents(threadId, "completed", { persist: true });
-  if (state.activeThread?.id !== threadId) return;
-  markCodexThreadNeedsResume(threadId, true);
-  const refreshed = await refreshRecentTurns(threadId);
-  if (refreshed === true && state.activeThread?.id === threadId) {
-    setTurnBusy(conversationBusy(), conversationBusyLabel());
-  }
-  if (refreshed === false && state.activeThread?.id === threadId) {
-    state.activeTurnId = null;
-    setTurnBusy(false, "对话已卸载，发送消息时会自动恢复");
-    refreshTaskStatusVisibility();
-  }
+}
+
+function sameThreadRuntimeStatus(previous, next) {
+  if (previous?.type !== next?.type) return false;
+  const previousFlags = Array.isArray(previous?.activeFlags) ? previous.activeFlags : [];
+  const nextFlags = Array.isArray(next?.activeFlags) ? next.activeFlags : [];
+  return JSON.stringify(previousFlags) === JSON.stringify(nextFlags);
 }
 
 function handleThreadRuntimeStatus(threadId, status) {
   if (!threadId || !status || typeof status !== "object") return;
   const type = status.type;
   if (!["notLoaded", "idle", "systemError", "active"].includes(type)) return;
-  applyThreadRuntimeStatus(threadId, status);
   if (type === "active") {
     state.loadedThreadIds.add(threadId);
+  }
+  const previousStatus = state.threadRuntimeStatuses.get(threadId);
+  const statusChanged = !sameThreadRuntimeStatus(previousStatus, status);
+  if (statusChanged) applyThreadRuntimeStatus(threadId, status);
+  if (!statusChanged) return;
+  if (type === "active") {
     scheduleTaskStatusPoll(0);
     return;
   }
@@ -16244,7 +16351,7 @@ function handleThreadRuntimeStatus(threadId, status) {
     scheduleTaskStatusPoll(0);
   }
   if (type === "notLoaded") {
-    void reconcileThreadLifecycle(threadId);
+    void reconcileThreadLifecycle(threadId, { forceLoadedCheck: true });
     return;
   }
   if (type === "systemError" && state.activeThread?.id === threadId) {
@@ -17802,12 +17909,14 @@ function clearThreadSessionCache() {
   removeThreadSessionCacheItem(state.threadListCacheStorageKey);
   state.threadListCacheStorageKey = null;
   state.loadedThreadsRequestVersion += 1;
+  state.loadedThreadsRequestInFlight = null;
   state.threadGoals.clear();
   state.threadGoalTombstones.clear();
   state.threadGoalControls.clear();
   state.threadGoalRequestVersions.clear();
   state.threadGoalControlRequestVersions.clear();
   state.threadRecentRefreshVersions.clear();
+  state.threadRecentRefreshInFlight.clear();
   state.threadSubagents.clear();
   state.threadListCache.clear();
   state.threadListViewKey = null;
@@ -18726,7 +18835,24 @@ async function resumeClaudeSession(session, { showLoading = true } = {}) {
   }
 }
 
-async function resumeThread(
+async function resumeThread(thread, options = {}) {
+  const threadId = thread?.id;
+  if (typeof threadId !== "string" || !threadId) {
+    return resumeThreadRequest(thread, options);
+  }
+  const existing = state.threadResumePromises.get(threadId);
+  if (existing) return existing.promise;
+  const entry = { threadId, promise: null };
+  state.threadResumePromises.set(threadId, entry);
+  entry.promise = resumeThreadRequest(thread, options).finally(() => {
+    if (state.threadResumePromises.get(threadId) === entry) {
+      state.threadResumePromises.delete(threadId);
+    }
+  });
+  return entry.promise;
+}
+
+async function resumeThreadRequest(
   thread,
   {
     preserveExisting = false,
@@ -19068,15 +19194,12 @@ async function prepareActiveThreadForSend() {
   const thread = state.activeThread;
   if (!thread?.id || !codexThreadNeedsResume(thread.id)) return true;
   if (!state.bridgeReady || state.socket?.readyState !== WebSocket.OPEN) return false;
-  const existing = state.threadResumePromises.get(thread.id);
-  if (existing) return existing.promise;
 
   if (state.taskStatusSnapshot?.threadId === thread.id) {
     state.taskStatusSnapshot = null;
   }
   setTurnBusy(true, "正在恢复对话");
-  const holder = { threadId: thread.id, promise: null };
-  holder.promise = (async () => {
+  return (async () => {
     const recovered = await resumeThread(thread, {
       preserveExisting: true,
       showLoading: false,
@@ -19090,15 +19213,10 @@ async function prepareActiveThreadForSend() {
     void loadTaskStatus();
     return !codexThreadNeedsResume(thread.id);
   })().finally(() => {
-    if (state.threadResumePromises.get(thread.id) === holder) {
-      state.threadResumePromises.delete(thread.id);
-    }
     if (state.activeThread?.id === thread.id) {
       setTurnBusy(conversationBusy(), conversationBusyLabel());
     }
   });
-  state.threadResumePromises.set(thread.id, holder);
-  return holder.promise;
 }
 
 function recentTurnsParams(threadId, cursor = null) {
@@ -22680,6 +22798,7 @@ function handleCodexNotification(notification) {
     clearTimeout(state.threadRecentRefreshTimers.get(params.threadId));
     state.threadRecentRefreshTimers.delete(params.threadId);
     state.threadRecentRefreshVersions.delete(params.threadId);
+    state.threadRecentRefreshInFlight.delete(params.threadId);
     clearThreadItemPages(params.threadId, {
       cancelHydration: state.activeThread?.id === params.threadId,
     });
@@ -34826,7 +34945,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.60-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.61-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -40982,77 +41101,109 @@ function finishPendingSteerForTurn(turnId) {
   );
 }
 
-function scheduleRecentTurnsRefresh(threadId, delayMs = 80) {
+function scheduleRecentTurnsRefresh(threadId, delayMs = 80, { allowFollowup = true } = {}) {
   if (!threadId) return;
   const previous = state.threadRecentRefreshTimers.get(threadId);
   if (previous) clearTimeout(previous);
+  const inFlight = state.threadRecentRefreshInFlight.get(threadId);
+  if (inFlight) {
+    inFlight.dirty = true;
+    return inFlight.promise;
+  }
   const timer = setTimeout(() => {
     state.threadRecentRefreshTimers.delete(threadId);
-    void refreshRecentTurns(threadId);
+    void refreshRecentTurns(threadId, { allowFollowup });
   }, Math.max(0, Number(delayMs) || 0));
   state.threadRecentRefreshTimers.set(threadId, timer);
 }
 
-async function refreshRecentTurns(threadId) {
+async function refreshRecentTurns(threadId, { allowFollowup = true } = {}) {
   if (state.runtime !== "codex" || !threadId || state.activeThread?.id !== threadId) return;
+  const existing = state.threadRecentRefreshInFlight.get(threadId);
+  if (existing) {
+    existing.dirty = true;
+    return existing.promise;
+  }
   const refreshVersion = (state.threadRecentRefreshVersions.get(threadId) || 0) + 1;
   state.threadRecentRefreshVersions.set(threadId, refreshVersion);
   const selectionVersion = state.threadSelectionVersion;
   const historyCursor = state.threadHistoryCursor;
-  try {
-    const result = await rpc("thread/turns/list", recoveryTurnsParams(threadId), {
-      timeoutMs: THREAD_HISTORY_RPC_TIMEOUT_MS,
-    });
-    if (
-      state.threadRecentRefreshVersions.get(threadId) !== refreshVersion
-      || state.threadSelectionVersion !== selectionVersion
-      || state.activeThread?.id !== threadId
-      || state.threadHistoryCursor !== historyCursor
-    ) return null;
-    const recentTurns = normalizeTurnPage(result.data, "desc");
-    const merged = mergeRecentTurnPage(
-      state.activeThread.turns || [],
-      recentTurns,
-      historyCursor,
-      result.nextCursor || null,
-    );
-    const previousProjectedTurnId = state.activeTurnId || state.codexActiveTurnId || null;
-    replaceActiveConversationThread({
-      ...state.activeThread,
-      turns: fenceCodexTurns(merged.turns, threadId),
-    });
-    state.threadHistoryCursor = merged.nextCursor;
-    reconcilePendingTurnRequestFromTurns(threadId, state.activeThread.turns || []);
-    for (const turn of state.activeThread.turns || []) {
-      settlePendingUserMessage(turn);
-      settlePendingSteerMessages(turn);
-      if (turnStatusType(turn) !== "inProgress") finishPendingSteerForTurn(turn.id);
+  const entry = {
+    dirty: false,
+    allowFollowup,
+    promise: null,
+  };
+  state.threadRecentRefreshInFlight.set(threadId, entry);
+  const operation = (async () => {
+    try {
+      const result = await rpc("thread/turns/list", recoveryTurnsParams(threadId), {
+        timeoutMs: THREAD_HISTORY_RPC_TIMEOUT_MS,
+      });
+      if (
+        state.threadRecentRefreshVersions.get(threadId) !== refreshVersion
+        || state.threadSelectionVersion !== selectionVersion
+        || state.activeThread?.id !== threadId
+        || state.threadHistoryCursor !== historyCursor
+      ) return null;
+      const recentTurns = normalizeTurnPage(result.data, "desc");
+      const merged = mergeRecentTurnPage(
+        state.activeThread.turns || [],
+        recentTurns,
+        historyCursor,
+        result.nextCursor || null,
+      );
+      const previousProjectedTurnId = state.activeTurnId || state.codexActiveTurnId || null;
+      replaceActiveConversationThread({
+        ...state.activeThread,
+        turns: fenceCodexTurns(merged.turns, threadId),
+      });
+      state.threadHistoryCursor = merged.nextCursor;
+      reconcilePendingTurnRequestFromTurns(threadId, state.activeThread.turns || []);
+      for (const turn of state.activeThread.turns || []) {
+        settlePendingUserMessage(turn);
+        settlePendingSteerMessages(turn);
+        if (turnStatusType(turn) !== "inProgress") finishPendingSteerForTurn(turn.id);
+      }
+      const activeTurn = state.activeThread.turns?.find((turn) => turnStatusType(turn) === "inProgress");
+      applyTaskAuthorityToActiveTurn(threadId, activeTurn?.id || null);
+      const projectedTurnId = state.activeTurnId || state.codexActiveTurnId || null;
+      if (!previousProjectedTurnId && projectedTurnId && !ACTIVE_TASK_STATUSES.has(state.taskStatusSnapshot?.status)) {
+        // The history endpoint may briefly replay an old inProgress Turn after
+        // the terminal event. Ask the authoritative task endpoint with this
+        // exact ID so it can return staleTurnId and fence the replay instead of
+        // leaving the composer locked until a full page reload.
+        void loadTaskStatus({ force: true });
+      }
+      rebuildThreadSubagents(state.activeThread, { reset: true, persist: true });
+      renderActiveThread({ preserveOptimistic: true });
+      renderThreads();
+      void hydrateThreadItemSummaries(threadId);
+      return true;
+    } catch (error) {
+      if (
+        state.threadRecentRefreshVersions.get(threadId) !== refreshVersion
+        || state.threadSelectionVersion !== selectionVersion
+        || state.activeThread?.id !== threadId
+        || state.threadHistoryCursor !== historyCursor
+      ) return null;
+      console.error(`Unable to refresh recent turns for ${threadId}:`, error);
+      return false;
+    } finally {
+      if (state.threadRecentRefreshInFlight.get(threadId) === entry) {
+        state.threadRecentRefreshInFlight.delete(threadId);
+        if (
+          entry.dirty
+          && entry.allowFollowup
+          && state.runtime === "codex"
+          && state.activeThread?.id === threadId
+        ) {
+          scheduleRecentTurnsRefresh(threadId, 80, { allowFollowup: false });
+        }
+      }
     }
-    const activeTurn = state.activeThread.turns?.find((turn) => turnStatusType(turn) === "inProgress");
-    applyTaskAuthorityToActiveTurn(threadId, activeTurn?.id || null);
-    const projectedTurnId = state.activeTurnId || state.codexActiveTurnId || null;
-    if (!previousProjectedTurnId && projectedTurnId && !ACTIVE_TASK_STATUSES.has(state.taskStatusSnapshot?.status)) {
-      // The history endpoint may briefly replay an old inProgress Turn after
-      // the terminal event. Ask the authoritative task endpoint with this
-      // exact ID so it can return staleTurnId and fence the replay instead of
-      // leaving the composer locked until a full page reload.
-      void loadTaskStatus({ force: true });
-    }
-    rebuildThreadSubagents(state.activeThread, { reset: true, persist: true });
-    renderActiveThread({ preserveOptimistic: true });
-    renderThreads();
-    void hydrateThreadItemSummaries(threadId);
-    return true;
-  } catch (error) {
-    if (
-      state.threadRecentRefreshVersions.get(threadId) !== refreshVersion
-      || state.threadSelectionVersion !== selectionVersion
-      || state.activeThread?.id !== threadId
-      || state.threadHistoryCursor !== historyCursor
-    ) return null;
-    console.error(`Unable to refresh recent turns for ${threadId}:`, error);
-    return false;
-  }
+  })();
+  entry.promise = operation;
+  return operation;
 }
 
 function createClientMessageId() {

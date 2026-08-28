@@ -2,7 +2,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class TiledAutomapWorkerClient {
   constructor(options = {}) {
-    this.workerUrl = options.workerUrl || new URL("./tiled-automap-worker.js?v=0.44.60-beta", import.meta.url);
+    this.workerUrl = options.workerUrl || new URL("./tiled-automap-worker.js?v=0.44.61-beta", import.meta.url);
     this.workerFactory = options.workerFactory || ((url) => new Worker(url, { type: "module", name: "wfl-tiled-automap" }));
     this.timeoutMs = timeoutMilliseconds(options.timeoutMs, DEFAULT_TIMEOUT_MS);
     this.scheduleTimeout = options.setTimeout || ((callback, delay) => globalThis.setTimeout(callback, delay));

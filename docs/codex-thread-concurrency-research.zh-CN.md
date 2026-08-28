@@ -250,13 +250,43 @@ threadRecovery[threadId] = {
 
 ## 8. 当前实施结果
 
-- `public/app.js` 已按 `threadId` 保存恢复标记和恢复中的 Promise；恢复开始会占用
-  新代次，旧 Thread、旧选择或旧连接的迟到响应不能清掉当前 Thread 的恢复标记。
+- `public/app.js` 已按 `threadId` 保存恢复标记，并让所有同一 Thread 的恢复入口共享
+  在途 Promise；恢复开始会占用新代次，旧 Thread、旧选择或旧连接的迟到响应不能清掉
+  当前 Thread 的恢复标记。不同 Thread 仍可同时恢复。
 - `prepareActiveThreadForSend` 只等待目标 Thread 的 `thread/resume`，任务状态刷新在
   后台进行，不再把第二次状态核验放在发送前关键路径。
 - `server.mjs` 的 `/api/task/status` 只有在客户端明确提供 `activeTurnId` 且身份不一致
   时才执行原生任务核验；普通状态轮询不再隐式触发完整历史读取。
 - 主窗口停止按钮在点击瞬间保存 `threadId + turnId`，响应返回时只更新仍然对应的当前
   Thread，避免切换对话后的迟到响应清掉新任务。
-- 本次仅完成语法检查、UI/会话状态/任务状态定向测试，尚未提交或部署，也未触碰救援
-  窗口 `4321`。
+- 本次已完成语法检查、UI/会话状态/任务状态定向测试；提交和本地部署结果由发布记录确认，
+  未触碰救援窗口 `4321`。
+
+## 9. `0.44.60-beta` 重复同步事故复盘
+
+2026-08-28 的 `0.44.60-beta` 运行日志确认，问题不是 Codex 创建了多个同 ID Thread，
+而是浏览器重复发起了同一个 Thread 的历史读取。06:28:34 至 06:29:40 期间，
+`thread/turns/list` 请求连续堆积，单次耗时从约 24 秒升至约 58 秒；06:30:57 有 20
+多个请求同时失败，耗时约 64 至 131 秒，并触发后端 OOM 重启。
+
+触发链有两条叠加：
+
+1. 后端每次 handoff 状态变化同时发送 `codex/recovery-status` 和 `bridge/status`。
+   前端两个入口都调用 `scheduleCodexConnectionRecovery`，调度器只合并“进行中”
+   请求，却把后续状态无条件排队。状态消息的 `observedAt` 每次都不同，即使恢复
+   内容没有变化，也会在前一轮结束后再次执行恢复。
+2. `scheduleRecentTurnsRefresh` 只去重尚未触发的定时器。定时器触发后，前一个
+   `thread/turns/list` 尚未结束时，`thread/status/changed`、缺失 Turn/Item 的
+   delta、终止和错误事件仍会各自创建新的历史读取。
+
+当前约束：
+
+- 恢复请求按运行状态、运行时 epoch 和 handoff 内容生成稳定键，忽略
+  `observedAt` 与 `eventSequence`；同一 Socket 代次和同一键只运行一次，真实状态
+  变化仍可排队一次。`eventSequence` 只用于新 Socket 的漏事件判断，不能作为同一
+  Socket 恢复任务的唯一变化依据。
+- `thread/loaded/list` 和历史读取都按 Thread/连接代次复用在途 Promise；在途期间的
+  `notLoaded`、`closed` 或缺失 Item 事件只设置一次补查标记，完成后最多再查一次。
+  不同 Thread 仍可并行，停止命令仍按精确的 `threadId + turnId` 发送。
+- 这些约束只抑制重复读取，不缩短既有历史读取超时，也不把不同 Thread 串成全局队列；
+  真实历史请求仍由现有版本和连接代次校验决定是否可以写回页面。
