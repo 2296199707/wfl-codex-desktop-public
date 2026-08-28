@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.61-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.61-beta";
+} from "./thread-state.js?v=0.44.62-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.62-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.61-beta";
+} from "./image-context-policy.js?v=0.44.62-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.61-beta";
+} from "./image-attachment-context.js?v=0.44.62-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.61-beta";
+} from "./game-work-mode.js?v=0.44.62-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.61-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.62-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.61-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.62-beta";
 import {
   createConversationState,
   reduceConversationNotification,
@@ -61,11 +61,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.61-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.61-beta";
+} from "./conversation-state.js?v=0.44.62-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.62-beta";
 
-const UI_VERSION = "0.44.61-beta";
-const UI_VERSION_LABEL = "0.44.61-beta";
+const UI_VERSION = "0.44.62-beta";
+const UI_VERSION_LABEL = "0.44.62-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -2255,6 +2255,9 @@ const elements = Object.fromEntries(
     "imageApiStatus",
     "imageApiProviderInput",
     "imageApiPresetInput",
+    "imageApiRequestModeInput",
+    "imageApiRequestModeHelp",
+    "imageApiApplyRecommendedButton",
     "imageApiModelInput",
     "imageApiModelPresets",
     "imageApiModelCatalogSelect",
@@ -6684,8 +6687,13 @@ function bindEvents() {
   elements.imageApiProviderInput.addEventListener("change", renderImageModelOptions);
   elements.imageApiPresetInput.addEventListener("change", () => {
     const preset = imageApiAdminPreset(elements.imageApiPresetInput.value);
-    populateImageApiAdminFields(preset);
+    populateImageApiAdminFields({
+      ...preset,
+      requestMode: elements.imageApiRequestModeInput.value,
+    });
   });
+  elements.imageApiRequestModeInput.addEventListener("change", updateImageApiRequestModeUi);
+  elements.imageApiApplyRecommendedButton.addEventListener("click", applyRecommendedImageApiSettings);
   elements.imageApiModelCatalogSelect.addEventListener("change", () => {
     if (elements.imageApiModelCatalogSelect.value) {
       elements.imageApiModelInput.value = elements.imageApiModelCatalogSelect.value;
@@ -33202,7 +33210,10 @@ function clearProviderKeyInput() {
 function renderImageApiSettings() {
   const configured = state.imageApi.configured === true;
   const canEdit = canEditProviderProfiles();
-  elements.imageApiStatus.textContent = configured ? "已配置" : "未配置";
+  const requestMode = imageApiRequestMode(state.imageApi.requestMode);
+  elements.imageApiStatus.textContent = configured
+    ? `已配置 · ${imageApiRequestModeLabel(requestMode)}`
+    : `未配置 · ${imageApiRequestModeLabel(requestMode)}`;
   elements.imageApiProviderInput.replaceChildren(
     ...state.providers.map((provider) => dataOption(provider.name, provider.id)),
   );
@@ -33236,6 +33247,7 @@ function renderImageApiSettings() {
   elements.imageApiModelsRefreshButton.disabled = !canEdit || !state.providers.length;
   elements.removeImageApiButton.hidden = !configured || !canEdit;
   refreshImageApiProbeControls(canEdit);
+  updateImageApiRequestModeUi();
   refreshIcons();
 }
 
@@ -33256,6 +33268,7 @@ function populateImageApiAdminFields(configuration) {
   const defaults = { ...preset.defaults, ...(configuration?.defaults || {}) };
   const limits = { ...preset.limits, ...(configuration?.limits || {}) };
   elements.imageApiPresetInput.value = preset.preset;
+  elements.imageApiRequestModeInput.value = imageApiRequestMode(configuration?.requestMode);
   elements.imageApiSizeInput.value = defaults.size;
   elements.imageApiQualityInput.value = defaults.quality;
   elements.imageApiOutputFormatInput.value = defaults.outputFormat;
@@ -33286,7 +33299,39 @@ function populateImageApiAdminFields(configuration) {
   elements.imageApiMaxInputBytesTotalInput.value = limits.maxInputBytesTotal;
   elements.imageApiMaxOutputBytesPerImageInput.value = limits.maxOutputBytesPerImage;
   elements.imageApiMaxResponseBytesInput.value = limits.maxResponseBytes;
+  updateImageApiRequestModeUi();
   setImageApiControlsEditable(canEditProviderProfiles());
+}
+
+function imageApiRequestMode(value) {
+  return ["managed", "partial", "passthrough"].includes(value) ? value : "managed";
+}
+
+function imageApiRequestModeLabel(value) {
+  return {
+    managed: "标准管理",
+    partial: "部分透传",
+    passthrough: "全部透传",
+  }[imageApiRequestMode(value)];
+}
+
+function updateImageApiRequestModeUi() {
+  const mode = imageApiRequestMode(elements.imageApiRequestModeInput.value);
+  elements.imageApiRequestModeHelp.textContent = mode === "passthrough"
+    ? "AI 未提供的供应商参数不会发送；providerParameters 中的原生字段会直接透传。"
+    : mode === "partial"
+      ? "AI 已提供的参数直接透传；未提供的标准参数使用这里保存的默认值。"
+      : "使用能力声明和已保存默认值；不接受未声明的供应商原生参数。";
+  elements.imageApiStatus.textContent = state.imageApi?.configured === true
+    ? `已配置 · ${imageApiRequestModeLabel(mode)}`
+    : `未配置 · ${imageApiRequestModeLabel(mode)}`;
+}
+
+function applyRecommendedImageApiSettings() {
+  const mode = imageApiRequestMode(elements.imageApiRequestModeInput.value);
+  const preset = imageApiAdminPreset(elements.imageApiPresetInput.value);
+  populateImageApiAdminFields({ ...preset, requestMode: mode });
+  toast("已应用当前预设的推荐默认设置");
 }
 
 function setImageApiCapabilityValues(name, values) {
@@ -33306,6 +33351,7 @@ function setImageApiControlsEditable(editable) {
   const ordinaryInputs = [
     elements.imageApiProviderInput,
     elements.imageApiPresetInput,
+    elements.imageApiRequestModeInput,
     elements.imageApiModelInput,
     elements.imageApiSizeInput,
     elements.imageApiQualityInput,
@@ -33373,6 +33419,7 @@ function setImageApiControlsEditable(editable) {
   elements.imageApiMaxPartialImagesInput.max = String(allowedLimits.maxPartialImages);
   elements.imageApiPartialImagesInput.max = String(allowedLimits.maxPartialImages);
   elements.imageApiMaxInputBytesTotalInput.max = String(allowedLimits.maxInputBytesTotal);
+  elements.imageApiApplyRecommendedButton.disabled = !editable;
   refreshImageApiProbeControls(editable);
 }
 
@@ -33636,8 +33683,9 @@ function collectImageApiAdminSettings() {
     n: imageApiIntegerValue(elements.imageApiNInput),
     partialImages: imageApiIntegerValue(elements.imageApiPartialImagesInput),
   };
+  const requestMode = imageApiRequestMode(elements.imageApiRequestModeInput.value);
   validateImageApiAdminSettings({ preset, capabilities, operationCapabilities, limits, defaults });
-  return { preset, capabilities, operationCapabilities, limits, defaults };
+  return { preset, requestMode, capabilities, operationCapabilities, limits, defaults };
 }
 
 function imageApiOperationSizeInputs() {
@@ -33727,6 +33775,7 @@ function setImageApiBusy(busy) {
   elements.saveImageApiButton.disabled = busy || !canEditProviderProfiles() || !state.providers.length;
   elements.removeImageApiButton.disabled = busy;
   elements.imageApiModelsRefreshButton.disabled = busy || !canEditProviderProfiles() || !state.providers.length;
+  elements.imageApiApplyRecommendedButton.disabled = busy || !canEditProviderProfiles();
   setImageApiControlsEditable(!busy && canEditProviderProfiles());
 }
 
@@ -34945,7 +34994,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.61-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.62-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(

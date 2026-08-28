@@ -247,6 +247,41 @@ test("legacy image settings migrate deterministically to the generation-only v2 
   }
 });
 
+test("image request modes persist independently and default old configurations to managed", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "codex-provider-image-request-mode-"));
+  try {
+    const store = await new ProviderStore(directory).initialize();
+    const provider = await store.create({
+      name: "Request mode provider",
+      baseUrl: "https://api.example.test/v1",
+      model: "text-model",
+      apiKey: "request-mode-secret",
+    });
+
+    assert.equal(store.getImageApi(), null);
+    for (const requestMode of ["managed", "partial", "passthrough"]) {
+      const saved = await store.setImageApi({
+        providerId: provider.id,
+        preset: "openai-gpt-image-2",
+        requestMode,
+      });
+      assert.equal(saved.requestMode, requestMode);
+      assert.equal(store.snapshot().imageApi.requestMode, requestMode);
+    }
+
+    const reloaded = await new ProviderStore(directory).initialize();
+    assert.equal(reloaded.getImageApi().requestMode, "passthrough");
+    const retained = await reloaded.setImageApi({ providerId: provider.id });
+    assert.equal(retained.requestMode, "passthrough");
+    await assert.rejects(
+      reloaded.setImageApi({ providerId: provider.id, requestMode: "unknown" }),
+      /请求参数模式/,
+    );
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("the OpenAI GPT Image 2 preset exposes edit, outpaint, formats, streaming, and arbitrary size limits", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "codex-provider-image-v2-"));
   try {

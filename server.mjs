@@ -110,6 +110,11 @@ import {
   readExistingProviderSnapshot,
 } from "./lib/provider-store.mjs";
 import {
+  hasImageProviderParameter,
+  imageProviderParameter,
+  normalizeImageProviderParameters,
+} from "./lib/image-provider-parameters.mjs";
+import {
   CodexProviderRoutingStore,
   normalizeProviderRoutingTarget,
   providerRoutingTargetKey,
@@ -9474,6 +9479,7 @@ app.post("/api/multi-user/users/:id/image-provider", async (request, response, n
       providerId: assigned.id,
       model: submitted.model,
       ...(Object.hasOwn(submitted, "preset") ? { preset: submitted.preset } : {}),
+      ...(Object.hasOwn(submitted, "requestMode") ? { requestMode: submitted.requestMode } : {}),
       ...(Object.hasOwn(submitted, "capabilities") ? { capabilities: submitted.capabilities } : {}),
       ...(Object.hasOwn(submitted, "defaults") ? { defaults: submitted.defaults } : {}),
       ...(Object.hasOwn(submitted, "limits") ? { limits: submitted.limits } : {}),
@@ -17869,6 +17875,7 @@ function publicImageCapabilities(imageApi) {
     : {};
   return {
     enabled: configured,
+    requestMode: normalizeImageRequestMode(imageApi?.requestMode),
     schemaVersion: imageApi?.schemaVersion || 2,
     presetId: imageApi?.preset || "generation-only",
     operations: configured ? [...(capabilities.operations || [])] : [],
@@ -17917,6 +17924,17 @@ function normalizeImageExecutionInput(input, imageApi, { legacy = false } = {}) 
   if (!imageApi.capabilities.operations.includes(operation)) {
     throw imageExecutionError(409, "IMAGE_OPERATION_UNAVAILABLE", "当前图片供应商未启用这个操作");
   }
+  const requestMode = legacy ? "managed" : normalizeImageRequestMode(imageApi.requestMode);
+  const passthrough = requestMode !== "managed";
+  let providerParameters;
+  try {
+    providerParameters = normalizeImageProviderParameters(input.providerParameters);
+  } catch (error) {
+    throw imageExecutionError(400, "INVALID_IMAGE_PROVIDER_PARAMETERS", error.message, {}, error);
+  }
+  if (!passthrough && Object.keys(providerParameters).length) {
+    throw imageExecutionError(400, "INVALID_IMAGE_PROVIDER_PARAMETERS", "标准管理模式不接受供应商原生参数");
+  }
   const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
   const maxPromptCharacters = Number.isSafeInteger(imageApi.limits.maxPromptCharacters)
     ? imageApi.limits.maxPromptCharacters
@@ -17928,39 +17946,113 @@ function normalizeImageExecutionInput(input, imageApi, { legacy = false } = {}) 
       `图片描述必须为 1-${maxPromptCharacters} 个字符`,
     );
   }
-  const n = legacy ? 1 : imageBoundedInteger(input.n, imageApi.defaults.n, 1, imageApi.limits.maxOutputs, "输出图片数量");
-  const quality = imageEnum(input.quality, imageApi.defaults.quality, imageApi.capabilities.qualities, "图片质量");
-  const outputFormat = legacy
-    ? "png"
-    : imageEnum(input.outputFormat, imageApi.defaults.outputFormat, imageApi.capabilities.outputFormats, "输出格式");
-  const outputCompression = imageBoundedInteger(
-    input.outputCompression,
-    imageApi.defaults.outputCompression,
-    0,
-    100,
-    "输出压缩率",
+  const nField = imageRequestField(input, providerParameters, "n", ["n"], imageApi.defaults.n, legacy || !passthrough);
+  const n = legacy
+    ? 1
+    : imageBoundedInteger(
+      providerParameterNumber(nField, 1),
+      imageApi.defaults.n,
+      1,
+      passthrough ? 100 : imageApi.limits.maxOutputs,
+      "输出图片数量",
+    );
+  const qualityField = imageRequestField(
+    input,
+    providerParameters,
+    "quality",
+    ["quality"],
+    imageApi.defaults.quality,
+    legacy || !passthrough,
   );
-  const background = imageEnum(input.background, imageApi.defaults.background, imageApi.capabilities.backgrounds, "图片背景");
-  if (background === "transparent" && outputFormat === "jpeg") {
+  const quality = qualityField.value;
+  const outputFormatField = imageRequestField(
+    input,
+    providerParameters,
+    "outputFormat",
+    ["output_format", "outputFormat"],
+    legacy ? "png" : imageApi.defaults.outputFormat,
+    legacy || !passthrough,
+  );
+  const outputFormat = normalizeLocalImageFormat(outputFormatField.value);
+  const outputCompressionField = imageRequestField(
+    input,
+    providerParameters,
+    "outputCompression",
+    ["output_compression", "outputCompression"],
+    imageApi.defaults.outputCompression,
+    legacy || !passthrough,
+  );
+  const outputCompression = normalizeLocalImageCompression(outputCompressionField.value, imageApi.defaults.outputCompression);
+  const backgroundField = imageRequestField(
+    input,
+    providerParameters,
+    "background",
+    ["background"],
+    imageApi.defaults.background,
+    legacy || !passthrough,
+  );
+  const background = backgroundField.value;
+  if (!passthrough && background === "transparent" && outputFormat === "jpeg") {
     throw imageExecutionError(400, "INVALID_IMAGE_BACKGROUND", "透明背景只支持 PNG 或 WebP 输出");
   }
-  const moderation = imageEnum(input.moderation, imageApi.defaults.moderation, imageApi.capabilities.moderations, "审核档位");
-  const stream = !legacy && input.stream === true;
-  if (stream && imageApi.capabilities.streaming !== true) {
+  const moderationField = imageRequestField(
+    input,
+    providerParameters,
+    "moderation",
+    ["moderation"],
+    imageApi.defaults.moderation,
+    legacy || !passthrough,
+  );
+  const moderation = moderationField.value;
+  const streamField = imageRequestField(input, providerParameters, "stream", ["stream"], undefined, false);
+  const stream = !legacy && (streamField.value === true || streamField.value === "true");
+  if (stream && !passthrough && imageApi.capabilities.streaming !== true) {
     throw imageExecutionError(409, "IMAGE_STREAMING_UNAVAILABLE", "当前图片供应商未启用流式预览");
   }
+  const partialImagesField = imageRequestField(
+    input,
+    providerParameters,
+    "partialImages",
+    ["partial_images", "partialImages"],
+    imageApi.defaults.partialImages,
+    stream && !passthrough,
+  );
   const partialImages = stream
-    ? imageBoundedInteger(input.partialImages, imageApi.defaults.partialImages, 0, imageApi.limits.maxPartialImages, "局部预览数量")
+    ? imageBoundedInteger(
+      providerParameterNumber(partialImagesField, 0),
+      imageApi.defaults.partialImages,
+      0,
+      passthrough ? 100 : imageApi.limits.maxPartialImages,
+      "局部预览数量",
+    )
     : 0;
-  const inputFidelity = input.inputFidelity == null || input.inputFidelity === ""
+  const inputFidelityField = imageRequestField(
+    input,
+    providerParameters,
+    "inputFidelity",
+    ["input_fidelity", "inputFidelity"],
+    undefined,
+    false,
+  );
+  const inputFidelity = inputFidelityField.value == null || inputFidelityField.value === ""
     ? undefined
-    : String(input.inputFidelity).trim();
-  if (inputFidelity) {
+    : inputFidelityField.value;
+  if (!passthrough && inputFidelity) {
     throw imageExecutionError(400, "IMAGE_OPTION_UNAVAILABLE", "当前图片预设不允许修改输入保真度");
   }
+  const sizeField = imageRequestField(
+    input,
+    providerParameters,
+    "size",
+    ["size"],
+    imageApi.defaults.size,
+    legacy || !passthrough,
+  );
   const size = operation === "outpaint"
     ? null
-    : normalizeImageRequestSize(input.size ?? imageApi.defaults.size, imageApi, operation);
+    : passthrough
+      ? normalizeLocalImageSize(sizeField.value)
+      : normalizeImageRequestSize(sizeField.value, imageApi, operation);
   const sourcePaths = normalizeImageSourcePaths(input, operation, imageApi.limits.maxInputImages);
   const maskPath = normalizeOptionalImageRelativePath(input.maskPath, "蒙版路径");
   if (operation === "generate" && (sourcePaths.length || maskPath || input.outpaint != null || input.expand != null)) {
@@ -18003,6 +18095,7 @@ function normalizeImageExecutionInput(input, imageApi, { legacy = false } = {}) 
     : null;
   return {
     operation,
+    requestMode,
     prompt,
     project: input.project,
     destination: input.destination ?? input.outputPath,
@@ -18024,7 +18117,65 @@ function normalizeImageExecutionInput(input, imageApi, { legacy = false } = {}) 
     preserveSource,
     blendMargin,
     alignmentPolicy,
+    providerParameters,
+    providerRequest: {
+      n: nField.sendValue,
+      size: operation === "outpaint" ? undefined : sizeField.sendValue,
+      quality: qualityField.sendValue,
+      outputFormat: outputFormatField.sendValue,
+      outputCompression: outputCompressionField.sendValue,
+      background: backgroundField.sendValue,
+      moderation: moderationField.sendValue,
+      inputFidelity: inputFidelityField.sendValue,
+      stream: streamField.sendValue,
+      partialImages: partialImagesField.sendValue,
+    },
+    outputFormatSpecified: outputFormatField.provided,
   };
+}
+
+function normalizeImageRequestMode(value) {
+  const normalized = String(value || "managed").trim();
+  if (!["managed", "partial", "passthrough"].includes(normalized)) return "managed";
+  return normalized;
+}
+
+function imageRequestField(input, providerParameters, inputKey, providerKeys, fallback, useFallback) {
+  if (Object.hasOwn(input, inputKey) && input[inputKey] !== undefined && input[inputKey] !== null) {
+    return { value: input[inputKey], sendValue: input[inputKey], provided: true };
+  }
+  if (hasImageProviderParameter(providerParameters, providerKeys)) {
+    return {
+      value: imageProviderParameter(providerParameters, providerKeys),
+      sendValue: undefined,
+      provided: true,
+    };
+  }
+  return {
+    value: useFallback ? fallback : undefined,
+    sendValue: useFallback ? fallback : undefined,
+    provided: false,
+  };
+}
+
+function providerParameterNumber(field, fallback) {
+  const number = Number(field.value);
+  return Number.isSafeInteger(number) ? number : fallback;
+}
+
+function normalizeLocalImageFormat(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["png", "jpeg", "webp"].includes(normalized) ? normalized : "png";
+}
+
+function normalizeLocalImageCompression(value, fallback) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 && number <= 100 ? number : fallback;
+}
+
+function normalizeLocalImageSize(value) {
+  const normalized = String(value || "").trim();
+  return normalized === "auto" || /^\d{1,5}x\d{1,5}$/u.test(normalized) ? normalized : "auto";
 }
 
 function normalizeImageProjectPath(value) {

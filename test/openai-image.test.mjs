@@ -94,6 +94,102 @@ test("generation sends non-null parameters and returns inspected multiple images
   });
 });
 
+test("partial passthrough sends saved defaults while passthrough omits unspecified fields", async () => {
+  const png = pngFixture(2, 2);
+  const common = {
+    baseUrl: "https://images.example.test/v1",
+    apiKey: "image-secret-value",
+    operation: "generate",
+    model: "vendor-image-model",
+    prompt: "a small blue bird",
+    providerParameters: {
+      response_format: "b64_json",
+      vendor_options: { safety_level: "provider-default", trace: true },
+    },
+    fetchImpl: async (_url, options) => jsonResponse({ data: [{ b64_json: png.toString("base64") }] }),
+  };
+
+  let partialBody;
+  await requestProviderImages({
+    ...common,
+    requestMode: "partial",
+    n: 1,
+    size: "2x2",
+    quality: "high",
+    outputFormat: "png",
+    outputCompression: 84,
+    background: "opaque",
+    moderation: "low",
+    fetchImpl: async (_url, options) => {
+      partialBody = JSON.parse(options.body);
+      return jsonResponse({ data: [{ b64_json: png.toString("base64") }] });
+    },
+  });
+  assert.deepEqual(partialBody, {
+    model: "vendor-image-model",
+    prompt: "a small blue bird",
+    n: 1,
+    size: "2x2",
+    quality: "high",
+    output_format: "png",
+    output_compression: 84,
+    background: "opaque",
+    moderation: "low",
+    response_format: "b64_json",
+    vendor_options: { safety_level: "provider-default", trace: true },
+  });
+
+  let passthroughBody;
+  await requestProviderImages({
+    ...common,
+    requestMode: "passthrough",
+    fetchImpl: async (_url, options) => {
+      passthroughBody = JSON.parse(options.body);
+      return jsonResponse({ data: [{ b64_json: png.toString("base64") }] });
+    },
+  });
+  assert.deepEqual(passthroughBody, {
+    model: "vendor-image-model",
+    prompt: "a small blue bird",
+    response_format: "b64_json",
+    vendor_options: { safety_level: "provider-default", trace: true },
+  });
+});
+
+test("explicit image fields take precedence over aliases in providerParameters", async () => {
+  const png = pngFixture(2, 2);
+  let body;
+  await requestProviderImages({
+    baseUrl: "https://images.example.test/v1",
+    apiKey: "image-secret-value",
+    requestMode: "passthrough",
+    model: "configured-model",
+    prompt: "configured prompt",
+    n: 2,
+    size: "2x2",
+    outputFormat: "png",
+    providerParameters: {
+      model: "untrusted-model",
+      prompt: "untrusted prompt",
+      n: 7,
+      size: "9x9",
+      output_format: "webp",
+      outputFormat: "jpeg",
+    },
+    fetchImpl: async (_url, options) => {
+      body = JSON.parse(options.body);
+      return jsonResponse({ data: [{ b64_json: png.toString("base64") }] });
+    },
+  });
+  assert.deepEqual(body, {
+    model: "configured-model",
+    prompt: "configured prompt",
+    n: 2,
+    size: "2x2",
+    output_format: "png",
+  });
+});
+
 test("legacy generation export retains the single PNG result contract", async () => {
   const png = pngFixture(4, 3);
   const result = await generateProviderImage({
@@ -282,7 +378,7 @@ test("edit honors the configured per-image input byte limit", async () => {
   assert.equal(result.outputs[0].width, 3);
 });
 
-test("explicit output format and size are checked against actual image metadata", async () => {
+test("output format remains checked but provider output size may differ from the request", async () => {
   const png = pngFixture(8, 6);
   const fetchImpl = async () => jsonResponse({ data: [{ b64_json: png.toString("base64") }] });
   await assert.rejects(
@@ -298,18 +394,17 @@ test("explicit output format and size are checked against actual image metadata"
       && error.requestedFormat === "jpeg"
       && error.actualFormat === "png",
   );
-  await assert.rejects(
-    requestProviderImages({
-      baseUrl: "https://images.example.test/v1",
-      apiKey: "secret",
-      prompt: "banana",
-      size: "10x6",
-      outputFormat: "png",
-      fetchImpl,
-    }),
-    (error) => error.code === "IMAGE_SIZE_MISMATCH"
-      && error.requestedWidth === 10
-      && error.actualWidth === 8,
+  const result = await requestProviderImages({
+    baseUrl: "https://images.example.test/v1",
+    apiKey: "secret",
+    prompt: "banana",
+    size: "10x6",
+    outputFormat: "png",
+    fetchImpl,
+  });
+  assert.deepEqual(
+    [result.outputs[0].width, result.outputs[0].height],
+    [8, 6],
   );
 });
 

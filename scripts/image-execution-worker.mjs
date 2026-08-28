@@ -14,6 +14,7 @@ import {
   transformOutpaintInputs,
 } from "../lib/image-outpaint.mjs";
 import { requestProviderImages, requestProviderImagesStream } from "../lib/openai-image.mjs";
+import { normalizeImageProviderParameters } from "../lib/image-provider-parameters.mjs";
 
 const MAX_REQUEST_BYTES = 512 * 1024;
 const MAX_CONTROL_LINE_BYTES = 64 * 1024;
@@ -62,6 +63,7 @@ try {
 
 async function executeTask(task, emit) {
   await emit({ type: "phase", phase: "preparing" });
+  const providerRequest = task.request.providerRequest || {};
   const loaded = await loadInputs(task);
   let providerSources = loaded.sources.map(providerFile);
   let providerMask = loaded.mask ? providerFile(loaded.mask) : null;
@@ -130,14 +132,17 @@ async function executeTask(task, emit) {
     model: task.imageApi.model,
     prompt: task.request.prompt,
     user: task.request.user,
-    n: task.request.n,
-    size: providerSize,
-    quality: task.request.quality,
-    outputFormat: task.request.outputFormat,
-    outputCompression: task.request.outputFormat === "png" ? undefined : task.request.outputCompression,
-    background: task.request.background,
-    moderation: task.request.moderation,
-    inputFidelity: task.request.inputFidelity,
+    n: providerRequest.n,
+    size: task.request.operation === "outpaint" ? providerSize : providerRequest.size,
+    quality: providerRequest.quality,
+    outputFormat: providerRequest.outputFormat,
+    outputCompression: providerRequest.outputCompression,
+    background: providerRequest.background,
+    moderation: providerRequest.moderation,
+    inputFidelity: providerRequest.inputFidelity,
+    stream: providerRequest.stream,
+    providerParameters: task.request.providerParameters,
+    requestMode: task.request.requestMode,
     timeoutMs: task.imageApi.timeoutMs,
     maxInputBytesPerImage: task.imageApi.maxInputBytesPerImage,
     maxOutputBytesPerImage: task.imageApi.maxOutputBytesPerImage,
@@ -162,7 +167,7 @@ async function executeTask(task, emit) {
       let partialSequence = 0;
       for await (const event of requestProviderImagesStream({
         ...providerOptions,
-        partialImages: task.request.partialImages,
+        partialImages: providerRequest.partialImages,
       })) {
         executionStage = "provider";
         providerRequestId = event.providerRequestId || providerRequestId;
@@ -578,6 +583,9 @@ function normalizeImageApi(value) {
     apiKey,
     baseUrl,
     model,
+    requestMode: ["managed", "partial", "passthrough"].includes(value.requestMode)
+      ? value.requestMode
+      : "managed",
     providerProfileRevision: optionalRevision(value.providerProfileRevision),
     configurationRevision: optionalRevision(value.configurationRevision),
     multipartImageField: ["image", "image[]"].includes(transport.multipartImageField)
@@ -607,10 +615,10 @@ function normalizeRequest(value, imageApi) {
   if (!OPERATIONS.has(operation)) throw workerError(400, "INVALID_IMAGE_OPERATION", "不支持的图片操作");
   const outputFormat = String(value.outputFormat || "");
   if (!OUTPUT_FORMATS.has(outputFormat)) throw workerError(400, "INVALID_IMAGE_FORMAT", "图片输出格式无效");
-  const n = boundedInteger(value.n, 1, 10, "图片输出数量");
+  const n = boundedInteger(value.n, 1, imageApi.requestMode === "passthrough" ? 100 : 10, "图片输出数量");
   const stream = value.stream === true;
   const size = operation === "outpaint" ? null : normalizeSize(value.size);
-  if (operation !== "outpaint") {
+  if (operation !== "outpaint" && imageApi.requestMode === "managed") {
     assertOperationSizeSupported(size, operation, imageApi);
   }
   const maskMode = operation === "edit"
@@ -618,6 +626,7 @@ function normalizeRequest(value, imageApi) {
     : null;
   const request = {
     operation,
+    requestMode: imageApi.requestMode,
     prompt: boundedString(value.prompt, 1, 32_000, "图片描述"),
     user: normalizeProviderUser(value.user),
     n,
@@ -646,6 +655,22 @@ function normalizeRequest(value, imageApi) {
         "扩图尺寸对齐策略",
       )
       : null,
+    providerParameters: normalizeImageProviderParameters(value.providerParameters),
+    providerRequest: isRecord(value.providerRequest)
+      ? structuredClone(value.providerRequest)
+      : {
+          n,
+          size,
+          quality: optionalString(value.quality, 100),
+          outputFormat,
+          outputCompression: value.outputFormat === "png" ? undefined : boundedInteger(value.outputCompression ?? 100, 0, 100, "图片压缩率"),
+          background: optionalString(value.background, 100),
+          moderation: optionalString(value.moderation, 100),
+          inputFidelity: optionalString(value.inputFidelity, 100),
+          stream: stream ? true : undefined,
+          partialImages: stream ? boundedInteger(value.partialImages ?? 0, 0, 3, "局部预览数量") : undefined,
+        },
+    outputFormatSpecified: value.outputFormatSpecified === true,
   };
   if (request.operation === "outpaint" && request.preserveSource === "seamless") {
     request.blendMargin = boundedInteger(value.blendMargin ?? 64, 1, 512, "无缝扩图过渡宽度");
@@ -769,18 +794,19 @@ async function readSecureFile(record, maxBytes, label, inputDirectory) {
 
 async function prepareOutput(output, task, source, mask, outpaint, providerSize) {
   let data;
-  let finalSize = providerSize;
+  const outputFormat = task.request.requestMode === "managed"
+    ? task.request.outputFormat
+    : output.format;
   try {
     if (outpaint) {
       const logicalResult = await restoreOutpaintProviderCanvas(output.image, outpaint.canvasPlan);
-      data = await restoreOutpaintSource(logicalResult, source.data, outpaint.placement, {
-          format: task.request.outputFormat,
+        data = await restoreOutpaintSource(logicalResult, source.data, outpaint.placement, {
+          format: outputFormat,
           blendMargin: task.request.blendMargin,
-          ...(task.request.outputFormat === "png"
+          ...(outputFormat === "png"
             ? { compressionLevel: 9 }
             : { outputCompression: task.request.outputCompression }),
         });
-      finalSize = `${outpaint.canvas.width}x${outpaint.canvas.height}`;
     } else if (task.request.operation === "edit" && task.request.maskMode === "strict" && mask) {
       const restored = await restoreMaskedEditSource({
         resultBuffer: output.image,
@@ -788,8 +814,8 @@ async function prepareOutput(output, task, source, mask, outpaint, providerSize)
         maskBuffer: mask.data,
         featherPixels: task.request.maskFeather,
         outputFormatOrOptions: {
-          format: task.request.outputFormat,
-          ...(task.request.outputFormat === "png"
+          format: outputFormat,
+          ...(outputFormat === "png"
             ? { compressionLevel: 9 }
             : { outputCompression: task.request.outputCompression }),
         },
@@ -815,7 +841,7 @@ async function prepareOutput(output, task, source, mask, outpaint, providerSize)
   let inspected;
   try {
     inspected = await validateImageFile(data, {
-      allowedFormats: [task.request.outputFormat],
+      allowedFormats: task.request.requestMode === "managed" ? [task.request.outputFormat] : [...OUTPUT_FORMATS],
       maxBytes: task.imageApi.maxOutputBytesPerImage,
     });
     const metadata = await sharp(data, {
@@ -826,19 +852,6 @@ async function prepareOutput(output, task, source, mask, outpaint, providerSize)
     if ((metadata.pages ?? 1) !== 1 || metadata.format !== inspected.format) throw new Error("format mismatch");
   } catch (error) {
     throw workerError(502, "INVALID_IMAGE_OUTPUT", "图片供应商返回了无法完整解码的图片", error);
-  }
-  if (finalSize !== "auto") {
-    const [width, height] = finalSize.split("x").map(Number);
-    if (inspected.width !== width || inspected.height !== height) {
-      throw workerError(502, "IMAGE_SIZE_MISMATCH", "图片供应商返回的图片尺寸与请求不符", null, {
-        requestedWidth: width,
-        requestedHeight: height,
-        actualWidth: inspected.width,
-        actualHeight: inspected.height,
-      });
-    }
-  } else if (task.imageApi.size) {
-    assertDimensionsWithinLimits(inspected.width, inspected.height, task.imageApi.size, true);
   }
   return { data, ...inspected, revisedPrompt: optionalString(output.revisedPrompt, 4_000) };
 }

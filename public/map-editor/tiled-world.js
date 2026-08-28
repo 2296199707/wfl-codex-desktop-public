@@ -1,7 +1,7 @@
 import {
   relativeTiledProjectReference,
   resolveTiledProjectReference,
-} from "./tiled-document.js?v=0.44.61-beta";
+} from "./tiled-document.js?v=0.44.62-beta";
 
 const DEFAULT_HISTORY_LIMIT = 200;
 const MAX_PATTERN_LENGTH = 512;

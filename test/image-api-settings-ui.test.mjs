@@ -9,6 +9,8 @@ const css = await fs.readFile(new URL("../public/styles.css", import.meta.url), 
 test("administrator image settings expose the complete schema v2 surface", () => {
   for (const id of [
     "imageApiPresetInput",
+    "imageApiRequestModeInput",
+    "imageApiApplyRecommendedButton",
     "imageApiModelInput",
     "imageApiSizeInput",
     "imageApiQualityInput",
@@ -55,7 +57,7 @@ test("administrator image settings expose the complete schema v2 surface", () =>
 
 test("image presets change only through the explicit administrator selector", () => {
   assert.match(app, /const IMAGE_API_ADMIN_PRESETS = Object\.freeze\(\{/);
-  assert.match(app, /elements\.imageApiPresetInput\.addEventListener\("change", \(\) => \{[\s\S]*populateImageApiAdminFields\(preset\)/);
+  assert.match(app, /elements\.imageApiPresetInput\.addEventListener\("change", \(\) => \{[\s\S]*populateImageApiAdminFields\(\{[\s\S]*\.\.\.preset/);
   assert.match(app, /function imageApiAdminPreset\(presetId\)/);
   assert.doesNotMatch(app, /imageApiModelInput\.addEventListener\([\s\S]{0,200}(?:preset|Preset)/);
   assert.doesNotMatch(app, /state\.imageApi\.model[\s\S]{0,120}(?:includes|startsWith|match)[\s\S]{0,120}(?:preset|Preset)/);
@@ -71,7 +73,7 @@ test("image settings submit complete nested settings while preserving unedited f
   assert.match(collect, /\.\.\.\(baseline\.limits \|\| \{\}\)/);
   assert.match(collect, /\.\.\.\(baseline\.defaults \|\| \{\}\)/);
   assert.match(collect, /operationCapabilities/);
-  assert.match(collect, /return \{ preset, capabilities, operationCapabilities, limits, defaults \}/);
+  assert.match(collect, /return \{ preset, requestMode, capabilities, operationCapabilities, limits, defaults \}/);
   assert.match(app, /body: JSON\.stringify\(\{[\s\S]*providerId: elements\.imageApiProviderInput\.value,[\s\S]*model: elements\.imageApiModelInput\.value\.trim\(\),[\s\S]*\.\.\.settings/);
   assert.match(app, /function setImageApiControlsEditable\(editable\)/);
   assert.match(app, /configured \? "此图片供应商由管理员分配" : "管理员尚未分配图片供应商"/);

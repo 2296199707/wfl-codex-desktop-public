@@ -584,6 +584,72 @@ test("managed MCP lists only the operations and options assigned to the current 
   }
 });
 
+test("partial MCP exposes native parameters and keeps omitted fields optional", async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-image-provider-partial-"));
+  const calls = [];
+  const service = new ImageProviderToolService({
+    directory: temporary,
+    userId: "u-partial-image",
+    execute: async (input) => {
+      calls.push(input);
+      return { outputs: [] };
+    },
+    capabilities: async () => ({
+      ...structuredClone(FULL_IMAGE_CAPABILITIES),
+      requestMode: "partial",
+    }),
+  });
+  let child;
+  try {
+    await service.start();
+    child = spawn(process.execPath, [
+      path.join(root, "scripts", "image-provider-mcp.mjs"),
+      "--socket",
+      service.socketPath,
+    ], { stdio: ["pipe", "pipe", "pipe"] });
+    const rpc = mcpClient(child);
+    await rpc.request("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "test", version: "1" },
+    });
+    const listed = await rpc.request("tools/list", {});
+    const properties = listed.tools.find((tool) => tool.name === "generate_image").inputSchema.properties;
+    assert.equal(properties.providerParameters.type, "object");
+    assert.equal(properties.providerParameters.additionalProperties, true);
+    assert.equal(Object.hasOwn(properties.size, "enum"), false);
+    assert.equal(Object.hasOwn(properties.quality, "enum"), false);
+    assert.match(listed.tools[0].description, /部分透传模式/);
+
+    const result = await rpc.request("tools/call", {
+      name: "generate_image",
+      arguments: {
+        prompt: "partial native request",
+        project: "/srv/project",
+        providerParameters: {
+          response_format: "b64_json",
+          vendor_options: { trace: true },
+        },
+      },
+    });
+    assert.equal(result.isError, false);
+    assert.deepEqual(calls, [{
+      operation: "generate",
+      prompt: "partial native request",
+      project: "/srv/project",
+      providerParameters: {
+        response_format: "b64_json",
+        vendor_options: { trace: true },
+      },
+    }]);
+    rpc.close();
+  } finally {
+    child?.kill("SIGTERM");
+    await service.close();
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
+});
+
 test("long-lived MCP sessions receive tools/list_changed when the assigned operations change", async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-image-provider-list-changed-"));
   let current = {

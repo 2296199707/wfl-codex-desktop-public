@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import net from "node:net";
+import { normalizeImageProviderParameters } from "../lib/image-provider-parameters.mjs";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const SOCKET_CONNECT_TIMEOUT_MS = 30_000;
@@ -150,7 +151,13 @@ function imageProviderInstructions(capabilities) {
     outpaint: "扩图",
   }[operation])).filter(Boolean);
   const scope = labels.length ? labels.join("、") : "当前未启用图片操作";
-  return `当前可用能力：${scope}。所有图片输入和输出都必须使用工程路径；普通生成不会读取提示词中提到的图片路径；每次调用严格使用显式参数，不会自动重试、改尺寸或降低画质。MCP 表面不提供流式局部图片。`;
+  const requestMode = capabilities?.requestMode || "managed";
+  const mode = requestMode === "passthrough"
+    ? "全部透传，未给出的参数不发送"
+    : requestMode === "partial"
+      ? "部分透传，未给出的参数使用默认值"
+      : "标准管理，使用能力声明和默认值";
+  return `当前可用能力：${scope}。请求模式：${mode}。所有图片输入和输出都必须使用工程路径；普通生成不会读取提示词中提到的图片路径；未提供参数的处理方式由当前请求模式决定，不会自动重试、改尺寸或降低画质。MCP 表面不提供流式局部图片。`;
 }
 
 function imageToolDefinitions(capabilities) {
@@ -160,7 +167,7 @@ function imageToolDefinitions(capabilities) {
     {
       name: "generate_image",
       title: "生成项目图片",
-      description: "按显式参数从零生成一张或多张图片并保存到当前工程。这个工具不会读取提示词中提到的现有图片；编辑或扩图必须分别使用 edit_image 或 outpaint_image。不会自动重试、切换模型、改变尺寸或降低画质。",
+      description: operationDescription("按显式参数从零生成一张或多张图片并保存到当前工程。这个工具不会读取提示词中提到的现有图片；编辑或扩图必须分别使用 edit_image 或 outpaint_image。不会自动重试、切换模型、改变尺寸或降低画质。", capabilities),
       inputSchema: objectSchema(commonProperties(capabilities, "generate"), ["prompt", "project"]),
     },
   );
@@ -193,7 +200,7 @@ function imageToolDefinitions(capabilities) {
     {
       name: "edit_image",
       title: "编辑项目图片",
-      description: "使用一张或多张工程内参考图进行编辑，可选用工程内蒙版。蒙版是供应商的提示性约束；选择 strict 时由 WFL 做确定性像素恢复。只接受路径，不接受 URL、Base64 或文件 ID。",
+      description: operationDescription("使用一张或多张工程内参考图进行编辑，可选用工程内蒙版。蒙版是供应商的提示性约束；选择 strict 时由 WFL 做确定性像素恢复。只接受路径，不接受 URL、Base64 或文件 ID。", capabilities),
       inputSchema: objectSchema(editProperties, ["prompt", "project", "sourcePaths"]),
     },
     );
@@ -202,7 +209,7 @@ function imageToolDefinitions(capabilities) {
     {
       name: "outpaint_image",
       title: "扩展项目图片",
-      description: "向工程内图片的指定边缘扩图并保存结果。原图区域由服务端保留，不接受外部图片引用。",
+      description: operationDescription("向工程内图片的指定边缘扩图并保存结果。原图区域由服务端保留，不接受外部图片引用。", capabilities),
       inputSchema: objectSchema({
         ...commonProperties(capabilities, "outpaint", { includeSize: false }),
         sourcePath: relativePathSchema("需要扩展的工程内源图片相对路径。"),
@@ -257,35 +264,66 @@ function commonProperties(capabilities, operation, { includeSize = true } = {}) 
     n: {
       type: "integer",
       minimum: 1,
-      maximum: capabilities.limits.maxOutputs,
+      ...(capabilities.requestMode === "managed" ? { maximum: capabilities.limits.maxOutputs } : { maximum: 100 }),
       description: "输出图片数量；所有结果都会返回。",
     },
   };
   if (includeSize) properties.size = sizeSchema(capabilities, operation);
-  if (capabilities.options.qualities.length) {
+  if (capabilities.requestMode === "managed" && capabilities.options.qualities.length) {
     properties.quality = enumSchema(capabilities.options.qualities, "输出质量。");
+  } else if (capabilities.requestMode !== "managed") {
+    properties.quality = providerStringSchema("供应商原生输出质量。");
   }
-  if (capabilities.options.outputFormats.length) {
+  if (capabilities.requestMode === "managed" && capabilities.options.outputFormats.length) {
     properties.outputFormat = enumSchema(capabilities.options.outputFormats, "输出格式。");
+  } else if (capabilities.requestMode !== "managed") {
+    properties.outputFormat = providerStringSchema("供应商原生输出格式。");
   }
-  if (capabilities.options.outputFormats.some((format) => format === "jpeg" || format === "webp")) {
+  if (capabilities.options.outputFormats.some((format) => format === "jpeg" || format === "webp")
+    || capabilities.requestMode !== "managed") {
     properties.outputCompression = {
       type: "integer",
       minimum: 0,
-      maximum: 100,
+      ...(capabilities.requestMode === "managed" ? { maximum: 100 } : {}),
       description: "JPEG/WebP 输出压缩质量，0-100。",
     };
   }
-  if (capabilities.options.backgrounds.length) {
+  if (capabilities.requestMode === "managed" && capabilities.options.backgrounds.length) {
     properties.background = enumSchema(capabilities.options.backgrounds, "输出背景。");
+  } else if (capabilities.requestMode !== "managed") {
+    properties.background = providerStringSchema("供应商原生输出背景。");
   }
-  if (capabilities.options.moderations.length) {
+  if (capabilities.requestMode === "managed" && capabilities.options.moderations.length) {
     properties.moderation = enumSchema(capabilities.options.moderations, "内容审核档位。");
+  } else if (capabilities.requestMode !== "managed") {
+    properties.moderation = providerStringSchema("供应商原生审核参数。");
+  }
+  if (capabilities.requestMode !== "managed") {
+    properties.inputFidelity = providerStringSchema("供应商原生输入保真度参数。");
+    properties.providerParameters = {
+      type: "object",
+      additionalProperties: true,
+      description: capabilities.requestMode === "passthrough"
+        ? "供应商原生参数对象；这里没有给出的字段不会发送。不能覆盖供应商地址、鉴权或 WFL 路径。"
+        : "供应商原生参数对象；这里提供的字段直接发送，未提供的标准字段使用已保存默认值。不能覆盖供应商地址、鉴权或 WFL 路径。",
+    };
   }
   return properties;
 }
 
+function operationDescription(description, capabilities) {
+  const mode = capabilities.requestMode === "passthrough"
+    ? "当前为全部透传模式，未提供的参数不会继承默认值。"
+    : capabilities.requestMode === "partial"
+      ? "当前为部分透传模式，未提供的参数使用已保存默认值。"
+      : "当前为标准管理模式，使用管理员能力声明和默认值。";
+  return `${description}${mode}`;
+}
+
 function sizeSchema(capabilities, operation) {
+  if (capabilities.requestMode !== "managed") {
+    return providerStringSchema("供应商原生输出尺寸；会原样发送，不由 WFL 预先判断供应商是否支持。", 256);
+  }
   const limits = capabilities.limits;
   const operationCapability = capabilities.operationCapabilities[operation] || {
     customSize: limits.fixedSizes.length === 0,
@@ -321,6 +359,10 @@ function enumSchema(values, description) {
   return { type: "string", enum: values, description };
 }
 
+function providerStringSchema(description, maxLength = 256) {
+  return { type: "string", minLength: 1, maxLength, description };
+}
+
 function pixelSchema(description) {
   return { type: "integer", minimum: 0, maximum: 3840, description };
 }
@@ -340,6 +382,14 @@ function validateToolArguments(operation, value, capabilities) {
   absoluteProjectPath(value.project);
   if (value.outputPath !== undefined) relativeProjectPath(value.outputPath, "图片输出路径");
   validateCommonControls(value, capabilities, operation);
+  try {
+    normalizeImageProviderParameters(value.providerParameters);
+  } catch (error) {
+    throw toolRequestError("INVALID_IMAGE_PROVIDER_PARAMETERS", error.message);
+  }
+  if (capabilities.requestMode === "managed" && Object.keys(value.providerParameters || {}).length) {
+    throw toolRequestError("INVALID_IMAGE_PROVIDER_PARAMETERS", "标准管理模式不接受供应商原生参数");
+  }
 
   if (operation === "generate" && looksLikeSourceImageRequest(value.prompt)) {
     throw toolRequestError(
@@ -382,6 +432,17 @@ function validateToolArguments(operation, value, capabilities) {
 }
 
 function validateCommonControls(value, capabilities, operation) {
+  if (capabilities.requestMode !== "managed") {
+    optionalProviderString(value.size, "图片尺寸");
+    optionalProviderString(value.quality, "图片质量");
+    optionalProviderString(value.outputFormat, "输出格式");
+    optionalProviderInteger(value.outputCompression, "输出压缩率");
+    optionalProviderString(value.background, "图片背景");
+    optionalProviderString(value.moderation, "审核档位");
+    optionalProviderString(value.inputFidelity, "输入保真度");
+    optionalInteger(value.n, 1, 100, "输出数量");
+    return;
+  }
   if (value.size !== undefined) validateRequestedSize(value.size, capabilities, operation);
   optionalEnum(value.quality, capabilities.options.qualities, "图片质量");
   optionalEnum(value.outputFormat, capabilities.options.outputFormats, "输出格式");
@@ -395,6 +456,7 @@ function validateCommonControls(value, capabilities, operation) {
 }
 
 function validateRequestedSize(value, capabilities, operation) {
+  if (capabilities.requestMode !== "managed") return;
   const limits = capabilities.limits;
   if (operation === "outpaint") {
     throw toolRequestError("INVALID_IMAGE_TOOL_ARGUMENTS", "扩图尺寸由扩展边距决定");
@@ -495,6 +557,18 @@ function optionalInteger(value, minimum, maximum, label, required = false) {
   if (value === undefined && !required) return;
   if (!Number.isInteger(value) || value < minimum || value > maximum) {
     throw toolRequestError("INVALID_IMAGE_TOOL_ARGUMENTS", `${label}必须是 ${minimum}-${maximum} 的整数`);
+  }
+}
+
+function optionalProviderString(value, label) {
+  if (value !== undefined && (typeof value !== "string" || value.length > 256 || !value.trim())) {
+    throw toolRequestError("INVALID_IMAGE_TOOL_ARGUMENTS", `${label}格式无效`);
+  }
+}
+
+function optionalProviderInteger(value, label) {
+  if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+    throw toolRequestError("INVALID_IMAGE_TOOL_ARGUMENTS", `${label}格式无效`);
   }
 }
 
@@ -599,6 +673,9 @@ function normalizeImageCapabilities(value) {
         maxPixels: boundedCapabilityInteger(size.maxPixels, 1, 256_000_000, 8_294_400),
       },
     },
+    requestMode: ["managed", "partial", "passthrough"].includes(input.requestMode)
+      ? input.requestMode
+      : "managed",
     options: {
       qualities: stringEnumList(options.qualities, ["auto", "low", "medium", "high"]),
       outputFormats: stringEnumList(options.outputFormats, ["png", "jpeg", "webp"]),

@@ -46,7 +46,7 @@ test("isolated image worker executes generate, streamed edit, mask validation, a
       }
       response.setHeader("content-type", "application/json");
       if (requests.length === 3) {
-        response.end(JSON.stringify({ data: [{ b64_json: outpaintPng.toString("base64") }] }));
+        response.end(JSON.stringify({ data: [{ b64_json: wrongSizePng.toString("base64") }] }));
       } else if (requests.length === 5) {
         response.end(JSON.stringify({ data: [{ b64_json: outpaintJpeg.toString("base64") }] }));
       } else {
@@ -138,25 +138,22 @@ test("isolated image worker executes generate, streamed edit, mask validation, a
     const sourceCenter = ((4 * decoded.info.width) + 6) * 4;
     assert.deepEqual([...decoded.data.subarray(sourceCenter, sourceCenter + 3)], [200, 10, 20]);
     const outerPixel = ((4 * decoded.info.width) + 0) * 4;
-    assert.deepEqual([...decoded.data.subarray(outerPixel, outerPixel + 3)], [60, 80, 220]);
+    assert.deepEqual([...decoded.data.subarray(outerPixel, outerPixel + 3)], [1, 2, 3]);
     const seamPixel = ((4 * decoded.info.width) + 2) * 4;
-    assert.deepEqual([...decoded.data.subarray(seamPixel, seamPixel + 3)], [60, 80, 220]);
+    assert.deepEqual([...decoded.data.subarray(seamPixel, seamPixel + 3)], [1, 2, 3]);
 
-    const failedEvents = [];
-    await assert.rejects(
-      runner(job("5", {
-        imageApi: imageApi(baseUrl),
-        request: imageRequest({ operation: "generate", prompt: "billed-local-failure" }),
-        sources: [],
-        mask: null,
-      }), { onEvent: (event) => failedEvents.push(event) }),
-      (error) => (
-        error.code === "IMAGE_SIZE_MISMATCH"
-        && error.requestedWidth === 8
-        && error.actualWidth === 4
-      ),
+    const differentSizeEvents = [];
+    const differentSize = await runner(job("5", {
+      imageApi: imageApi(baseUrl),
+      request: imageRequest({ operation: "generate", prompt: "returned-different-size" }),
+      sources: [],
+      mask: null,
+    }), { onEvent: (event) => differentSizeEvents.push(event) });
+    assert.deepEqual(
+      [differentSize.files[0].width, differentSize.files[0].height],
+      [4, 4],
     );
-    assert.ok(failedEvents.find((event) => event.type === "usage" && event.usage.totalTokens === 11));
+    assert.ok(differentSizeEvents.find((event) => event.type === "usage" && event.usage.totalTokens === 11));
 
     const zeroCompressionJpeg = await runner(job("6", {
       imageApi: imageApi(baseUrl),

@@ -3,6 +3,11 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.62-beta] - 2026-08-28
+
+- AI 供应商图片测试插件增加 managed、partial 和 passthrough 参数模式，支持供应商原生参数透传。
+- 供应商返回图片尺寸与请求不一致时不再拒绝结果；普通生成、编辑保留实际尺寸，扩图会适配后继续合成。
+
 ## [0.44.61-beta] - 2026-08-28
 
 - 收敛对话列表、历史恢复、Thread 状态和连接恢复的并发请求；同一对话的在途读取共享，迟到的旧任务事件不会重新打开或覆盖当前任务。
