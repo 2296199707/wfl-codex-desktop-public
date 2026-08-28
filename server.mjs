@@ -126,9 +126,11 @@ import {
   inspectServerFilePath,
   listServerDirectory,
   normalizeServerFilePath,
+  parseServerFileRange,
   readServerFile,
   renameServerFile,
   SERVER_FILE_EDIT_MAX_BYTES,
+  serverFileDownloadTag,
   uploadServerFile,
   writeServerFile,
 } from "./lib/server-file-manager.mjs";
@@ -10695,22 +10697,45 @@ app.get("/api/tools/server-files/read", async (request, response, next) => {
 });
 
 app.get("/api/tools/server-files/download", async (request, response, next) => {
+  let fileSize = null;
   try {
     requireAdmin(request);
     assertServerFileManagerAvailable();
     const inspected = await inspectServerFilePath(request.query.path);
     if (!inspected.stat.isFile()) throw httpError(400, "只能下载普通文件");
+    fileSize = inspected.stat.size;
+    const etag = serverFileDownloadTag(inspected.stat);
+    const range = hasMatchingServerFileIfRange(request.headers["if-range"], etag, inspected.stat.mtimeMs)
+      ? parseServerFileRange(request.headers.range, fileSize)
+      : null;
+    const start = range?.start ?? 0;
+    const end = range?.end ?? Math.max(0, fileSize - 1);
     response.setHeader("Content-Disposition", `attachment; filename="${sanitizeDownloadName(path.basename(inspected.path))}"`);
-    response.setHeader("Content-Length", String(inspected.stat.size));
+    response.setHeader("Accept-Ranges", "bytes");
+    response.setHeader("ETag", etag);
+    response.setHeader("Last-Modified", new Date(inspected.stat.mtimeMs).toUTCString());
+    response.setHeader("Content-Length", String(range ? end - start + 1 : fileSize));
     response.setHeader("Cache-Control", "no-store");
+    if (range) {
+      response.status(206);
+      response.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
+    }
     response.type("application/octet-stream");
-    const stream = createReadStream(inspected.path);
+    const stream = createReadStream(inspected.path, range ? { start, end } : undefined);
     stream.on("error", (error) => {
       if (!response.headersSent) next(error);
       else response.destroy(error);
     });
     stream.pipe(response);
   } catch (error) {
+    if (error?.code === "SERVER_FILE_RANGE_INVALID" && Number.isSafeInteger(fileSize)) {
+      response.status(416);
+      response.setHeader("Accept-Ranges", "bytes");
+      response.setHeader("Content-Range", `bytes */${fileSize}`);
+      response.setHeader("Content-Length", "0");
+      response.end();
+      return;
+    }
     next(error);
   }
 });
@@ -31436,6 +31461,16 @@ function isOfficialAuthenticationError(error) {
 function sanitizeDownloadName(value) {
   const name = String(value || "export").normalize("NFKC").replace(/[^A-Za-z0-9._-]/g, "-").replace(/-+/g, "-");
   return name.replace(/^[-.]+|[-.]+$/g, "").slice(0, 80) || "export";
+}
+
+function hasMatchingServerFileIfRange(value, etag, mtimeMs) {
+  if (value == null || value === "") return true;
+  const ifRange = String(value).trim();
+  if (!ifRange || ifRange.startsWith("W/")) return false;
+  if (ifRange.startsWith('"')) return ifRange === etag;
+  const timestamp = Date.parse(ifRange);
+  if (!Number.isFinite(timestamp) || !Number.isFinite(mtimeMs)) return false;
+  return Math.floor(mtimeMs / 1_000) * 1_000 <= timestamp;
 }
 
 async function decoratedUserPolicy(actorId) {

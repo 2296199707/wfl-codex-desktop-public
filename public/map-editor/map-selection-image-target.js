@@ -1,5 +1,5 @@
-import { tiledLayerEntries } from "./tiled-document.js?v=0.44.63-beta";
-import { tiledTileRegionBounds } from "./tiled-render-model.js?v=0.44.63-beta";
+import { tiledLayerEntries } from "./tiled-document.js?v=0.44.64-beta";
+import { tiledTileRegionBounds } from "./tiled-render-model.js?v=0.44.64-beta";
 
 export const MAP_SELECTION_IMAGE_TARGET_SCHEMA = "wfl.map-selection-image-target.v1";
 

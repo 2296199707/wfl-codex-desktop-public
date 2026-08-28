@@ -9,11 +9,34 @@ import {
   inspectServerFilePath,
   listServerDirectory,
   normalizeServerFilePath,
+  parseServerFileRange,
   readServerFile,
   renameServerFile,
+  serverFileDownloadTag,
   uploadServerFile,
   writeServerFile,
 } from "../lib/server-file-manager.mjs";
+
+test("parses resumable download ranges and rejects unsatisfiable ranges", () => {
+  assert.equal(parseServerFileRange(undefined, 10), null);
+  assert.deepEqual(parseServerFileRange("bytes=2-5", 10), { start: 2, end: 5 });
+  assert.deepEqual(parseServerFileRange("bytes=2-", 10), { start: 2, end: 9 });
+  assert.deepEqual(parseServerFileRange("bytes=-3", 10), { start: 7, end: 9 });
+  assert.deepEqual(parseServerFileRange("bytes=0-99", 10), { start: 0, end: 9 });
+  for (const value of ["bytes=10-", "bytes=5-2", "bytes=-0", "bytes=0-1,3-4"]) {
+    assert.throws(
+      () => parseServerFileRange(value, 10),
+      (error) => error.statusCode === 416 && error.code === "SERVER_FILE_RANGE_INVALID",
+    );
+  }
+  assert.throws(() => parseServerFileRange("bytes=0-", 0), (error) => error.statusCode === 416);
+});
+
+test("download tags change when file metadata changes", () => {
+  const base = { dev: 1, ino: 2, size: 3, mtimeMs: 4 };
+  assert.match(serverFileDownloadTag(base), /^"[a-f0-9]{64}"$/u);
+  assert.notEqual(serverFileDownloadTag(base), serverFileDownloadTag({ ...base, size: 4 }));
+});
 
 test("server file manager supports bounded global file operations", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-server-files-"));

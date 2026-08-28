@@ -198,7 +198,50 @@ test("exposes the global server file manager only through the administrator boun
     const downloaded = await fetch(downloadUrl, { headers: { Authorization: authorization } });
     assert.equal(downloaded.status, 200, `download status ${downloaded.status}`);
     assert.match(downloaded.headers.get("content-disposition") || "", /attachment/u);
+    assert.equal(downloaded.headers.get("accept-ranges"), "bytes");
+    assert.ok(downloaded.headers.get("etag"));
     assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), Buffer.from([0, 1, 2, 3]));
+
+    const partial = await fetch(downloadUrl, {
+      headers: { Authorization: authorization, Range: "bytes=1-2" },
+    });
+    assert.equal(partial.status, 206, `partial download status ${partial.status}`);
+    assert.equal(partial.headers.get("content-range"), "bytes 1-2/4");
+    assert.equal(partial.headers.get("content-length"), "2");
+    assert.deepEqual(Buffer.from(await partial.arrayBuffer()), Buffer.from([1, 2]));
+
+    const matchingIfRange = await fetch(downloadUrl, {
+      headers: {
+        Authorization: authorization,
+        Range: "bytes=2-3",
+        "If-Range": downloaded.headers.get("etag"),
+      },
+    });
+    assert.equal(matchingIfRange.status, 206, `matching If-Range status ${matchingIfRange.status}`);
+    assert.deepEqual(Buffer.from(await matchingIfRange.arrayBuffer()), Buffer.from([2, 3]));
+
+    const staleIfRange = await fetch(downloadUrl, {
+      headers: {
+        Authorization: authorization,
+        Range: "bytes=2-3",
+        "If-Range": '"stale-server-file"',
+      },
+    });
+    assert.equal(staleIfRange.status, 200, `stale If-Range status ${staleIfRange.status}`);
+    assert.deepEqual(Buffer.from(await staleIfRange.arrayBuffer()), Buffer.from([0, 1, 2, 3]));
+
+    const suffix = await fetch(downloadUrl, {
+      headers: { Authorization: authorization, Range: "bytes=-2" },
+    });
+    assert.equal(suffix.status, 206, `suffix download status ${suffix.status}`);
+    assert.equal(suffix.headers.get("content-range"), "bytes 2-3/4");
+    assert.deepEqual(Buffer.from(await suffix.arrayBuffer()), Buffer.from([2, 3]));
+
+    const invalid = await fetch(downloadUrl, {
+      headers: { Authorization: authorization, Range: "bytes=99-" },
+    });
+    assert.equal(invalid.status, 416, `invalid range status ${invalid.status}`);
+    assert.equal(invalid.headers.get("content-range"), "bytes */4");
 
     const deleted = await fetchJson(`${baseUrl}/api/tools/server-files/action`, {
       method: "POST",

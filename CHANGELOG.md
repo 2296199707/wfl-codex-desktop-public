@@ -3,6 +3,10 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.64-beta] - 2026-08-28
+
+- 服务器文件管理器下载支持标准 HTTP Range 断点续传，并通过文件校验标识避免续传不同版本的文件。
+
 ## [0.44.63-beta] - 2026-08-28
 
 - 修复图片供应商工具对同步 `capabilities` 回调错误调用 `.catch()` 导致生成请求尚未发出就失败的问题。

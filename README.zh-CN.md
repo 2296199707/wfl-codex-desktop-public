@@ -6,7 +6,7 @@ WFL Codex Web Workspace 是运行在浏览器中的 Codex 工作区界面，底�
 `app-server` 的对话、模型、配置和审批协议。它适合部署在专用 Debian/Ubuntu
 服务器上，通过 HTTPS 域名、Cloudflare Tunnel 或 SSH 端口转发访问。
 
-当前版本：`v0.44.63-beta`。版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本：`v0.44.64-beta`。版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 项目存储根目录可以通过 `CODEX_DESKTOP_PROJECT_ROOTS` 配置为多个路径，Linux
 服务器用冒号分隔，例如 `/srv:/www`。创建工程时可在弹窗中选择存储位置，第一项
@@ -90,7 +90,7 @@ sudo bash install.sh
 ```
 
 - `git status --short` 必须没有输出。
-- `git describe --tags --exact-match` 必须显示当前发布标签 `v0.44.63-beta`。
+- `git describe --tags --exact-match` 必须显示当前发布标签 `v0.44.64-beta`。
 - 本地分支必须跟踪 `origin/stable`；不要使用产生 detached HEAD 的标签克隆方式，
   也不要在源码目录中保留手工改动。
 
@@ -117,9 +117,9 @@ npm run release:status
 
 ```bash
 cd /root/install
-sha256sum -c wfl-codex-desktop-v0.44.63-beta.tar.gz.sha256
-tar -xzf wfl-codex-desktop-v0.44.63-beta.tar.gz -C /srv
-mv /srv/wfl-codex-desktop-v0.44.63-beta /srv/wfl-codex-desktop
+sha256sum -c wfl-codex-desktop-v0.44.64-beta.tar.gz.sha256
+tar -xzf wfl-codex-desktop-v0.44.64-beta.tar.gz -C /srv
+mv /srv/wfl-codex-desktop-v0.44.64-beta /srv/wfl-codex-desktop
 cd /srv/wfl-codex-desktop
 sudo bash install.sh
 ```
