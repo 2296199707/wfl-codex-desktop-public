@@ -1,12 +1,12 @@
-import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.62-beta";
-import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.62-beta";
-import { parseTiledDocument } from "./tiled-document.js?v=0.44.62-beta";
-import { decodeTiledTileData } from "./tiled-tile-codec.js?v=0.44.62-beta";
+import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.63-beta";
+import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.63-beta";
+import { parseTiledDocument } from "./tiled-document.js?v=0.44.63-beta";
+import { decodeTiledTileData } from "./tiled-tile-codec.js?v=0.44.63-beta";
 import {
   mapPixelBounds,
   tiledObjectScreenBounds,
   tiledTileRegionBounds,
-} from "./tiled-render-model.js?v=0.44.62-beta";
+} from "./tiled-render-model.js?v=0.44.63-beta";
 import {
   TiledWorldEditDocument,
   adjacentWorldMapIndexes,
@@ -16,12 +16,12 @@ import {
   worldBounds,
   worldMapAtPoint,
   worldMapReference,
-} from "./tiled-world.js?v=0.44.62-beta";
+} from "./tiled-world.js?v=0.44.63-beta";
 import {
   collectWorldMapNavigation,
   planWorldMapPreviews,
   validateWorldPortalReferences,
-} from "./tiled-world-navigation.js?v=0.44.62-beta";
+} from "./tiled-world-navigation.js?v=0.44.63-beta";
 
 const elements = Object.fromEntries([
   "worldApp", "worldTitle", "worldMeta", "saveButton", "undoButton", "redoButton",

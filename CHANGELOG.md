@@ -3,6 +3,10 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.63-beta] - 2026-08-28
+
+- 修复图片供应商工具对同步 `capabilities` 回调错误调用 `.catch()` 导致生成请求尚未发出就失败的问题。
+
 ## [0.44.62-beta] - 2026-08-28
 
 - AI 供应商图片测试插件增加 managed、partial 和 passthrough 参数模式，支持供应商原生参数透传。

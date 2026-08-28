@@ -80,7 +80,7 @@ test("managed image provider MCP exposes autonomous project image generation ove
         quality: "auto",
       };
     },
-    capabilities: async () => structuredClone(FULL_IMAGE_CAPABILITIES),
+    capabilities: () => structuredClone(FULL_IMAGE_CAPABILITIES),
   });
   let child;
   try {

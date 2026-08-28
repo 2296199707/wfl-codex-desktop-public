@@ -3,7 +3,7 @@ import {
   parseTiledAiPatch,
   previewTiledAiPatch,
   tiledAiPatchContext,
-} from "./tiled-ai-patch.js?v=0.44.62-beta";
+} from "./tiled-ai-patch.js?v=0.44.63-beta";
 
 const PROPOSAL_ID_PATTERN = /^[A-Za-z0-9_-]{32}$/u;
 const STATUSES = new Set(["pending", "applied", "discarded"]);
