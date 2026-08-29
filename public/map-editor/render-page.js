@@ -1,5 +1,5 @@
-import { parseTiledDocument } from "./tiled-document.js?v=0.44.64";
-import { TiledPixiViewer } from "./pixi-viewer.js?v=0.44.64";
+import { parseTiledDocument } from "./tiled-document.js?v=0.44.65";
+import { TiledPixiViewer } from "./pixi-viewer.js?v=0.44.65";
 
 const config = globalThis.__WFL_RENDER_CONFIG__;
 const host = document.getElementById("renderHost");

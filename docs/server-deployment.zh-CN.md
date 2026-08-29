@@ -111,16 +111,16 @@ git describe --tags --exact-match
 
 从已发布服务器取得同一版本的两个文件并上传到新服务器：
 
-- `wfl-codex-desktop-v0.44.64.tar.gz`
-- `wfl-codex-desktop-v0.44.64.tar.gz.sha256`
+- `wfl-codex-desktop-v0.44.65.tar.gz`
+- `wfl-codex-desktop-v0.44.65.tar.gz.sha256`
 
 先独立核对校验值，再解压到固定目录：
 
 ```bash
 cd /root/install
-sha256sum -c wfl-codex-desktop-v0.44.64.tar.gz.sha256
-tar -xzf wfl-codex-desktop-v0.44.64.tar.gz -C /srv
-mv /srv/wfl-codex-desktop-v0.44.64 /srv/wfl-codex-desktop
+sha256sum -c wfl-codex-desktop-v0.44.65.tar.gz.sha256
+tar -xzf wfl-codex-desktop-v0.44.65.tar.gz -C /srv
+mv /srv/wfl-codex-desktop-v0.44.65 /srv/wfl-codex-desktop
 cd /srv/wfl-codex-desktop
 ```
 

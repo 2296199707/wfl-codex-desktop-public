@@ -1,4 +1,4 @@
-import { tiledAlignmentOffset } from "./tiled-render-model.js?v=0.44.64";
+import { tiledAlignmentOffset } from "./tiled-render-model.js?v=0.44.65";
 
 export const TILED_OBJECT_SHAPES = Object.freeze([
   "rectangle",

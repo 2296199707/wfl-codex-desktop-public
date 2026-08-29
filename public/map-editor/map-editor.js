@@ -3,29 +3,29 @@ import {
   relativeTiledProjectReference,
   resolveTiledProjectReference,
   serializeTiledDocument,
-} from "./tiled-document.js?v=0.44.64";
-import { TiledEditDocument } from "./tiled-edit-document.js?v=0.44.64";
+} from "./tiled-document.js?v=0.44.65";
+import { TiledEditDocument } from "./tiled-edit-document.js?v=0.44.65";
 import {
   applyTiledAiPatch,
   buildTiledAiPrompt,
   parseTiledAiPatch,
   previewTiledAiPatch,
   tiledAiPatchContext,
-} from "./tiled-ai-patch.js?v=0.44.64";
-import { TiledAiPatchWorkerClient } from "./tiled-ai-patch-worker-client.js?v=0.44.64";
+} from "./tiled-ai-patch.js?v=0.44.65";
+import { TiledAiPatchWorkerClient } from "./tiled-ai-patch-worker-client.js?v=0.44.65";
 import {
   decodeTiledTileData,
   encodeTiledTileData,
-} from "./tiled-tile-codec.js?v=0.44.64";
-import { planTiledTilesetImport } from "./tiled-tileset-import.js?v=0.44.64";
-import { planTiledTilesetReuse, remapGlobalTileId } from "./tiled-gid-reuse.js?v=0.44.64";
+} from "./tiled-tile-codec.js?v=0.44.65";
+import { planTiledTilesetImport } from "./tiled-tileset-import.js?v=0.44.65";
+import { planTiledTilesetReuse, remapGlobalTileId } from "./tiled-gid-reuse.js?v=0.44.65";
 import {
   emptyTiledProjectTypes,
   mergeTiledClassDefaults,
   normalizeTiledPropertyValue,
   parseTiledProjectTypes,
   tiledPropertyControl,
-} from "./tiled-project-types.js?v=0.44.64";
+} from "./tiled-project-types.js?v=0.44.65";
 import {
   compactTiledTemplateInstance,
   createTiledTemplateDocument,
@@ -33,7 +33,7 @@ import {
   materializeTiledTemplate,
   parseTiledTemplate,
   refreshTiledTemplateInstance,
-} from "./tiled-template.js?v=0.44.64";
+} from "./tiled-template.js?v=0.44.65";
 import {
   createMapAssetLibrary,
   mapAssetDependencySummary,
@@ -43,13 +43,13 @@ import {
   setMapAssetFavorite,
   touchMapAsset,
   upsertMapAsset,
-} from "./map-asset-library.js?v=0.44.64";
+} from "./map-asset-library.js?v=0.44.65";
 import {
   compositeDependencies,
   createCompositeMapDocument,
   relocateCompositeMapDocument,
   remapCompositeLayerGids,
-} from "./tiled-composite.js?v=0.44.64";
+} from "./tiled-composite.js?v=0.44.65";
 import {
   buildMapImageCandidateRequest,
   buildMapImageCropRequest,
@@ -62,7 +62,7 @@ import {
   normalizeMapImageCandidateConfig,
   suggestedMapImageCompanionPath,
   suggestedMapImagePublishPath,
-} from "./map-image-candidates.js?v=0.44.64";
+} from "./map-image-candidates.js?v=0.44.65";
 import {
   planPublishedMapImageLayer,
   planPublishedMapImageLayerReplacement,
@@ -71,8 +71,8 @@ import {
   publishedMapImageApplicationId,
   tiledValueHasMapImageApplication,
   validatePublishedMapImageGrant,
-} from "./map-image-apply.js?v=0.44.64";
-import { createMapSelectionImageTarget } from "./map-selection-image-target.js?v=0.44.64";
+} from "./map-image-apply.js?v=0.44.65";
+import { createMapSelectionImageTarget } from "./map-selection-image-target.js?v=0.44.65";
 import {
   TILED_COLLISION_SHAPES,
   TILED_OBJECT_SHAPES,
@@ -85,7 +85,7 @@ import {
   suggestedTiledObjectVertex,
   tiledObjectShapeLabel,
   updateTiledObjectVertex,
-} from "./map-object-model.js?v=0.44.64";
+} from "./map-object-model.js?v=0.44.65";
 import {
   normalizeTileRandomSeed,
   paletteTileStamp,
@@ -93,15 +93,15 @@ import {
   tileShapeCells,
   tileStampWrites,
   transformTileStamp,
-} from "./tile-tool-model.js?v=0.44.64";
-import { planTerrainBrush } from "./terrain-brush-model.js?v=0.44.64";
+} from "./tile-tool-model.js?v=0.44.65";
+import { planTerrainBrush } from "./terrain-brush-model.js?v=0.44.65";
 import {
   applyTiledAutomappingPreview,
   compileTiledAutomappingRuleMap,
   loadTiledAutomappingRules,
-} from "./tiled-automap.js?v=0.44.64";
-import { TiledAutomapWorkerClient } from "./tiled-automap-worker-client.js?v=0.44.64";
-import { TiledFillWorkerClient } from "./tiled-fill-worker-client.js?v=0.44.64";
+} from "./tiled-automap.js?v=0.44.65";
+import { TiledAutomapWorkerClient } from "./tiled-automap-worker-client.js?v=0.44.65";
+import { TiledFillWorkerClient } from "./tiled-fill-worker-client.js?v=0.44.65";
 import {
   createTileStampLibrary,
   parseTileStampLibrary,
@@ -111,52 +111,52 @@ import {
   tileStampLibraryStorageKey,
   touchNamedTileStamp,
   upsertNamedTileStamp,
-} from "./tile-stamp-library.js?v=0.44.64";
+} from "./tile-stamp-library.js?v=0.44.65";
 import {
   combineTileSelections,
   contiguousTileSelection,
   matchingTileSelection,
   rectangularTileSelection,
   tileSelectionBounds,
-} from "./tile-selection-model.js?v=0.44.64";
+} from "./tile-selection-model.js?v=0.44.65";
 import {
   createMapAiProposalClient,
   createMapAiProposalPatchAdapter,
   mapAiProposalCompatibility,
-} from "./map-ai-proposals.js?v=0.44.64";
-import { revokeMapAiLeaseWithRetry } from "./map-ai-lease-revoke.js?v=0.44.64";
-import { TiledPixiViewer } from "./pixi-viewer.js?v=0.44.64";
-import { MapGamepadController } from "./map-gamepad-controller.js?v=0.44.64";
-import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.64";
-import { tiledTilesetLayout } from "./tiled-tileset-model.js?v=0.44.64";
+} from "./map-ai-proposals.js?v=0.44.65";
+import { revokeMapAiLeaseWithRetry } from "./map-ai-lease-revoke.js?v=0.44.65";
+import { TiledPixiViewer } from "./pixi-viewer.js?v=0.44.65";
+import { MapGamepadController } from "./map-gamepad-controller.js?v=0.44.65";
+import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.65";
+import { tiledTilesetLayout } from "./tiled-tileset-model.js?v=0.44.65";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   GAME_WORK_MODE_HEARTBEAT_MS,
   createGameWorkModeSignal,
   gameWorkModeChannelName,
   parseGameWorkModeCommand,
-} from "../game-work-mode.js?v=0.44.64";
-import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.64";
+} from "../game-work-mode.js?v=0.44.65";
+import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.65";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-tab-channel.js?v=0.44.64";
-import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.64";
+} from "./map-tab-channel.js?v=0.44.65";
+import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.65";
 import {
   createMapConversationRequest,
   parseMapConversationResult,
   parseMapConversationSnapshot,
-} from "./map-conversation-channel.js?v=0.44.64";
+} from "./map-conversation-channel.js?v=0.44.65";
 import {
   createMapEditorViewState,
   mapEditorViewStorageKey,
   parseMapEditorViewState,
-} from "./map-editor-view-state.js?v=0.44.64";
-import { MapGuideController } from "./map-guide-controller.js?v=0.44.64";
+} from "./map-editor-view-state.js?v=0.44.65";
+import { MapGuideController } from "./map-guide-controller.js?v=0.44.65";
 import {
   MapImageBoundaryController,
   planMapImageProviderCanvas,
-} from "./map-image-boundary.js?v=0.44.64";
+} from "./map-image-boundary.js?v=0.44.65";
 
 const SESSION_STORAGE_KEY = "wfl-map-editor-session-v1";
 const MAP_AI_LEASE_STORAGE_KEY = "wfl-map-editor-ai-lease-v1";

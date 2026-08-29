@@ -2,7 +2,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class TiledAiPatchWorkerClient {
   constructor(options = {}) {
-    this.workerUrl = options.workerUrl || new URL("./tiled-ai-patch-worker.js?v=0.44.64", import.meta.url);
+    this.workerUrl = options.workerUrl || new URL("./tiled-ai-patch-worker.js?v=0.44.65", import.meta.url);
     this.workerFactory = options.workerFactory || ((url) => new Worker(url, { type: "module", name: "wfl-tiled-ai-patch" }));
     this.timeoutMs = timeoutMilliseconds(options.timeoutMs, DEFAULT_TIMEOUT_MS);
     this.scheduleTimeout = options.setTimeout || ((callback, delay) => globalThis.setTimeout(callback, delay));

@@ -2162,7 +2162,10 @@ function isValidReleaseDirectory(value, expectedVersion) {
   if (!isInside(releasesDir, resolved)) return false;
   const expectedPrefix = `v${expectedVersion}`;
   return path.basename(resolved) === expectedPrefix
-    || path.basename(resolved).startsWith(`${expectedPrefix}-`);
+    || (
+      candidateSourceCommit
+      && path.basename(resolved) === `${expectedPrefix}-${candidateSourceCommit.slice(0, 12)}`
+    );
 }
 
 function validGitHash(value) {

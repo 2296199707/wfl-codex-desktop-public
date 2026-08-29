@@ -1,15 +1,15 @@
 import {
   normalizeTiledProjectPath,
   resolveTiledProjectReference,
-} from "./tiled-document.js?v=0.44.64";
+} from "./tiled-document.js?v=0.44.65";
 import {
   mapPixelBounds,
   tiledObjectScreenBounds,
-} from "./tiled-render-model.js?v=0.44.64";
+} from "./tiled-render-model.js?v=0.44.65";
 import {
   adjacentWorldMapIndexes,
   resolveWorldMapReference,
-} from "./tiled-world.js?v=0.44.64";
+} from "./tiled-world.js?v=0.44.65";
 
 const TARGET_MAP_PROPERTIES = new Set(["destination", "destinationmap", "targetmap"]);
 const TARGET_SPAWN_PROPERTIES = new Set(["destinationspawn", "targetspawn"]);

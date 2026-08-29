@@ -1,7 +1,7 @@
 import {
   TILED_FLIP_FLAGS,
   decodeGlobalTileId,
-} from "./tiled-render-model.js?v=0.44.64";
+} from "./tiled-render-model.js?v=0.44.65";
 
 const TILE_SHAPES = new Set(["line", "rectangle", "ellipse"]);
 const TILE_STAMP_TRANSFORMS = new Set([

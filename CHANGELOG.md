@@ -3,6 +3,10 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.65] - 2026-08-29
+
+- 修复正式主站发布误匹配同版本号 beta 目录、导致候选部署复用旧 beta 包的问题。
+
 ## [0.44.64] - 2026-08-29
 
 - 服务器文件管理器下载支持标准 HTTP Range 断点续传，并通过文件校验标识避免续传不同版本的文件。
