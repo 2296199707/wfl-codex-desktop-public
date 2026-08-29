@@ -137,8 +137,9 @@ test("reports health and scans the configured project root", async () => {
 });
 
 test("exposes the global server file manager only through the administrator boundary", async () => {
-  const unauthenticated = await fetch(`${baseUrl}/server-files.html`);
-  assert.equal(unauthenticated.status, 401);
+  const unauthenticated = await fetch(`${baseUrl}/server-files.html`, { redirect: "manual" });
+  assert.equal(unauthenticated.status, 302);
+  assert.equal(new URL(unauthenticated.headers.get("location"), baseUrl).pathname, "/login.html");
 
   const page = await fetch(`${baseUrl}/server-files.html`, { headers: { Authorization: authorization } });
   assert.equal(page.status, 200);
@@ -256,6 +257,78 @@ test("exposes the global server file manager only through the administrator boun
   } finally {
     await fs.rm(target, { force: true });
     await fs.rm(uploadTarget, { force: true });
+  }
+});
+
+test("supports resumable server file uploads through the administrator HTTP route", async () => {
+  const name = `server-file-manager-resumable-${process.pid}-${Date.now()}.bin`;
+  const target = path.join(projectRoot, name);
+  const clientUploadId = `http-upload-${Date.now()}`;
+  const commonHeaders = {
+    Origin: baseUrl,
+    "Content-Type": "application/octet-stream",
+    "X-Codex-Desktop-Action": "server-files-upload",
+  };
+  try {
+    const started = await fetchJson(`${baseUrl}/api/tools/server-files/upload/start`, {
+      method: "POST",
+      headers: {
+        Origin: baseUrl,
+        "Content-Type": "application/json",
+        "X-Codex-Desktop-Action": "server-files-upload-start",
+      },
+      body: JSON.stringify({
+        parentPath: projectRoot,
+        name,
+        totalBytes: 10,
+        clientUploadId,
+      }),
+    });
+    assert.equal(started.response.status, 201, JSON.stringify(started.data));
+    const uploadId = started.data.upload.uploadId;
+
+    const first = await fetchJson(`${baseUrl}/api/tools/server-files/upload/${uploadId}`, {
+      method: "PUT",
+      headers: { ...commonHeaders, "Content-Range": "bytes 0-3/10" },
+      body: Buffer.from("0123"),
+    });
+    assert.equal(first.response.status, 200, JSON.stringify(first.data));
+    assert.equal(first.data.upload.offset, 4);
+
+    const status = await fetchJson(`${baseUrl}/api/tools/server-files/upload/${uploadId}`);
+    assert.equal(status.response.status, 200, JSON.stringify(status.data));
+    assert.equal(status.data.upload.offset, 4);
+
+    const wrongOffset = await fetchJson(`${baseUrl}/api/tools/server-files/upload/${uploadId}`, {
+      method: "PUT",
+      headers: { ...commonHeaders, "Content-Range": "bytes 0-3/10" },
+      body: Buffer.from("0123"),
+    });
+    assert.equal(wrongOffset.response.status, 409, JSON.stringify(wrongOffset.data));
+    assert.equal(wrongOffset.data.upload.offset, 4);
+
+    const completed = await fetchJson(`${baseUrl}/api/tools/server-files/upload/${uploadId}`, {
+      method: "PUT",
+      headers: { ...commonHeaders, "Content-Range": "bytes 4-9/10" },
+      body: Buffer.from("456789"),
+    });
+    assert.equal(completed.response.status, 200, JSON.stringify(completed.data));
+    assert.equal(completed.data.upload.status, "complete");
+    assert.equal(await fs.readFile(target, "utf8"), "0123456789");
+
+    const repeatedStart = await fetchJson(`${baseUrl}/api/tools/server-files/upload/start`, {
+      method: "POST",
+      headers: {
+        Origin: baseUrl,
+        "Content-Type": "application/json",
+        "X-Codex-Desktop-Action": "server-files-upload-start",
+      },
+      body: JSON.stringify({ parentPath: projectRoot, name, totalBytes: 10, clientUploadId }),
+    });
+    assert.equal(repeatedStart.response.status, 200, JSON.stringify(repeatedStart.data));
+    assert.equal(repeatedStart.data.upload.uploadId, uploadId);
+  } finally {
+    await fs.rm(target, { force: true });
   }
 });
 
@@ -904,7 +977,8 @@ test("serves a redacted administrator operations overview", async () => {
   const unauthenticatedApi = await fetch(`${baseUrl}/api/ops/overview`);
   assert.equal(unauthenticatedApi.status, 401);
   const unauthenticatedPage = await fetch(`${baseUrl}/ops`, { redirect: "manual" });
-  assert.equal(unauthenticatedPage.status, 401);
+  assert.equal(unauthenticatedPage.status, 302);
+  assert.equal(new URL(unauthenticatedPage.headers.get("location"), baseUrl).pathname, "/login.html");
 
   for (const pathname of ["/ops", "/ops/", "/ops.html"]) {
     const page = await fetch(`${baseUrl}${pathname}`, { headers: { Authorization: authorization } });
@@ -1498,8 +1572,53 @@ test("persists lightweight recovery records only for authenticated clients", asy
 
 test("requires authentication and sends browser security headers", async () => {
   const response = await fetch(`${baseUrl}/`, { redirect: "manual" });
-  assert.equal(response.status, 401);
-  assert.match(response.headers.get("www-authenticate"), /Basic/);
+  assert.equal(response.status, 302);
+  const loginLocation = new URL(response.headers.get("location"), baseUrl);
+  assert.equal(loginLocation.pathname, "/login.html");
+  assert.equal(loginLocation.searchParams.get("next"), "/");
+  assert.equal(response.headers.get("www-authenticate"), null);
+
+  for (const asset of ["login.html", "login.js", "login.css", "i18n.js"]) {
+    const loginAsset = await fetch(`${baseUrl}/${asset}`);
+    assert.equal(loginAsset.status, 200, asset);
+  }
+
+  const mode = await fetchJsonWithoutAuthorization(`${baseUrl}/api/auth/mode`);
+  assert.equal(mode.response.status, 200);
+  assert.equal(mode.response.headers.get("cache-control"), "no-store");
+  assert.equal(mode.data.enabled, false);
+  assert.equal(mode.data.authConfigured, true);
+
+  const invalidLogin = await fetchJsonWithoutAuthorization(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "login",
+    },
+    body: JSON.stringify({ username: "codex", password: "wrong-password-1234" }),
+  });
+  assert.equal(invalidLogin.response.status, 401);
+  assert.equal(invalidLogin.response.headers.get("www-authenticate"), null);
+
+  const login = await fetchJsonWithoutAuthorization(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "login",
+    },
+    body: JSON.stringify({ username: "codex", password: "correct-horse-battery-staple" }),
+  });
+  assert.equal(login.response.status, 200, JSON.stringify(login.data));
+  assert.equal(login.data.user.legacy, true);
+  const sessionCookie = login.response.headers.get("set-cookie")?.split(";", 1)[0];
+  assert.match(sessionCookie || "", /^codex_desktop_auth=/);
+
+  const cookieAuthenticated = await fetch(`${baseUrl}/`, {
+    headers: { Cookie: sessionCookie },
+  });
+  assert.equal(cookieAuthenticated.status, 200);
 
   const authenticated = await fetch(`${baseUrl}/`, {
     headers: { Authorization: authorization, "X-Forwarded-Proto": "https" },
@@ -4917,6 +5036,11 @@ async function fetchJson(url, options) {
     headers: { Authorization: authorization, ...options?.headers },
   });
   return { response, data: await response.json() };
+}
+
+async function fetchJsonWithoutAuthorization(url, options) {
+  const response = await fetch(url, options);
+  return { response, data: await response.json().catch(() => ({})) };
 }
 
 function openHeldProjectImport(name) {

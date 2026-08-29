@@ -3,9 +3,10 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.44.64-beta] - 2026-08-28
+## [0.44.64] - 2026-08-29
 
 - 服务器文件管理器下载支持标准 HTTP Range 断点续传，并通过文件校验标识避免续传不同版本的文件。
+- 服务器文件管理器上传支持可恢复分块传输；单用户模式改为登录页登录，避免普通页面触发浏览器 Basic Auth 弹窗。
 
 ## [0.44.63-beta] - 2026-08-28
 

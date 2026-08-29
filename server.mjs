@@ -135,6 +135,12 @@ import {
   writeServerFile,
 } from "./lib/server-file-manager.mjs";
 import {
+  parseServerFileUploadRange,
+  SERVER_FILE_UPLOAD_CHUNK_BYTES,
+  ServerFileUploadStore,
+  SERVER_FILE_UPLOAD_TTL_MS,
+} from "./lib/server-file-upload-store.mjs";
+import {
   CodexHandoffRecoveryStore,
   handoffRecordKey,
 } from "./lib/codex-handoff-recovery.mjs";
@@ -1007,6 +1013,18 @@ const codexFeedbackUploadWindows = new Map();
 const codexFeedbackUploadsInFlight = new Set();
 const codexPluginMutationsInFlight = new Set();
 const directorySizeCache = new Map();
+const serverFileUploadStore = RESCUE_MODE
+  ? null
+  : await new ServerFileUploadStore({
+    temporaryRoot: path.join(RELEASE_RUNTIME_DIR, "server-file-uploads"),
+    maxBytes: UPLOAD_LIMIT_BYTES,
+    chunkBytes: SERVER_FILE_UPLOAD_CHUNK_BYTES,
+    ttlMs: SERVER_FILE_UPLOAD_TTL_MS,
+  }).initialize({ writeOnInitialize: BACKEND_PRIMARY_AT_START });
+const serverFileUploadPruneTimer = serverFileUploadStore
+  ? setInterval(() => void serverFileUploadStore.pruneExpired().catch(() => {}), 10 * 60_000)
+  : null;
+serverFileUploadPruneTimer?.unref();
 const imageExecutionSettings = RESCUE_MODE
   ? null
   : await new ImageExecutionSettingsStore(STATE_DIR).initialize({
@@ -8600,7 +8618,11 @@ app.use((request, response, next) => {
     });
 });
 app.get("/api/auth/mode", (_request, response) => {
-  response.json(multiUserStore.modeSnapshot());
+  response.setHeader("Cache-Control", "no-store");
+  response.json({
+    ...multiUserStore.modeSnapshot(),
+    authConfigured: Boolean(AUTH),
+  });
 });
 
 app.post("/api/auth/login", async (request, response, next) => {
@@ -8613,6 +8635,17 @@ app.post("/api/auth/login", async (request, response, next) => {
       throw httpError(429, "登录尝试过多，请稍后再试");
     }
     if (RESCUE_MODE) await refreshRescueAuthentication();
+    if (!multiUserStore.modeSnapshot().enabled) {
+      const username = String(request.body?.username || "");
+      const password = String(request.body?.password || "");
+      if (!AUTH || !verifyAuthCredentials(username, password, AUTH) || !rescueOwnerCanAuthenticate()) {
+        throw httpError(401, "用户名或密码不正确");
+      }
+      clearAuthFailures(clientKey);
+      setLegacySessionCookie(response, request);
+      response.json({ user: publicAccountUser(legacyUser) });
+      return;
+    }
     const result = await multiUserStore.login(request.body?.username, request.body?.password);
     if (RESCUE_MODE && result.user.role !== "owner") {
       await multiUserStore.logout(result.token).catch(() => {});
@@ -8811,6 +8844,14 @@ app.use(async (request, response, next) => {
     } else {
       response.redirect(302, `/login.html?next=${encodeURIComponent(request.originalUrl)}`);
     }
+    return;
+  }
+  if (request.path.startsWith("/api/")) {
+    response.status(401).json({ error: "请先登录" });
+    return;
+  }
+  if (!request.headers.authorization && ["GET", "HEAD"].includes(request.method) && !isWebdavPath(request.path)) {
+    response.redirect(302, `/login.html?next=${encodeURIComponent(request.originalUrl)}`);
     return;
   }
   if (request.headers.authorization) {
@@ -10665,6 +10706,9 @@ app.get("/api/tools/server-files/status", async (request, response, next) => {
       cwd: process.cwd(),
       platform: process.platform,
       editLimitBytes: SERVER_FILE_EDIT_MAX_BYTES,
+      uploadLimitBytes: UPLOAD_LIMIT_BYTES,
+      uploadChunkBytes: SERVER_FILE_UPLOAD_CHUNK_BYTES,
+      resumableUpload: Boolean(serverFileUploadStore),
     });
   } catch (error) {
     next(error);
@@ -10796,6 +10840,84 @@ app.post("/api/tools/server-files/action", async (request, response, next) => {
     else next(error);
   }
 });
+
+app.post("/api/tools/server-files/upload/start", async (request, response, next) => {
+  try {
+    assertOperationRequest(request, "server-files-upload-start");
+    requireAdmin(request);
+    assertServerFileManagerAvailable();
+    const upload = await requireServerFileUploadStore().start({
+      ownerId: serverFileUploadOwner(request),
+      parentPath: request.body?.parentPath || request.body?.path,
+      name: request.body?.name,
+      totalBytes: request.body?.totalBytes,
+      clientUploadId: request.body?.clientUploadId,
+    });
+    response.setHeader("Cache-Control", "private, no-store");
+    response.status(upload.status === "complete" ? 200 : 201).json({ ok: true, upload });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/tools/server-files/upload/:uploadId", async (request, response, next) => {
+  try {
+    requireAdmin(request);
+    assertServerFileManagerAvailable();
+    const upload = await requireServerFileUploadStore().status({
+      uploadId: request.params.uploadId,
+      ownerId: serverFileUploadOwner(request),
+    });
+    response.setHeader("Cache-Control", "private, no-store");
+    response.json({ ok: true, upload });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put(
+  "/api/tools/server-files/upload/:uploadId",
+  (request, _response, next) => {
+    try {
+      assertOperationRequest(request, "server-files-upload");
+      requireAdmin(request);
+      assertServerFileManagerAvailable();
+      next();
+    } catch (error) {
+      next(error);
+    }
+  },
+  express.raw({ type: "application/octet-stream", limit: SERVER_FILE_UPLOAD_CHUNK_BYTES }),
+  async (request, response, next) => {
+    try {
+      const upload = await requireServerFileUploadStore().append({
+        uploadId: request.params.uploadId,
+        ownerId: serverFileUploadOwner(request),
+        range: parseServerFileUploadRange(request.headers["content-range"]),
+        source: request.body || Buffer.alloc(0),
+      });
+      if (upload.status === "complete" && !upload.idempotent) {
+        void recordServerFileOperation(request, "upload", upload.path);
+      }
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ ok: true, upload });
+    } catch (error) {
+      if (error?.code === "SERVER_FILE_UPLOAD_OFFSET_CONFLICT") {
+        const current = await requireServerFileUploadStore().status({
+          uploadId: request.params.uploadId,
+          ownerId: serverFileUploadOwner(request),
+        }).catch(() => null);
+        response.status(error.statusCode || 409).json({
+          error: error.message,
+          code: error.code,
+          ...(current ? { upload: current } : {}),
+        });
+        return;
+      }
+      next(error);
+    }
+  },
+);
 
 app.post(
   "/api/tools/server-files/upload",
@@ -34576,6 +34698,15 @@ function assertServerFileManagerAvailable() {
   if (RESCUE_MODE) throw httpError(404, "备用窗口不提供服务器文件管理器");
 }
 
+function requireServerFileUploadStore() {
+  if (!serverFileUploadStore) throw httpError(404, "备用窗口不提供可恢复文件上传");
+  return serverFileUploadStore;
+}
+
+function serverFileUploadOwner(request) {
+  return String(request.user?.id || request.user?.username || "");
+}
+
 function recordServerFileOperation(request, action, targetPath) {
   const normalizedPath = normalizeServerFilePath(targetPath);
   return recordOpsEvent({
@@ -37913,6 +38044,8 @@ function isPublicAuthPath(requestPath) {
   return requestPath === "/login.html"
     || requestPath === "/login.js"
     || requestPath === "/login.css"
+    || requestPath === "/i18n.js"
+    || requestPath.startsWith("/vendor/manrope/")
     || requestPath === "/api/auth/mode"
     || requestPath === "/api/auth/login"
     || requestPath === "/api/auth/register";

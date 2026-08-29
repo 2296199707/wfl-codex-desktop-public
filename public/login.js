@@ -2,6 +2,7 @@ const elements = {
   loginForm: document.getElementById("loginForm"),
   loginTab: document.getElementById("loginTab"),
   registerTab: document.getElementById("registerTab"),
+  modeLabel: document.getElementById("modeLabel"),
   loginTitle: document.getElementById("loginTitle"),
   loginSummary: document.getElementById("loginSummary"),
   passwordInput: document.getElementById("passwordInput"),
@@ -23,11 +24,18 @@ async function initialize() {
   try {
     const response = await fetch("/api/auth/mode", { cache: "no-store" });
     const mode = await response.json();
-    if (!response.ok || !mode.enabled) {
-      elements.loginSummary.textContent = "多用户功能尚未启用，请返回单用户入口。";
-      elements.loginTab.disabled = true;
+    if (!response.ok) {
+      showError("暂时无法读取登录模式，请稍后重试。");
+      return;
+    }
+    if (!mode.enabled) {
+      elements.modeLabel.textContent = "单用户访问";
+      elements.registerTab.hidden = true;
       elements.registerTab.disabled = true;
-      elements.submitButton.disabled = true;
+      setMode(false);
+      elements.loginSummary.textContent = mode.authConfigured === false
+        ? "当前未设置网页密码，可直接进入工作区。"
+        : "使用网页用户名和密码继续。";
       return;
     }
     setMode(registrationMode);

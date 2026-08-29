@@ -1,12 +1,12 @@
 import {
   cloneTiledDocument,
   validateTiledDocument,
-} from "./tiled-document.js?v=0.44.64-beta";
+} from "./tiled-document.js?v=0.44.64";
 import {
   createTiledMapObject,
   TILED_COLLISION_SHAPES,
   tiledObjectShape,
-} from "./map-object-model.js?v=0.44.64-beta";
+} from "./map-object-model.js?v=0.44.64";
 
 const DEFAULT_HISTORY_LIMIT = 200;
 const MAX_LOCAL_TILE_ID = 0x0fff_ffff;

@@ -1,4 +1,4 @@
-import { imageContextPolicy } from "./image-context-policy.js?v=0.44.64-beta";
+import { imageContextPolicy } from "./image-context-policy.js?v=0.44.64";
 
 const IMAGE_STUDIO_STYLE_ID = "imageStudioStyles";
 const IMAGE_STUDIO_NONCE_PATTERN = /^[a-f0-9]{64}$/;

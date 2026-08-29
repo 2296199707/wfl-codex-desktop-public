@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
     <title>服务器文件管理器</title>
-    <link rel="stylesheet" href="/server-file-manager.css?v=0.44.64-beta" />
+    <link rel="stylesheet" href="/server-file-manager.css?v=0.44.64" />
   </head>
   <body>
     <main class="file-manager-shell">
@@ -38,6 +38,10 @@
           <button id="downloadButton" class="secondary" type="button" disabled>下载</button>
         </div>
         <p id="managerStatus" class="status-text" role="status" aria-live="polite">正在读取服务器信息…</p>
+        <div id="uploadProgress" class="upload-progress" hidden>
+          <progress id="uploadProgressBar" max="1" value="0"></progress>
+          <span id="uploadProgressLabel">准备上传…</span>
+        </div>
       </section>
 
       <section class="file-manager-grid">
@@ -71,6 +75,6 @@
 
       <p class="security-note">安全提示：服务器文件管理器不会跟随符号链接；保存使用版本冲突检测；删除文件夹需要明确确认完整路径。页面和 API 都会再次校验管理员身份。</p>
     </main>
-    <script src="/server-file-manager.js?v=0.44.64-beta" type="module"></script>
+    <script src="/server-file-manager.js?v=0.44.64" type="module"></script>
   </body>
 </html>

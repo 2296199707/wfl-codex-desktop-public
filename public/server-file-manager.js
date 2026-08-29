@@ -8,7 +8,11 @@ const state = {
   selected: null,
   file: null,
   busy: false,
+  uploading: false,
 };
+
+const UPLOAD_STORAGE_KEY = "wfl.server-file-manager.uploads.v1";
+const UPLOAD_RETRY_LIMIT = 3;
 
 const $ = (id) => document.getElementById(id);
 
@@ -56,7 +60,7 @@ async function initialize() {
     state.root = status.root || "/";
     state.currentPath = state.root;
     $("pathInput").value = state.currentPath;
-    setStatus(`已连接 ${status.platform || "服务器"}；文本编辑上限 ${formatBytes(status.editLimitBytes)}`);
+    setStatus(`已连接 ${status.platform || "服务器"}；上传上限 ${formatBytes(status.uploadLimitBytes)}；文本编辑上限 ${formatBytes(status.editLimitBytes)}`);
     await openDirectory(state.currentPath);
   } catch (error) {
     setStatus(error.message, true);
@@ -229,18 +233,182 @@ function downloadSelected() {
 async function uploadSelectedFile() {
   const file = $("uploadInput").files?.[0];
   $("uploadInput").value = "";
-  if (!file) return;
+  if (!file || state.uploading) return;
+  const parentPath = state.currentPath;
+  const storageKey = uploadStorageKey(parentPath, file);
+  const stored = readStoredUpload(storageKey);
+  const clientUploadId = stored?.clientUploadId || createClientUploadId();
+  state.uploading = true;
+  $("uploadInput").disabled = true;
+  setUploadProgress(0, file.size);
   try {
-    const query = new URLSearchParams({ path: state.currentPath, name: file.name });
-    const response = await fetch(`/api/tools/server-files/upload?${query}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream", "X-Codex-Desktop-Action": "server-files-upload" },
-      body: file,
-    });
-    await json(response);
+    rememberUpload(storageKey, clientUploadId, stored?.uploadId || null);
+    let upload = await startUpload({ parentPath, file, clientUploadId });
+    rememberUpload(storageKey, clientUploadId, upload.uploadId);
+    if (upload.status === "complete") {
+      clearStoredUpload(storageKey);
+      setUploadProgress(file.size, file.size);
+      setStatus(`已上传 ${file.name}`);
+      if (state.currentPath === parentPath) await openDirectory(parentPath, { keepSelection: true });
+      return;
+    }
+
+    let offset = Number(upload.uploadedBytes) || 0;
+    let retries = 0;
+    while (offset < file.size) {
+      const start = offset;
+      const end = Math.min(start + upload.chunkBytes, file.size) - 1;
+      try {
+        upload = await sendUploadChunk(upload.uploadId, file, start, end);
+        offset = Number(upload.uploadedBytes) || end + 1;
+        retries = 0;
+        rememberUpload(storageKey, clientUploadId, upload.uploadId);
+        setUploadProgress(offset, file.size);
+      } catch (error) {
+        if (!isRetryableUploadError(error) || retries >= UPLOAD_RETRY_LIMIT) throw error;
+        retries += 1;
+        const current = error.payload?.upload || await uploadStatus(upload.uploadId).catch(() => null);
+        if (current) {
+          if (current.totalBytes !== file.size) throw new Error("服务器上的上传会话与当前文件不匹配，请重新选择文件");
+          if (current.status === "conflict") throw new Error("上传目标已被其他文件占用，请重新选择目标名称");
+          upload = current;
+          offset = current.status === "finalizing" ? file.size : Number(current.uploadedBytes) || 0;
+          setUploadProgress(offset, file.size);
+          if (upload.status === "complete") break;
+        }
+        await wait(400 * (2 ** (retries - 1)));
+      }
+    }
+
+    if (upload.status !== "complete") {
+      upload = await waitForUploadCompletion(upload.uploadId);
+      if (upload.status === "conflict") throw new Error("上传目标已被其他文件占用，请重新选择目标名称");
+      if (upload.status !== "complete") throw new Error("上传尚未完成，请稍后重试");
+    }
+    clearStoredUpload(storageKey);
+    setUploadProgress(file.size, file.size);
     setStatus(`已上传 ${file.name}`);
-    await openDirectory(state.currentPath, { keepSelection: true });
-  } catch (error) { setStatus(error.message, true); }
+    if (state.currentPath === parentPath) await openDirectory(parentPath, { keepSelection: true });
+  } catch (error) {
+    setStatus(`${error.message}；重新选择同一文件可继续上传`, true);
+  } finally {
+    state.uploading = false;
+    $("uploadInput").disabled = false;
+    window.setTimeout(() => setUploadProgress(0, 0, true), 1_500);
+  }
+}
+
+async function startUpload({ parentPath, file, clientUploadId }) {
+  const response = await fetch("/api/tools/server-files/upload/start", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "server-files-upload-start",
+    },
+    body: JSON.stringify({
+      parentPath,
+      name: file.name,
+      totalBytes: file.size,
+      clientUploadId,
+    }),
+  });
+  const data = await json(response);
+  return data.upload;
+}
+
+async function sendUploadChunk(uploadId, file, start, end) {
+  const response = await fetch(`/api/tools/server-files/upload/${encodeURIComponent(uploadId)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Range": `bytes ${start}-${end}/${file.size}`,
+      "X-Codex-Desktop-Action": "server-files-upload",
+    },
+    body: file.slice(start, end + 1),
+  });
+  const data = await json(response);
+  return data.upload;
+}
+
+async function uploadStatus(uploadId) {
+  const data = await request(`/api/tools/server-files/upload/${encodeURIComponent(uploadId)}`);
+  return data.upload;
+}
+
+async function waitForUploadCompletion(uploadId) {
+  let upload = await uploadStatus(uploadId);
+  for (let attempt = 0; attempt < 8 && upload.status === "finalizing"; attempt += 1) {
+    await wait(250);
+    upload = await uploadStatus(uploadId);
+  }
+  return upload;
+}
+
+function uploadStorageKey(parentPath, file) {
+  return JSON.stringify([parentPath, file.name, file.size, file.lastModified || 0]);
+}
+
+function readStoredUpload(key) {
+  try {
+    const records = JSON.parse(window.localStorage.getItem(UPLOAD_STORAGE_KEY) || "{}");
+    const record = records[key];
+    return record && typeof record === "object" ? record : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberUpload(key, clientUploadId, uploadId) {
+  try {
+    const records = JSON.parse(window.localStorage.getItem(UPLOAD_STORAGE_KEY) || "{}");
+    records[key] = { clientUploadId, uploadId, updatedAt: Date.now() };
+    const entries = Object.entries(records)
+      .sort(([, left], [, right]) => Number(right?.updatedAt) - Number(left?.updatedAt))
+      .slice(0, 24);
+    window.localStorage.setItem(UPLOAD_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // Private browsing and storage-disabled browsers can still upload normally.
+  }
+}
+
+function clearStoredUpload(key) {
+  try {
+    const records = JSON.parse(window.localStorage.getItem(UPLOAD_STORAGE_KEY) || "{}");
+    delete records[key];
+    window.localStorage.setItem(UPLOAD_STORAGE_KEY, JSON.stringify(records));
+  } catch {
+    // The server-side upload session remains the source of truth.
+  }
+}
+
+function createClientUploadId() {
+  return globalThis.crypto?.randomUUID?.() || `browser-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function isRetryableUploadError(error) {
+  if (["SERVER_FILE_ALREADY_EXISTS", "SERVER_FILE_UPLOAD_CONFLICT"].includes(error?.code)) return false;
+  return !Number.isInteger(error?.status)
+    || error.status === 408
+    || error.status === 409
+    || error.status === 429
+    || error.status >= 500;
+}
+
+function setUploadProgress(uploaded, total, hidden = false) {
+  const progress = $("uploadProgress");
+  const bar = $("uploadProgressBar");
+  const label = $("uploadProgressLabel");
+  progress.hidden = hidden;
+  if (hidden) return;
+  const safeTotal = Math.max(0, Number(total) || 0);
+  const safeUploaded = Math.min(safeTotal, Math.max(0, Number(uploaded) || 0));
+  bar.max = Math.max(1, safeTotal);
+  bar.value = safeUploaded;
+  label.textContent = safeTotal ? `${Math.round((safeUploaded / safeTotal) * 100)}% · ${formatBytes(safeUploaded)} / ${formatBytes(safeTotal)}` : "准备上传…";
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 async function mutate(url, body) {
@@ -259,7 +427,13 @@ async function request(url) {
 
 async function json(response) {
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
+  if (!response.ok) {
+    const error = new Error(data.error || `请求失败（${response.status}）`);
+    error.status = response.status;
+    error.code = data.code;
+    error.payload = data;
+    throw error;
+  }
   return data;
 }
 
