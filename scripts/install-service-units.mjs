@@ -15,6 +15,7 @@ import {
   readPlaywrightBrowsersPath,
 } from "../lib/playwright-browser.mjs";
 import { normalizeProjectRoots, projectRootForPath } from "../lib/project-roots.mjs";
+import { ProjectRootConfigStore } from "../lib/project-root-config.mjs";
 
 const projectDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const runtimeDir = path.resolve(
@@ -44,17 +45,42 @@ const playwrightBrowsersPath = normalizeBrowsersPath(
 )
   || await readPlaywrightBrowsersPath(runtimeDir)
   || path.join(serviceHome, ".cache", "ms-playwright");
+const configuredProjectRoot = process.env.CODEX_DESKTOP_PROJECT_ROOT
+  || savedDeployment?.projectRoot
+  || path.dirname(projectDir);
+const environmentProjectRoots = normalizeProjectRoots(
+  process.env.CODEX_DESKTOP_PROJECT_ROOTS
+    || savedDeployment?.projectRoots
+    || configuredProjectRoot,
+  configuredProjectRoot,
+);
+const projectRootConfig = await new ProjectRootConfigStore(
+  path.join(runtimeDir, "project-roots.json"),
+  {
+    primaryRoot: environmentProjectRoots[0],
+    environmentRoots: environmentProjectRoots,
+    },
+).initialize();
+if (!projectRootConfig.hasPersistedConfig()) {
+  // Keep an unmounted data disk in the durable configuration. The generated
+  // unit still receives only active roots, so boot never creates a directory
+  // on the wrong filesystem.
+  await projectRootConfig.setDataRoots(projectRootConfig.configuredDataRoots());
+}
+const effectiveProjectRoots = await projectRootConfig.resolveRoots();
+const requestedDefaultProject = path.resolve(
+  process.env.CODEX_DESKTOP_DEFAULT_PROJECT
+    || savedDeployment?.defaultProject
+    || path.join(effectiveProjectRoots[0], "workspace"),
+);
+const effectiveDefaultProject = projectRootForPath(effectiveProjectRoots, requestedDefaultProject)
+  ? requestedDefaultProject
+  : path.join(effectiveProjectRoots[0], "workspace");
 const variables = serviceUnitVariables({
   sourceDirectory: process.env.CODEX_DESKTOP_SOURCE_DIR || projectDir,
-  projectRoot: process.env.CODEX_DESKTOP_PROJECT_ROOT
-    || savedDeployment?.projectRoot
-    || path.dirname(projectDir),
-  projectRoots: process.env.CODEX_DESKTOP_PROJECT_ROOTS
-    || savedDeployment?.projectRoots
-    || null,
-  defaultProject: process.env.CODEX_DESKTOP_DEFAULT_PROJECT
-    || savedDeployment?.defaultProject
-    || path.join(path.dirname(projectDir), "workspace"),
+  projectRoot: effectiveProjectRoots[0],
+  projectRoots: effectiveProjectRoots,
+  defaultProject: effectiveDefaultProject,
   stateDirectory: process.env.CODEX_DESKTOP_STATE_DIR
     || savedDeployment?.stateDirectory
     || path.join(projectDir, ".codex-desktop"),
@@ -147,7 +173,11 @@ async function ensureProjectDirectories(projectRoots, defaultProject) {
   if (!projectRootForPath(roots, defaultProject)) {
     throw new Error("Default project must be a child of one of the project roots");
   }
-  await Promise.all(roots.map((root) => ensureRealDirectory(root, 0o755)));
+  // Additional roots have already been filtered by ProjectRootConfigStore.
+  // Only the primary root and the default workspace may be created here; a
+  // missing data-disk mount must remain missing until the administrator fixes
+  // the mount rather than becoming a directory on the system disk.
+  await ensureRealDirectory(roots[0], 0o755);
   await ensureRealDirectory(defaultProject, 0o750);
 }
 

@@ -1698,6 +1698,46 @@ test("creates a project under a selected secondary storage root", async () => {
   assert.equal(await exists(path.join(secondaryProjectRoot, "data-project")), true);
 });
 
+test("administrator storage settings refresh active roots after a data disk is mounted", async () => {
+  const dataDisk = path.join(path.dirname(projectRoot), `wfl-data-disk-probe-${process.pid}-${Date.now()}`);
+  const update = (dataRoots) => fetchJson(`${baseUrl}/api/admin/project-roots`, {
+    method: "PUT",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "project-roots-update",
+    },
+    body: JSON.stringify({ dataRoots }),
+  });
+  await fs.rm(dataDisk, { recursive: true, force: true });
+  try {
+    const invalid = await update(["relative/data-disk"]);
+    assert.equal(invalid.response.status, 400, JSON.stringify(invalid.data));
+
+    const configured = await update([dataDisk]);
+    assert.equal(configured.response.status, 200, JSON.stringify(configured.data));
+    assert.equal(configured.data.dataRoots[0].active, false);
+    assert.equal(await exists(dataDisk), false);
+    assert.equal(configured.data.roots.some((root) => root.path === dataDisk), false);
+
+    await fs.mkdir(dataDisk);
+    const mounted = await fetchJson(`${baseUrl}/api/admin/project-roots`);
+    assert.equal(mounted.response.status, 200, JSON.stringify(mounted.data));
+    assert.equal(mounted.data.dataRoots[0].active, true);
+    assert.equal(mounted.data.roots.some((root) => root.path === dataDisk), true);
+
+    await fs.rm(dataDisk, { recursive: true });
+    const unmounted = await fetchJson(`${baseUrl}/api/admin/project-roots`);
+    assert.equal(unmounted.response.status, 200, JSON.stringify(unmounted.data));
+    assert.equal(unmounted.data.dataRoots[0].active, false);
+    assert.equal(unmounted.data.roots.some((root) => root.path === dataDisk), false);
+  } finally {
+    await fs.rm(dataDisk, { recursive: true, force: true });
+    const restored = await update([secondaryProjectRoot]);
+    assert.equal(restored.response.status, 200, JSON.stringify(restored.data));
+  }
+});
+
 test("creates and restores a registered game project workspace", async () => {
   const directoryName = `game-workspace-${crypto.randomUUID().slice(0, 8)}`;
   const create = await fetchJson(`${baseUrl}/api/game-projects`, {

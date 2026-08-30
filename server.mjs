@@ -82,6 +82,7 @@ import {
   projectRootId,
   publicProjectRoots,
 } from "./lib/project-roots.mjs";
+import { ProjectRootConfigStore } from "./lib/project-root-config.mjs";
 import { createRescuePluginStore } from "./lib/rescue-plugin-store.mjs";
 import {
   assertCaptureAddresses,
@@ -565,21 +566,34 @@ const RESCUE_PROJECT_ROOT = path.resolve(
 const CONFIGURED_PROJECT_ROOT = RESCUE_MODE
   ? RESCUE_PROJECT_ROOT
   : path.resolve(process.env.CODEX_DESKTOP_PROJECT_ROOT || "/srv");
-const PROJECT_ROOTS = RESCUE_MODE
+const ENVIRONMENT_PROJECT_ROOTS = RESCUE_MODE
   ? [CONFIGURED_PROJECT_ROOT]
   : normalizeProjectRoots(process.env.CODEX_DESKTOP_PROJECT_ROOTS || CONFIGURED_PROJECT_ROOT, CONFIGURED_PROJECT_ROOT);
+const PROJECT_ROOT_CONFIG = RESCUE_MODE
+  ? null
+  : await new ProjectRootConfigStore(
+    path.join(RELEASE_RUNTIME_DIR, "project-roots.json"),
+    {
+      primaryRoot: ENVIRONMENT_PROJECT_ROOTS[0],
+      environmentRoots: ENVIRONMENT_PROJECT_ROOTS,
+    },
+  ).initialize();
+await fs.mkdir(ENVIRONMENT_PROJECT_ROOTS[0], { recursive: true, mode: 0o750 });
+const PROJECT_ROOTS = RESCUE_MODE
+  ? ENVIRONMENT_PROJECT_ROOTS
+  : await PROJECT_ROOT_CONFIG.resolveRoots();
 const PROJECT_ROOT = PROJECT_ROOTS[0];
-await Promise.all(PROJECT_ROOTS.map((root) => fs.mkdir(root, { recursive: true, mode: 0o750 })));
+await Promise.all(PROJECT_ROOTS.slice(1).map((root) => fs.access(root)));
 const PROJECT_ROOT_REALS = await Promise.all(PROJECT_ROOTS.map((root) => fs.realpath(root)));
 const PROJECT_ROOT_REAL = PROJECT_ROOT_REALS[0];
-const DEFAULT_PROJECT = path.resolve(
+const REQUESTED_DEFAULT_PROJECT = path.resolve(
   RESCUE_MODE
     ? (process.env.CODEX_DESKTOP_RESCUE_DEFAULT_PROJECT || path.join(PROJECT_ROOT, "workspace"))
     : (process.env.CODEX_DESKTOP_DEFAULT_PROJECT || path.join(PROJECT_ROOT, "workspace")),
 );
-if (!projectRootForPath(PROJECT_ROOTS, DEFAULT_PROJECT)) {
-  throw new Error("Default project must be inside a configured project storage root");
-}
+const DEFAULT_PROJECT = projectRootForPath(PROJECT_ROOTS, REQUESTED_DEFAULT_PROJECT)
+  ? REQUESTED_DEFAULT_PROJECT
+  : path.join(PROJECT_ROOT, "workspace");
 await fs.mkdir(DEFAULT_PROJECT, { recursive: true, mode: 0o750 });
 const CODEX_ENABLED = process.env.CODEX_DESKTOP_DISABLE_CODEX !== "1";
 const CODEX_COMMAND = process.env.CODEX_DESKTOP_CODEX_BIN || "codex";
@@ -2683,6 +2697,39 @@ class UserRuntime {
     }
     if (CONVERSATION_SIDECAR_ENABLED) {
       void this.refreshConversationSidecarHealth();
+    }
+    return this;
+  }
+
+  async updateProjectRoots(projectRoots) {
+    if (!this.initialized) throw new Error("User runtime is not initialized");
+    const roots = normalizeProjectRoots(projectRoots, this.projectRoot);
+    if (!projectRootForPath(roots, this.defaultProject)) {
+      throw httpError(409, "不能移除当前默认工程所在的存储位置");
+    }
+    const rootReals = await Promise.all(roots.map(async (root) => {
+      const stat = await fs.lstat(root);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw httpError(409, "项目存储位置必须是已经存在的真实目录");
+      }
+      return fs.realpath(root);
+    }));
+    this.projectRoots = roots;
+    this.projectRoot = roots[0];
+    this.projectRootReals = rootReals;
+    this.projectRootReal = rootReals[0];
+    Object.assign(this.user, {
+      projectRoot: this.projectRoot,
+      projectRoots: [...this.projectRoots],
+      defaultProject: this.defaultProject,
+    });
+    if (this.worktreeStore) {
+      this.worktreeStore.projectRoots = [...roots];
+      this.worktreeStore.projectRoot = this.projectRoot;
+    }
+    if (this.backgroundTaskStore) {
+      this.backgroundTaskStore.projectRoots = [...roots];
+      this.backgroundTaskStore.projectRoot = this.projectRoot;
     }
     return this;
   }
@@ -7568,6 +7615,7 @@ const legacyUser = {
 const runtimeByUserId = new Map();
 const runtimeInitializationByUserId = new Map();
 const pendingProviderAssignments = new Map();
+let projectRootUpdateQueue = Promise.resolve();
 const defaultRuntime = await new UserRuntime(legacyUser, { legacy: true }).initialize();
 runtimeByUserId.set(legacyUser.id, defaultRuntime);
 
@@ -7883,6 +7931,82 @@ async function runtimeForUser(userId) {
 
 async function runtimeForRequest(request) {
   return runtimeForUser(request.user?.id || legacyUser.id);
+}
+
+function projectRootListsEqual(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && left.length === right.length
+    && left.every((root, index) => path.resolve(root) === path.resolve(right[index]));
+}
+
+async function applyProjectRootsToDefaultRuntime(activeRoots, actorId) {
+  const nextRoots = normalizeProjectRoots(activeRoots, defaultRuntime.projectRoot);
+  if (projectRootListsEqual(defaultRuntime.projectRoots, nextRoots)) return false;
+  const previousRoots = [...defaultRuntime.projectRoots];
+  await defaultRuntime.updateProjectRoots(nextRoots);
+  try {
+    if (multiUserStore.modeSnapshot().configured) {
+      await multiUserStore.updateLegacyProjectRoots(
+        actorId || multiUserStore.getOwner()?.id || legacyUser.id,
+        nextRoots,
+        defaultRuntime.defaultProject,
+      );
+    }
+  } catch (error) {
+    await defaultRuntime.updateProjectRoots(previousRoots).catch(() => {});
+    throw error;
+  }
+  return true;
+}
+
+function queueProjectRootOperation(operation) {
+  const task = projectRootUpdateQueue.then(operation);
+  projectRootUpdateQueue = task.catch(() => {});
+  return task;
+}
+
+function refreshProjectRootsForAdmin(actorId) {
+  return queueProjectRootOperation(async () => {
+    const activeRoots = await PROJECT_ROOT_CONFIG.resolveRoots();
+    if (!projectRootForPath(activeRoots, defaultRuntime.defaultProject)) {
+      throw httpError(409, "不能移除当前默认工程所在的存储位置");
+    }
+    await applyProjectRootsToDefaultRuntime(activeRoots, actorId);
+    return PROJECT_ROOT_CONFIG.snapshot({
+      activeRoots: defaultRuntime.projectRoots,
+      defaultProject: defaultRuntime.defaultProject,
+    });
+  });
+}
+
+function updateProjectRootsForAdmin(actorId, dataRoots) {
+  return queueProjectRootOperation(async () => {
+    const previousConfiguredRoots = PROJECT_ROOT_CONFIG.configuredDataRoots();
+    let preview;
+    try {
+      preview = await PROJECT_ROOT_CONFIG.previewDataRoots(dataRoots);
+    } catch (error) {
+      if (!error?.statusCode) throw httpError(400, error.message || "数据盘目录设置无效");
+      throw error;
+    }
+    if (!projectRootForPath(preview.activeRoots, defaultRuntime.defaultProject)) {
+      throw httpError(409, "不能移除当前默认工程所在的存储位置");
+    }
+    const previousActiveRoots = [...defaultRuntime.projectRoots];
+    const saved = await PROJECT_ROOT_CONFIG.setDataRoots(preview.dataRoots);
+    try {
+      await applyProjectRootsToDefaultRuntime(saved.activeRoots, actorId);
+    } catch (error) {
+      await defaultRuntime.updateProjectRoots(previousActiveRoots).catch(() => {});
+      await PROJECT_ROOT_CONFIG.setDataRoots(previousConfiguredRoots).catch(() => {});
+      throw error;
+    }
+    return PROJECT_ROOT_CONFIG.snapshot({
+      activeRoots: defaultRuntime.projectRoots,
+      defaultProject: defaultRuntime.defaultProject,
+    });
+  });
 }
 
 async function restorePersistedUserGoalRuntimes() {
@@ -9047,6 +9171,37 @@ app.get("/api/account", async (request, response, next) => {
       assignedApi: publicAssignedApi(runtime.user, runtime),
       claudeComponent,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/admin/project-roots", async (request, response, next) => {
+  try {
+    requireAdmin(request);
+    if (!PROJECT_ROOT_CONFIG) throw httpError(404, "备用窗口不提供项目存储设置");
+    const snapshot = await refreshProjectRootsForAdmin(request.user.id);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.json(snapshot);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/admin/project-roots", async (request, response, next) => {
+  try {
+    assertOperationRequest(request, "project-roots-update");
+    requireAdmin(request);
+    if (!PROJECT_ROOT_CONFIG) throw httpError(404, "备用窗口不提供项目存储设置");
+    const body = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body
+      : {};
+    if (Object.keys(body).some((key) => key !== "dataRoots") || !Array.isArray(body.dataRoots)) {
+      throw httpError(400, "项目存储设置必须只包含 dataRoots 数组");
+    }
+    const snapshot = await updateProjectRootsForAdmin(request.user.id, body.dataRoots);
+    response.setHeader("Cache-Control", "private, no-store");
+    response.json(snapshot);
   } catch (error) {
     next(error);
   }

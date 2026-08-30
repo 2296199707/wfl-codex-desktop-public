@@ -2485,10 +2485,18 @@ test("the project command group exposes files beside conversations while the dra
     /class="project-pane-actions"[\s\S]*id="importProjectButton"[\s\S]*id="downloadProjectButton"[\s\S]*id="createProjectButton"/,
   );
   assert.match(html, /id="projectRootInput"[^>]*name="rootId"/);
+  assert.match(html, /id="projectRootsButton"[^>]*数据盘目录设置/);
+  assert.match(html, /id="projectRootsDialog"/);
+  assert.match(html, /id="projectRootsInput"/);
   assert.match(app, /projectRoots = Array\.isArray\(data\.roots\)/);
   assert.match(app, /function renderProjectRootOptions\(/);
+  assert.match(app, /function loadProjectRootsConfig\(/);
+  assert.match(app, /\/api\/admin\/project-roots/);
+  assert.match(app, /forceGameProjects/);
   assert.match(app, /rootId: formData\.get\("rootId"\)/);
   assert.match(server, /publicProjectRoots\(runtime\.projectRoots, runtime\.defaultProject\)/);
+  assert.match(server, /app\.get\("\/api\/admin\/project-roots"[\s\S]*?requireAdmin\(request\)/);
+  assert.match(server, /app\.put\("\/api\/admin\/project-roots"[\s\S]*?requireAdmin\(request\)/);
   assert.match(html, /id="accountProviderButton"/);
   assert.match(html, /id="accountAddProviderButton"[^>]*hidden/);
   assert.match(html, /id="providerQuickButton"[^>]*查看供应商与账号额度/);

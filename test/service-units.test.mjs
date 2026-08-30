@@ -109,6 +109,37 @@ test("service units preserve multiple project storage roots", () => {
   assert.equal(variables.PROJECT_ROOTS, "/srv:/www");
 });
 
+test("service installation preserves an unmounted data disk without creating it", async () => {
+  const directory = await fs.mkdtemp("/tmp/wfl-missing-data-root-unit-");
+  try {
+    const runtimeDirectory = path.join(directory, "runtime");
+    const outputDirectory = path.join(directory, "units");
+    const sourceDirectory = path.join(directory, "source");
+    const projectRoot = path.join(directory, "projects");
+    const defaultProject = path.join(projectRoot, "workspace");
+    const missingDataRoot = path.join(directory, "data-disk");
+    await fs.mkdir(sourceDirectory, { recursive: true });
+
+    await runInstallServiceUnits({
+      runtimeDirectory,
+      outputDirectory,
+      sourceDirectory,
+      projectRoot,
+      defaultProject,
+      projectRoots: [projectRoot, missingDataRoot],
+      mainOnly: true,
+    });
+
+    await assert.rejects(fs.access(missingDataRoot), { code: "ENOENT" });
+    const persisted = JSON.parse(await fs.readFile(path.join(runtimeDirectory, "project-roots.json"), "utf8"));
+    assert.deepEqual(persisted.dataRoots, [missingDataRoot]);
+    const deployment = JSON.parse(await fs.readFile(path.join(runtimeDirectory, "deployment.json"), "utf8"));
+    assert.deepEqual(deployment.projectRoots, [projectRoot]);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("main-only service preparation leaves the active rescue component untouched", async () => {
   const directory = await fs.mkdtemp("/tmp/wfl-main-only-unit-");
   try {
@@ -281,6 +312,7 @@ function runInstallServiceUnits({
   sourceDirectory,
   projectRoot,
   defaultProject,
+  projectRoots = null,
   mainOnly = false,
   includeRescue = false,
   rescueInstallApproved = false,
@@ -298,6 +330,7 @@ function runInstallServiceUnits({
         CODEX_DESKTOP_RUNTIME_DIR: runtimeDirectory,
         CODEX_DESKTOP_SOURCE_DIR: sourceDirectory,
         CODEX_DESKTOP_PROJECT_ROOT: projectRoot,
+        CODEX_DESKTOP_PROJECT_ROOTS: (projectRoots || [projectRoot]).join(path.delimiter),
         CODEX_DESKTOP_DEFAULT_PROJECT: defaultProject,
         CODEX_DESKTOP_STATE_DIR: path.join(path.dirname(projectRoot), "state"),
         ...(rescueInstallApproved ? { CODEX_DESKTOP_RESCUE_INSTALL_APPROVED: "1" } : {}),

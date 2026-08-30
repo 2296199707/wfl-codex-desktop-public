@@ -223,6 +223,7 @@ async function launchWorker() {
       `--setenv=PLAYWRIGHT_BROWSERS_PATH=${playwrightBrowsersPath}`,
       `--setenv=CODEX_DESKTOP_OPERATION_ID=${unit}`,
       `--setenv=CODEX_DESKTOP_MAINTENANCE_RESERVATION_TOKEN=${reservation.record.token}`,
+      ...projectStorageEnvironmentArgs(),
       "--setenv=CODEX_DESKTOP_CANCEL_DECISION_MANAGED=0",
       ...(precheckedCommit ? [`--setenv=CODEX_DESKTOP_PRECHECK_COMMIT=${precheckedCommit}`] : []),
       ...(precheckKind ? [`--setenv=CODEX_DESKTOP_PRECHECK_KIND=${precheckKind}`] : []),
@@ -282,6 +283,16 @@ async function launchWorker() {
   } finally {
     if (!launched) await reservation.cancel().catch(() => {});
   }
+}
+
+function projectStorageEnvironmentArgs() {
+  return [
+    "CODEX_DESKTOP_PROJECT_ROOT",
+    "CODEX_DESKTOP_PROJECT_ROOTS",
+    "CODEX_DESKTOP_DEFAULT_PROJECT",
+  ].flatMap((name) => process.env[name]
+    ? [`--setenv=${name}=${process.env[name]}`]
+    : []);
 }
 
 async function waitForRelease() {

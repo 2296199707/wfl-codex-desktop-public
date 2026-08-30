@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.67-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.67-beta";
+} from "./thread-state.js?v=0.44.68-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.68-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.67-beta";
+} from "./image-context-policy.js?v=0.44.68-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.67-beta";
+} from "./image-attachment-context.js?v=0.44.68-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.67-beta";
+} from "./game-work-mode.js?v=0.44.68-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.67-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.68-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.67-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.68-beta";
 import {
   createConversationState,
   listConversationThreads,
@@ -62,11 +62,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.67-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.67-beta";
+} from "./conversation-state.js?v=0.44.68-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.68-beta";
 
-const UI_VERSION = "0.44.67-beta";
-const UI_VERSION_LABEL = "0.44.67-beta";
+const UI_VERSION = "0.44.68-beta";
+const UI_VERSION_LABEL = "0.44.68-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -450,6 +450,11 @@ const state = {
   projects: [],
   projectRoot: "/srv",
   projectRoots: [],
+  projectRootConfig: null,
+  projectRootConfigError: "",
+  projectRootConfigLoading: false,
+  projectRootConfigSaving: false,
+  projectRootConfigRequest: null,
   projectCreateRootId: null,
   defaultProject: null,
   currentProject: null,
@@ -808,6 +813,7 @@ const state = {
   mapWorkspaceGameProjectId: null,
   gameProjects: [],
   gameProjectsLoading: false,
+  gameProjectsRequest: null,
   gameProjectCreating: false,
   toolboxCategory: readToolboxCategory(),
   toolboxRecent: readToolboxList(TOOLBOX_RECENT_KEY),
@@ -1920,6 +1926,7 @@ const elements = Object.fromEntries(
     "projectSearch",
     "projectList",
     "projectRoot",
+    "projectRootsButton",
     "refreshProjectsButton",
     "threadSearch",
     "allThreadsToggle",
@@ -2168,6 +2175,14 @@ const elements = Object.fromEntries(
     "projectPathPreview",
     "projectFormError",
     "projectSubmitButton",
+    "projectRootsDialog",
+    "projectRootsForm",
+    "projectRootsPrimaryPath",
+    "projectRootsInput",
+    "projectRootsStatus",
+    "projectRootsRefreshButton",
+    "projectRootsError",
+    "projectRootsSaveButton",
     "codexWorktreeDialog",
     "codexWorktreeForm",
     "codexWorktreeProjectInput",
@@ -6921,7 +6936,13 @@ function bindEvents() {
   elements.browserDialog.addEventListener("close", stopBrowserPreview);
   elements.createProjectButton.addEventListener("click", openProjectDialog);
   elements.importProjectButton.addEventListener("click", openProjectImportDialog);
+  elements.projectRootsButton.addEventListener("click", openProjectRootsDialog);
   elements.refreshProjectsButton.addEventListener("click", loadProjects);
+  elements.projectRootsRefreshButton.addEventListener("click", () => {
+    void loadProjectRootsConfig();
+  });
+  elements.projectRootsForm.addEventListener("submit", submitProjectRoots);
+  elements.projectRootsDialog.addEventListener("close", closeProjectRootsDialog);
   elements.threadViewTab.addEventListener("click", () => setThreadPaneView("threads"));
   elements.worktreeViewTab.addEventListener("click", () => setThreadPaneView("worktrees"));
   elements.worktreeSearch.addEventListener("input", renderSidebarWorktrees);
@@ -7305,6 +7326,7 @@ async function loadAccount({ summary = false } = {}) {
     const admin = isAccountAdmin();
     elements.versionButton.hidden = false;
     elements.opsButton.hidden = !admin;
+    elements.projectRootsButton.hidden = !admin;
     elements.pluginButton.hidden = !admin && !canUseCodexPlugins();
     elements.codexExtensionsButton.hidden = state.runtime === "claude" || !canUseCodexExtensions();
     elements.terminalDrawerButton.hidden = state.runtime === "claude" || !canUseCodexTerminal();
@@ -10505,7 +10527,7 @@ function rpcError(message, deliveryUnknown = false) {
   return error;
 }
 
-async function loadProjects() {
+async function loadProjects({ awaitGameProjects = false, forceGameProjects = false } = {}) {
   elements.projectList.innerHTML = '<div class="list-loading">正在读取工程</div>';
   try {
     const response = await fetchWithTimeout("/api/projects", {}, 12_000);
@@ -10555,10 +10577,168 @@ async function loadProjects() {
     renderProjects();
     renderProjectContext();
     renderSidebarWorktrees();
-    void loadGameProjects({ silent: true });
+    const gameProjectsLoad = loadGameProjects({ silent: true, force: forceGameProjects });
+    if (awaitGameProjects) await gameProjectsLoad;
+    else void gameProjectsLoad;
   } catch (error) {
     elements.projectList.innerHTML = '<div class="list-empty">无法读取工程</div>';
     toast(error.message, "error");
+  }
+}
+
+async function openProjectRootsDialog() {
+  if (!isAccountAdmin()) {
+    toast("当前账号没有管理员权限", "error");
+    return;
+  }
+  elements.projectRootsError.textContent = "";
+  renderProjectRootsDialog();
+  if (!elements.projectRootsDialog.open) elements.projectRootsDialog.showModal();
+  await loadProjectRootsConfig();
+}
+
+async function loadProjectRootsConfig() {
+  if (!isAccountAdmin()) return null;
+  if (state.projectRootConfigRequest) return state.projectRootConfigRequest;
+  state.projectRootConfigLoading = true;
+  state.projectRootConfigError = "";
+  renderProjectRootsDialog();
+  const request = (async () => {
+    try {
+      const response = await fetchWithTimeout(
+        `/api/admin/project-roots?_=${Date.now()}`,
+        { cache: "no-store" },
+        12_000,
+      );
+      const snapshot = await readApiJson(response, "无法读取数据盘目录设置");
+      const previousRootSignature = state.projectRoots
+        .map((root) => `${root.id}:${root.path}`)
+        .join("\n");
+      state.projectRootConfig = snapshot;
+      state.projectRootConfigError = "";
+      renderProjectRootsDialog();
+      const nextRootSignature = (Array.isArray(snapshot.roots) ? snapshot.roots : [])
+        .map((root) => `${root.id}:${root.path}`)
+        .join("\n");
+      if (previousRootSignature !== nextRootSignature) {
+        await loadProjects({ awaitGameProjects: true, forceGameProjects: true });
+      }
+      return snapshot;
+    } catch (error) {
+      state.projectRootConfigError = error.message;
+      renderProjectRootsDialog();
+      if (elements.projectRootsDialog.open) toast(error.message, "error");
+      return null;
+    } finally {
+      state.projectRootConfigLoading = false;
+      renderProjectRootsDialog({ syncInput: false });
+    }
+  })();
+  state.projectRootConfigRequest = request;
+  try {
+    return await request;
+  } finally {
+    if (state.projectRootConfigRequest === request) state.projectRootConfigRequest = null;
+  }
+}
+
+function renderProjectRootsDialog({ syncInput = true } = {}) {
+  if (!elements.projectRootsDialog) return;
+  const snapshot = state.projectRootConfig;
+  const busy = state.projectRootConfigLoading || state.projectRootConfigSaving;
+  setDataContent(
+    elements.projectRootsPrimaryPath,
+    snapshot?.primary?.path || state.projectRoot || "--",
+  );
+  if (syncInput) {
+    elements.projectRootsInput.value = Array.isArray(snapshot?.dataRoots)
+      ? snapshot.dataRoots.map((root) => root.path).join("\n")
+      : "";
+  }
+  elements.projectRootsInput.disabled = busy;
+  elements.projectRootsRefreshButton.disabled = busy;
+  elements.projectRootsSaveButton.disabled = busy;
+  elements.projectRootsSaveButton.querySelector("span")?.replaceChildren(
+    document.createTextNode(state.projectRootConfigSaving ? "保存中" : "保存设置"),
+  );
+
+  elements.projectRootsStatus.replaceChildren();
+  const roots = Array.isArray(snapshot?.dataRoots) ? snapshot.dataRoots : [];
+  if (state.projectRootConfigLoading && !snapshot) {
+    const loading = document.createElement("p");
+    loading.className = "project-roots-empty";
+    loading.textContent = "正在读取当前设置";
+    elements.projectRootsStatus.append(loading);
+  } else if (!roots.length) {
+    const empty = document.createElement("p");
+    empty.className = "project-roots-empty";
+    empty.textContent = "尚未配置附加数据盘目录";
+    elements.projectRootsStatus.append(empty);
+  } else {
+    for (const root of roots) {
+      const row = document.createElement("div");
+      row.className = "project-root-status-row";
+      row.dataset.status = root.active ? "active" : root.status || "unavailable";
+      const copy = document.createElement("span");
+      copy.className = "project-root-status-copy";
+      const pathNode = document.createElement("strong");
+      pathNode.textContent = root.path || "--";
+      const reason = document.createElement("small");
+      reason.textContent = root.active
+        ? "已启用"
+        : root.status === "invalid"
+          ? root.reason || "路径无效"
+          : root.reason || "目录未挂载或暂时无法访问";
+      copy.append(pathNode, reason);
+      const stateNode = document.createElement("b");
+      stateNode.textContent = root.active ? "已启用" : root.status === "invalid" ? "无效" : "未挂载";
+      row.append(copy, stateNode);
+      elements.projectRootsStatus.append(row);
+    }
+  }
+  const warning = snapshot?.warning || state.projectRootConfigError || "";
+  elements.projectRootsError.textContent = warning;
+  refreshIcons();
+}
+
+function closeProjectRootsDialog() {
+  elements.projectRootsError.textContent = "";
+  state.projectRootConfigSaving = false;
+}
+
+async function submitProjectRoots(event) {
+  if (event.submitter?.value === "cancel") return;
+  event.preventDefault();
+  if (!isAccountAdmin() || state.projectRootConfigSaving) return;
+  state.projectRootConfigSaving = true;
+  state.projectRootConfigError = "";
+  elements.projectRootsError.textContent = "";
+  renderProjectRootsDialog({ syncInput: false });
+  const dataRoots = elements.projectRootsInput.value
+    .split(/\r?\n/u)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  try {
+    const response = await fetchWithTimeout("/api/admin/project-roots", {
+      method: "PUT",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Codex-Desktop-Action": "project-roots-update",
+      },
+      body: JSON.stringify({ dataRoots }),
+    }, 20_000);
+    state.projectRootConfig = await readApiJson(response, "无法保存数据盘目录设置");
+    state.projectRootConfigError = "";
+    elements.projectRootsDialog.close();
+    await loadProjects({ awaitGameProjects: true, forceGameProjects: true });
+    toast("数据盘目录设置已保存");
+  } catch (error) {
+    state.projectRootConfigError = error.message;
+    elements.projectRootsError.textContent = error.message;
+  } finally {
+    state.projectRootConfigSaving = false;
+    renderProjectRootsDialog({ syncInput: false });
   }
 }
 
@@ -36339,7 +36519,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.67-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.68-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -36987,32 +37167,45 @@ function renderToolbox() {
   refreshIcons();
 }
 
-async function loadGameProjects({ silent = false } = {}) {
-  if (state.gameProjectsLoading) return state.gameProjects;
+async function loadGameProjects({ silent = false, force = false } = {}) {
+  if (state.gameProjectsRequest) {
+    const pending = state.gameProjectsRequest;
+    const result = await pending;
+    if (!force) return result;
+  }
+  if (state.gameProjectsRequest) return state.gameProjectsRequest;
   state.gameProjectsLoading = true;
   renderGameProjects();
+  const request = (async () => {
+    try {
+      const response = await fetchWithTimeout("/api/game-projects", { cache: "no-store" }, 15_000);
+      const data = await readApiJson(response, "无法读取游戏工程");
+      state.gameProjects = Array.isArray(data.projects) ? data.projects : [];
+      if (elements.gameProjectState) {
+        elements.gameProjectState.textContent = state.gameProjects.length
+          ? `${state.gameProjects.length} 个工程`
+          : "还没有登记游戏工程";
+        elements.gameProjectState.dataset.status = "";
+      }
+      return state.gameProjects;
+    } catch (error) {
+      state.gameProjects = [];
+      if (elements.gameProjectState) {
+        elements.gameProjectState.textContent = error.message;
+        elements.gameProjectState.dataset.status = "error";
+      }
+      if (!silent) toast(error.message, "error");
+      return [];
+    } finally {
+      state.gameProjectsLoading = false;
+      renderGameProjects();
+    }
+  })();
+  state.gameProjectsRequest = request;
   try {
-    const response = await fetchWithTimeout("/api/game-projects", { cache: "no-store" }, 15_000);
-    const data = await readApiJson(response, "无法读取游戏工程");
-    state.gameProjects = Array.isArray(data.projects) ? data.projects : [];
-    if (elements.gameProjectState) {
-      elements.gameProjectState.textContent = state.gameProjects.length
-        ? `${state.gameProjects.length} 个工程`
-        : "还没有登记游戏工程";
-      elements.gameProjectState.dataset.status = "";
-    }
-    return state.gameProjects;
-  } catch (error) {
-    state.gameProjects = [];
-    if (elements.gameProjectState) {
-      elements.gameProjectState.textContent = error.message;
-      elements.gameProjectState.dataset.status = "error";
-    }
-    if (!silent) toast(error.message, "error");
-    return [];
+    return await request;
   } finally {
-    state.gameProjectsLoading = false;
-    renderGameProjects();
+    if (state.gameProjectsRequest === request) state.gameProjectsRequest = null;
   }
 }
 

@@ -1713,6 +1713,42 @@ p {
   white-space: nowrap;
 }
 
+.project-roots-button {
+  display: inline-flex;
+  min-width: 0;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.project-roots-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.project-roots-button svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.pane-footer .project-roots-button span {
+  flex: 0 0 auto;
+  overflow: visible;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-overflow: clip;
+}
+
 .thread-list {
   padding: 0 8px 12px;
 }
@@ -6624,6 +6660,80 @@ dialog::backdrop {
   border-radius: 0;
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.project-roots-panel {
+  width: min(520px, calc(100vw - 20px));
+}
+
+.project-roots-panel .settings-body {
+  padding-top: 0;
+}
+
+.project-roots-primary {
+  justify-content: flex-start;
+}
+
+.project-roots-status {
+  display: grid;
+  gap: 7px;
+}
+
+.project-root-status-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-subtle);
+}
+
+.project-root-status-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.project-root-status-copy strong,
+.project-root-status-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-root-status-copy strong {
+  color: var(--ink);
+  font: 10px var(--font-mono);
+}
+
+.project-root-status-copy small {
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+
+.project-root-status-row > b {
+  flex: 0 0 auto;
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+
+.project-root-status-row[data-status="active"] > b {
+  color: var(--green);
+}
+
+.project-root-status-row[data-status="invalid"] > b {
+  color: var(--red);
+}
+
+.project-roots-empty,
+.project-roots-note {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 /* The map workspace needs room for project-relative paths and its resource

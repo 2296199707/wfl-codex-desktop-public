@@ -3,6 +3,12 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.68-beta] - 2026-08-30
+
+- 增加管理员可配置的多项目存储根目录，支持数据盘挂载后刷新启用。
+- 普通工程和游戏工程创建统一使用当前已启用的存储根目录。
+- 保留未挂载数据盘配置，避免服务重启时丢失设置或误在系统盘创建目录。
+
 ## [0.44.66-beta] - 2026-08-30
 
 - 增加通用游戏工程工作区：支持新建、登记、切换多个工程，并恢复最近资源和编辑器环境。
