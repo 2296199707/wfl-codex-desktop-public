@@ -51,6 +51,7 @@ let managedUsersRoot;
 let ownerCodexHome;
 let stateDirectory;
 let runtimeDirectory;
+let externalResourceRoot;
 let authorization;
 
 before(async () => {
@@ -59,6 +60,7 @@ before(async () => {
   defaultProject = path.join(projectRoot, "default-project");
   managedUsersRoot = path.join(projectRoot, "managed-users");
   ownerCodexHome = await fs.mkdtemp("/tmp/wfl-codex-home-test-");
+  externalResourceRoot = await fs.mkdtemp("/tmp/wfl-codex-resource-outside-");
   stateDirectory = path.join(projectRoot, "desktop-state");
   runtimeDirectory = path.join(projectRoot, "desktop-runtime");
   await Promise.all([fs.mkdir(defaultProject), fs.mkdir(managedUsersRoot), fs.mkdir(runtimeDirectory)]);
@@ -120,6 +122,7 @@ after(async () => {
     fs.rm(projectRoot, { recursive: true, force: true }),
     fs.rm(secondaryProjectRoot, { recursive: true, force: true }),
     fs.rm(ownerCodexHome, { recursive: true, force: true }),
+    fs.rm(externalResourceRoot, { recursive: true, force: true }),
   ]);
 });
 
@@ -1695,6 +1698,95 @@ test("creates a project under a selected secondary storage root", async () => {
   assert.equal(await exists(path.join(secondaryProjectRoot, "data-project")), true);
 });
 
+test("creates and restores a registered game project workspace", async () => {
+  const directoryName = `game-workspace-${crypto.randomUUID().slice(0, 8)}`;
+  const create = await fetchJson(`${baseUrl}/api/game-projects`, {
+    method: "POST",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "game-project-create",
+    },
+    body: JSON.stringify({
+      action: "create",
+      name: "测试游戏工程",
+      directoryName,
+      projectFile: "game.tiled-project",
+      initialMap: "maps/main.tmj",
+      preset: "building",
+      orientation: "orthogonal",
+      width: 8,
+      height: 6,
+      tilewidth: 16,
+      tileheight: 16,
+      initializeGit: false,
+    }),
+  });
+  assert.equal(create.response.status, 201, JSON.stringify(create.data));
+  const project = create.data.project;
+  assert.ok(project.projectId);
+  assert.equal(project.name, "测试游戏工程");
+  assert.equal(project.projectPath, path.join(projectRoot, directoryName));
+  assert.equal(project.projectFile, "game.tiled-project");
+  assert.equal(project.initialMap, "maps/main.tmj");
+  for (const directory of [
+    "maps", "tilesets", "templates", "images", "characters", "worlds", "automapping", "extensions",
+  ]) {
+    assert.equal(await exists(path.join(project.projectPath, directory)), true, directory);
+  }
+  assert.equal(await exists(path.join(project.projectPath, "game.tiled-project")), true);
+  assert.equal(await exists(path.join(project.projectPath, "maps", "main.tmj")), true);
+
+  const listed = await fetchJson(`${baseUrl}/api/game-projects`);
+  assert.equal(listed.response.status, 200);
+  const restored = listed.data.projects.find((entry) => entry.projectId === project.projectId);
+  assert.ok(restored);
+  assert.equal(restored.available, true);
+  assert.equal(restored.projectFileAvailable, true);
+
+  const opened = await fetchJson(`${baseUrl}/api/game-projects/${encodeURIComponent(project.projectId)}/open`, {
+    method: "POST",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "game-project-open",
+    },
+    body: JSON.stringify({ relativePath: "maps/main.tmj", editor: "map" }),
+  });
+  assert.equal(opened.response.status, 200, JSON.stringify(opened.data));
+  assert.equal(opened.data.project.recentResource, "maps/main.tmj");
+  assert.equal(opened.data.project.recentEditor, "map");
+
+  const snapshotted = await fetchJson(`${baseUrl}/api/game-projects/${encodeURIComponent(project.projectId)}/snapshot`, {
+    method: "POST",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "game-project-snapshot",
+    },
+    body: JSON.stringify({ recentResource: "maps/main.tmj", recentEditor: "map" }),
+  });
+  assert.equal(snapshotted.response.status, 200);
+  assert.ok(snapshotted.data.project.snapshotAt);
+
+  const projects = await fetchJson(`${baseUrl}/api/projects`);
+  const decorated = projects.data.projects.find((entry) => entry.path === project.projectPath);
+  assert.equal(decorated.gameProjectId, project.projectId);
+  assert.equal(decorated.gameProjectName, project.name);
+
+  const removed = await fetchJson(`${baseUrl}/api/game-projects/${encodeURIComponent(project.projectId)}`, {
+    method: "DELETE",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "game-project-remove",
+    },
+    body: JSON.stringify({ expectedRevision: snapshotted.data.project.revision }),
+  });
+  assert.equal(removed.response.status, 200, JSON.stringify(removed.data));
+  assert.equal(await exists(project.projectPath), true);
+});
+
 test("manages encrypted API provider profiles without returning keys", async () => {
   const created = await fetchJson(`${baseUrl}/api/providers`, {
     method: "POST",
@@ -2944,7 +3036,7 @@ test("imports guarded tar.gz projects and rejects unsafe archives", async () => 
   assert.equal(await exists(path.join(projectRoot, "symlink-project")), false);
 });
 
-test("browses, searches, and previews project files without path traversal", async () => {
+test("browses, searches, and previews project files while protecting reserved paths", async () => {
   const sourceDir = path.join(defaultProject, "src");
   const sourceFile = path.join(sourceDir, "sample-controller.js");
   const internalDir = path.join(defaultProject, ".codex-desktop");
@@ -3067,15 +3159,106 @@ test("browses, searches, and previews project files without path traversal", asy
   assert.match(conflict.data.error, /其他任务修改/);
   assert.equal(await fs.readFile(sourceFile, "utf8"), "export const changedByCodex = true;\n");
 
-  readUrl.searchParams.set("path", "/etc/passwd");
-  const blocked = await fetchJson(readUrl);
-  assert.equal(blocked.response.status, 400);
-  assert.match(blocked.data.error, /outside the project/i);
-
   readUrl.searchParams.set("path", path.join(internalDir, "private.txt"));
   const protectedFile = await fetchJson(readUrl);
   assert.equal(protectedFile.response.status, 403);
   assert.match(protectedFile.data.error, /protected/i);
+});
+
+test("single-user resource manager can browse and mutate an external directory", async () => {
+  const nestedDirectory = path.join(externalResourceRoot, "nested");
+  const externalFile = path.join(nestedDirectory, "outside.txt");
+  await fs.mkdir(nestedDirectory, { recursive: true });
+  await fs.writeFile(externalFile, "outside resource\n");
+
+  const listUrl = new URL(`${baseUrl}/api/files/list`);
+  listUrl.searchParams.set("project", defaultProject);
+  listUrl.searchParams.set("path", externalResourceRoot);
+  const listed = await fetchJson(listUrl);
+  assert.equal(listed.response.status, 200, JSON.stringify(listed.data));
+  assert.equal(listed.data.unrestricted, true);
+  assert.equal(listed.data.directoryPath, externalResourceRoot);
+  assert.ok(listed.data.entries.some((entry) => entry.name === "nested" && entry.type === "directory"));
+
+  const searchUrl = new URL(`${baseUrl}/api/files/search`);
+  searchUrl.searchParams.set("project", defaultProject);
+  searchUrl.searchParams.set("path", externalResourceRoot);
+  searchUrl.searchParams.set("query", "outside.txt");
+  const searched = await fetchJson(searchUrl);
+  assert.equal(searched.response.status, 200, JSON.stringify(searched.data));
+  assert.ok(searched.data.entries.some((entry) => entry.path === externalFile));
+
+  const readUrl = new URL(`${baseUrl}/api/files/read`);
+  readUrl.searchParams.set("project", defaultProject);
+  readUrl.searchParams.set("path", externalFile);
+  const read = await fetchJson(readUrl);
+  assert.equal(read.response.status, 200, JSON.stringify(read.data));
+  assert.equal(read.data.relativePath, externalFile);
+  assert.equal(read.data.content, "outside resource\n");
+  assert.equal(read.data.editable, true);
+
+  const saved = await fetchJson(`${baseUrl}/api/files/write?project=${encodeURIComponent(defaultProject)}&path=${encodeURIComponent(externalFile)}`, {
+    method: "PUT",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "text/plain; charset=utf-8",
+      "X-Codex-Desktop-Action": "resource-file-save",
+      "X-Codex-Desktop-File-Version": read.data.version,
+    },
+    body: "updated outside resource\n",
+  });
+  assert.equal(saved.response.status, 200, JSON.stringify(saved.data));
+  assert.equal(await fs.readFile(externalFile, "utf8"), "updated outside resource\n");
+
+  const created = await fetchJson(`${baseUrl}/api/files/action`, {
+    method: "POST",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "resource-file-action",
+    },
+    body: JSON.stringify({
+      project: defaultProject,
+      action: "createFile",
+      parentPath: nestedDirectory,
+      name: "created.txt",
+    }),
+  });
+  assert.equal(created.response.status, 201, JSON.stringify(created.data));
+  assert.equal(await exists(path.join(nestedDirectory, "created.txt")), true);
+
+  const uploaded = await fetchJson(
+    `${baseUrl}/api/files/upload?${new URLSearchParams({
+      project: defaultProject,
+      path: nestedDirectory,
+      name: "uploaded.txt",
+    })}`,
+    {
+      method: "POST",
+      headers: {
+        Origin: baseUrl,
+        "Content-Type": "application/octet-stream",
+        "X-Codex-Desktop-Action": "resource-file-upload",
+      },
+      body: Buffer.from("uploaded outside\n"),
+    },
+  );
+  assert.equal(uploaded.response.status, 201, JSON.stringify(uploaded.data));
+  assert.equal(await fs.readFile(path.join(nestedDirectory, "uploaded.txt"), "utf8"), "uploaded outside\n");
+
+  const downloaded = await fetch(
+    `${baseUrl}/api/files/download?${new URLSearchParams({ project: defaultProject, path: externalFile })}`,
+    { headers: { Authorization: authorization } },
+  );
+  assert.equal(downloaded.status, 200);
+  assert.equal(await downloaded.text(), "updated outside resource\n");
+
+  const archive = await fetch(
+    `${baseUrl}/api/files/archive?${new URLSearchParams({ project: defaultProject, path: nestedDirectory })}`,
+    { headers: { Authorization: authorization } },
+  );
+  assert.equal(archive.status, 200);
+  assert.ok((await archive.arrayBuffer()).byteLength > 0);
 });
 
 test("opens a scoped map project tree and creates map sessions from relative paths", async (t) => {

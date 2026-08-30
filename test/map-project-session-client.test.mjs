@@ -19,6 +19,7 @@ test("project workspace client opens, browses, searches and closes one relative-
       return response(201, {
         session: {
           id: "project-session-abcdefghijklmnop",
+          gameProjectId: "game-project-1234",
           projectName: "game",
           projectFile: "game.tiled-project",
           temporary: false,
@@ -156,11 +157,16 @@ test("project workspace client opens, browses, searches and closes one relative-
     return response(404, { error: "unexpected" });
   };
   const client = new MapProjectWorkspaceClient({ fetchImpl, origin: "https://desktop.example" });
-  const session = await client.open({ project: "/srv/projects/game", projectFile: "game.tiled-project" });
+  const session = await client.open({
+    project: "/srv/projects/game",
+    projectFile: "game.tiled-project",
+    gameProjectId: "game-project-1234",
+  });
   assert.equal(session.projectFile, "game.tiled-project");
   assert.deepEqual(JSON.parse(requests[0].options.body), {
     project: "/srv/projects/game",
     projectFile: "game.tiled-project",
+    gameProjectId: "game-project-1234",
   });
   const tree = await client.tree({ directory: "maps", kinds: ["map"], limit: 20 });
   assert.equal(tree.entries[0].path, "maps/world.tmj");
@@ -264,16 +270,19 @@ test("project workspace client opens, browses, searches and closes one relative-
   assert.equal(imported.published[0].targetPath, "imports/source.tsj");
   assert.deepEqual(client.mapOpenPayload("maps/world.tmj", "editor-window-0001"), {
     projectSessionId: session.id,
+    gameProjectId: "game-project-1234",
     path: "maps/world.tmj",
     editorInstanceId: "editor-window-0001",
   });
   assert.deepEqual(client.worldOpenPayload("maps/game.world", "world-window-0001"), {
     projectSessionId: session.id,
+    gameProjectId: "game-project-1234",
     path: "maps/game.world",
     editorInstanceId: "world-window-0001",
   });
   assert.deepEqual(client.tilesetOpenPayload("tiles/terrain.tsj", "tileset-window-0001"), {
     projectSessionId: session.id,
+    gameProjectId: "game-project-1234",
     path: "tiles/terrain.tsj",
     editorInstanceId: "tileset-window-0001",
   });

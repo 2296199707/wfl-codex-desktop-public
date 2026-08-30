@@ -1688,6 +1688,11 @@ test("user sessions cannot cross project, administration, or provider boundaries
   assert.equal(ownerEscape.response.status, 400);
   const memberEscape = await requestJson(`/api/files/list?project=${encodeURIComponent(memberProject)}`, { cookie: ownerCookie });
   assert.equal(memberEscape.response.status, 400);
+  const memberTargetEscape = await requestJson(
+    `/api/files/list?project=${encodeURIComponent(memberProject)}&path=${encodeURIComponent(legacyProject)}`,
+    { cookie: memberCookie },
+  );
+  assert.equal(memberTargetEscape.response.status, 400);
   const previewEscape = await requestJson(`/api/preview/entries?project=${encodeURIComponent(legacyProject)}`, { cookie: memberCookie });
   assert.equal(previewEscape.response.status, 400);
 

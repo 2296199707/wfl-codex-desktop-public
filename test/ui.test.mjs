@@ -2267,6 +2267,9 @@ test("the resource explorer edits existing text files with guarded conflict-awar
     "resourceCurrentDirectory",
     "resourceLargeButton",
     "resourceFullscreenButton",
+    "resourceLocationForm",
+    "resourceLocationInput",
+    "resourceLocationButton",
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
@@ -2296,7 +2299,10 @@ test("the resource explorer edits existing text files with guarded conflict-awar
   assert.match(server, /readResourcePreview/);
   assert.match(server, /resourcePreviewKind/);
   assert.match(server, /routeFileWatchChange/);
-  assert.match(server, /resolveResourceTarget\(params\.project, params\.path, runtime\)/);
+  assert.match(server, /resolveResourceManagerTarget\(\n\s+params\.project,\n\s+params\.path,\n\s+runtime,/);
+  assert.match(server, /allowAnyDirectory: true/);
+  assert.match(app, /function submitResourceLocation/);
+  assert.match(app, /state\.resourceProjectPath/);
   assert.match(css, /\.resource-editor \{/);
   assert.match(app, /function setupResourceResizeControls\(\)/);
   assert.ok(

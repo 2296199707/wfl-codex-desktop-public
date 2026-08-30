@@ -4,8 +4,10 @@ export const MAP_CONVERSATION_RESULT_TYPE = "wfl/map-conversation-result/v1";
 
 const REQUEST_ACTIONS = new Set([
   "snapshot-request",
+  "hydrate-thread",
   "send",
   "switch-thread",
+  "unbind-thread",
   "interrupt",
   "focus-main",
 ]);
@@ -17,6 +19,7 @@ const MAX_SEND_TEXT = 32_000;
 const MAX_THREADS = 100;
 const MAX_MESSAGES = 80;
 const MAX_ATTACHMENTS = 16;
+const MAX_ACTIVITIES = 24;
 
 export function createMapConversationRequest(action, input = {}, now = Date.now()) {
   if (!REQUEST_ACTIONS.has(action)) throw new TypeError("Invalid map conversation action");
@@ -35,8 +38,16 @@ export function createMapConversationRequest(action, input = {}, now = Date.now(
     request.threadId = boundedText(input.threadId, MAX_THREAD_ID, "threadId");
     request.text = boundedText(input.text, MAX_SEND_TEXT, "text").trim();
     if (!request.text) throw new TypeError("Invalid text");
-  } else if (["switch-thread", "interrupt"].includes(action)) {
+  } else if (["hydrate-thread", "switch-thread", "interrupt"].includes(action)) {
     request.threadId = boundedText(input.threadId, MAX_THREAD_ID, "threadId");
+    if (action === "interrupt") {
+      request.turnId = boundedText(input.turnId, MAX_THREAD_ID, "turnId");
+    }
+  }
+  if (["switch-thread", "unbind-thread"].includes(action)) {
+    request.expectedBoundThreadId = input.expectedBoundThreadId == null || input.expectedBoundThreadId === ""
+      ? null
+      : boundedText(input.expectedBoundThreadId, MAX_THREAD_ID, "expectedBoundThreadId");
   }
   return Object.freeze(request);
 }
@@ -60,6 +71,8 @@ export function createMapConversationSnapshot(input = {}, now = Date.now()) {
     projectPath: boundedProjectPath(input.projectPath),
     requestId: optionalIdentifier(input.requestId),
     revision: nonnegativeInteger(input.revision, "revision"),
+    contextVersion: nonnegativeInteger(input.contextVersion, "contextVersion"),
+    eventSequence: nonnegativeInteger(input.eventSequence, "eventSequence"),
     sentAt: finiteTimestamp(input.sentAt ?? now),
     runtime: input.runtime === "codex" ? "codex" : "unavailable",
     boundThreadId: optionalText(input.boundThreadId, MAX_THREAD_ID),
@@ -67,6 +80,10 @@ export function createMapConversationSnapshot(input = {}, now = Date.now()) {
     threads: Object.freeze(normalizeThreads(input.threads)),
     messages: Object.freeze(normalizeMessages(input.messages)),
     conversation: Object.freeze(normalizeConversation(input.conversation)),
+    threadState: Object.freeze(normalizeThreadState(input.threadState)),
+    compaction: Object.freeze(normalizeCompaction(input.compaction)),
+    activities: Object.freeze(normalizeActivities(input.activities)),
+    loading: Object.freeze(normalizeLoading(input.loading)),
     imageDelivery: Object.freeze(normalizeImageDelivery(input.imageDelivery)),
   };
   return Object.freeze(snapshot);
@@ -164,6 +181,68 @@ function normalizeConversation(value) {
     activeTurnId: optionalText(source.activeTurnId, MAX_THREAD_ID),
     mainComposerBlocked: source.mainComposerBlocked === true,
     imageIsolationEnabled: source.imageIsolationEnabled === true,
+  };
+}
+
+function normalizeThreadState(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    status: normalizeThreadStatus(source.status),
+    activeTurnId: optionalText(source.activeTurnId, MAX_THREAD_ID),
+    loaded: source.loaded === true,
+    complete: source.complete === true,
+    earlierAvailable: source.earlierAvailable === true,
+    updatedAt: finiteTimestamp(source.updatedAt ?? 0),
+  };
+}
+
+function normalizeCompaction(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const status = new Set(["idle", "running", "completed", "failed"])
+    .has(source.status) ? source.status : "idle";
+  return {
+    status,
+    turnId: optionalText(source.turnId, MAX_THREAD_ID),
+    count: boundedCount(source.count),
+    lastAt: finiteTimestamp(source.lastAt ?? 0),
+    updatedAt: finiteTimestamp(source.updatedAt ?? 0),
+    label: boundedDisplayText(source.label || "未记录上下文压缩", 500),
+  };
+}
+
+function normalizeActivities(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > MAX_ACTIVITIES) throw new TypeError("Invalid activities");
+  return value.map((entry, index) => Object.freeze({
+    id: optionalText(entry?.id, MAX_THREAD_ID) || `activity-${index}`,
+    type: normalizeActivityType(entry?.type),
+    status: normalizeActivityStatus(entry?.status),
+    title: boundedDisplayText(entry?.title || "工具活动", 240),
+    turnId: optionalText(entry?.turnId, MAX_THREAD_ID),
+    fileCount: boundedCount(entry?.fileCount),
+    updatedAt: finiteTimestamp(entry?.updatedAt ?? 0),
+  }));
+}
+
+function normalizeActivityType(value) {
+  return new Set(["mcp", "command", "fileChange", "subagent", "hook", "other"])
+    .has(value) ? value : "other";
+}
+
+function normalizeActivityStatus(value) {
+  return new Set(["running", "waiting", "completed", "failed", "stopped", "idle"])
+    .has(value) ? value : "idle";
+}
+
+function normalizeLoading(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const status = new Set(["ready", "loading", "partial", "error", "disconnected"])
+    .has(source.status) ? source.status : "ready";
+  return {
+    status,
+    complete: source.complete !== false,
+    label: boundedDisplayText(source.label || "对话已就绪", 300),
+    updatedAt: finiteTimestamp(source.updatedAt ?? 0),
   };
 }
 

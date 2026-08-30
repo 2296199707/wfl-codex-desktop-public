@@ -3,29 +3,34 @@ import {
   relativeTiledProjectReference,
   resolveTiledProjectReference,
   serializeTiledDocument,
-} from "./tiled-document.js?v=0.44.65";
-import { TiledEditDocument } from "./tiled-edit-document.js?v=0.44.65";
+} from "./tiled-document.js?v=0.44.66-beta";
+import { TiledEditDocument } from "./tiled-edit-document.js?v=0.44.66-beta";
 import {
   applyTiledAiPatch,
   buildTiledAiPrompt,
   parseTiledAiPatch,
   previewTiledAiPatch,
   tiledAiPatchContext,
-} from "./tiled-ai-patch.js?v=0.44.65";
-import { TiledAiPatchWorkerClient } from "./tiled-ai-patch-worker-client.js?v=0.44.65";
+} from "./tiled-ai-patch.js?v=0.44.66-beta";
+import {
+  createMapAiFocusContext,
+  formatMapAiFocus,
+  mapAiFocusSummary,
+} from "./map-ai-focus-context.js?v=0.44.66-beta";
+import { TiledAiPatchWorkerClient } from "./tiled-ai-patch-worker-client.js?v=0.44.66-beta";
 import {
   decodeTiledTileData,
   encodeTiledTileData,
-} from "./tiled-tile-codec.js?v=0.44.65";
-import { planTiledTilesetImport } from "./tiled-tileset-import.js?v=0.44.65";
-import { planTiledTilesetReuse, remapGlobalTileId } from "./tiled-gid-reuse.js?v=0.44.65";
+} from "./tiled-tile-codec.js?v=0.44.66-beta";
+import { planTiledTilesetImport } from "./tiled-tileset-import.js?v=0.44.66-beta";
+import { planTiledTilesetReuse, remapGlobalTileId } from "./tiled-gid-reuse.js?v=0.44.66-beta";
 import {
   emptyTiledProjectTypes,
   mergeTiledClassDefaults,
   normalizeTiledPropertyValue,
   parseTiledProjectTypes,
   tiledPropertyControl,
-} from "./tiled-project-types.js?v=0.44.65";
+} from "./tiled-project-types.js?v=0.44.66-beta";
 import {
   compactTiledTemplateInstance,
   createTiledTemplateDocument,
@@ -33,7 +38,7 @@ import {
   materializeTiledTemplate,
   parseTiledTemplate,
   refreshTiledTemplateInstance,
-} from "./tiled-template.js?v=0.44.65";
+} from "./tiled-template.js?v=0.44.66-beta";
 import {
   createMapAssetLibrary,
   mapAssetDependencySummary,
@@ -43,13 +48,13 @@ import {
   setMapAssetFavorite,
   touchMapAsset,
   upsertMapAsset,
-} from "./map-asset-library.js?v=0.44.65";
+} from "./map-asset-library.js?v=0.44.66-beta";
 import {
   compositeDependencies,
   createCompositeMapDocument,
   relocateCompositeMapDocument,
   remapCompositeLayerGids,
-} from "./tiled-composite.js?v=0.44.65";
+} from "./tiled-composite.js?v=0.44.66-beta";
 import {
   buildMapImageCandidateRequest,
   buildMapImageCropRequest,
@@ -62,7 +67,7 @@ import {
   normalizeMapImageCandidateConfig,
   suggestedMapImageCompanionPath,
   suggestedMapImagePublishPath,
-} from "./map-image-candidates.js?v=0.44.65";
+} from "./map-image-candidates.js?v=0.44.66-beta";
 import {
   planPublishedMapImageLayer,
   planPublishedMapImageLayerReplacement,
@@ -71,8 +76,8 @@ import {
   publishedMapImageApplicationId,
   tiledValueHasMapImageApplication,
   validatePublishedMapImageGrant,
-} from "./map-image-apply.js?v=0.44.65";
-import { createMapSelectionImageTarget } from "./map-selection-image-target.js?v=0.44.65";
+} from "./map-image-apply.js?v=0.44.66-beta";
+import { createMapSelectionImageTarget } from "./map-selection-image-target.js?v=0.44.66-beta";
 import {
   TILED_COLLISION_SHAPES,
   TILED_OBJECT_SHAPES,
@@ -85,7 +90,7 @@ import {
   suggestedTiledObjectVertex,
   tiledObjectShapeLabel,
   updateTiledObjectVertex,
-} from "./map-object-model.js?v=0.44.65";
+} from "./map-object-model.js?v=0.44.66-beta";
 import {
   normalizeTileRandomSeed,
   paletteTileStamp,
@@ -93,15 +98,15 @@ import {
   tileShapeCells,
   tileStampWrites,
   transformTileStamp,
-} from "./tile-tool-model.js?v=0.44.65";
-import { planTerrainBrush } from "./terrain-brush-model.js?v=0.44.65";
+} from "./tile-tool-model.js?v=0.44.66-beta";
+import { planTerrainBrush } from "./terrain-brush-model.js?v=0.44.66-beta";
 import {
   applyTiledAutomappingPreview,
   compileTiledAutomappingRuleMap,
   loadTiledAutomappingRules,
-} from "./tiled-automap.js?v=0.44.65";
-import { TiledAutomapWorkerClient } from "./tiled-automap-worker-client.js?v=0.44.65";
-import { TiledFillWorkerClient } from "./tiled-fill-worker-client.js?v=0.44.65";
+} from "./tiled-automap.js?v=0.44.66-beta";
+import { TiledAutomapWorkerClient } from "./tiled-automap-worker-client.js?v=0.44.66-beta";
+import { TiledFillWorkerClient } from "./tiled-fill-worker-client.js?v=0.44.66-beta";
 import {
   createTileStampLibrary,
   parseTileStampLibrary,
@@ -111,57 +116,58 @@ import {
   tileStampLibraryStorageKey,
   touchNamedTileStamp,
   upsertNamedTileStamp,
-} from "./tile-stamp-library.js?v=0.44.65";
+} from "./tile-stamp-library.js?v=0.44.66-beta";
 import {
   combineTileSelections,
   contiguousTileSelection,
   matchingTileSelection,
   rectangularTileSelection,
   tileSelectionBounds,
-} from "./tile-selection-model.js?v=0.44.65";
+} from "./tile-selection-model.js?v=0.44.66-beta";
 import {
   createMapAiProposalClient,
   createMapAiProposalPatchAdapter,
   mapAiProposalCompatibility,
-} from "./map-ai-proposals.js?v=0.44.65";
-import { revokeMapAiLeaseWithRetry } from "./map-ai-lease-revoke.js?v=0.44.65";
-import { TiledPixiViewer } from "./pixi-viewer.js?v=0.44.65";
-import { MapGamepadController } from "./map-gamepad-controller.js?v=0.44.65";
-import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.65";
-import { tiledTilesetLayout } from "./tiled-tileset-model.js?v=0.44.65";
+} from "./map-ai-proposals.js?v=0.44.66-beta";
+import { revokeMapAiLeaseWithRetry } from "./map-ai-lease-revoke.js?v=0.44.66-beta";
+import { TiledPixiViewer } from "./pixi-viewer.js?v=0.44.66-beta";
+import { MapGamepadController } from "./map-gamepad-controller.js?v=0.44.66-beta";
+import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.66-beta";
+import { tiledTilesetLayout } from "./tiled-tileset-model.js?v=0.44.66-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   GAME_WORK_MODE_HEARTBEAT_MS,
   createGameWorkModeSignal,
   gameWorkModeChannelName,
   parseGameWorkModeCommand,
-} from "../game-work-mode.js?v=0.44.65";
-import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.65";
+} from "../game-work-mode.js?v=0.44.66-beta";
+import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.66-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-tab-channel.js?v=0.44.65";
-import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.65";
+} from "./map-tab-channel.js?v=0.44.66-beta";
+import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.66-beta";
 import {
   createMapConversationRequest,
   parseMapConversationResult,
   parseMapConversationSnapshot,
-} from "./map-conversation-channel.js?v=0.44.65";
+} from "./map-conversation-channel.js?v=0.44.66-beta";
 import {
   createMapEditorViewState,
   mapEditorViewStorageKey,
   parseMapEditorViewState,
-} from "./map-editor-view-state.js?v=0.44.65";
-import { MapGuideController } from "./map-guide-controller.js?v=0.44.65";
+} from "./map-editor-view-state.js?v=0.44.66-beta";
+import { MapGuideController } from "./map-guide-controller.js?v=0.44.66-beta";
 import {
   MapImageBoundaryController,
   planMapImageProviderCanvas,
-} from "./map-image-boundary.js?v=0.44.65";
+} from "./map-image-boundary.js?v=0.44.66-beta";
 
 const SESSION_STORAGE_KEY = "wfl-map-editor-session-v1";
 const MAP_AI_LEASE_STORAGE_KEY = "wfl-map-editor-ai-lease-v1";
 const MAP_AI_PROPOSAL_POLL_MS = 1_500;
 const MAP_AI_MANAGED_TASK_POLL_MS = 1_500;
+const MAP_CONVERSATION_REQUEST_TIMEOUT_MS = 120_000;
 const ACTIVE_RENDER_STATUSES = new Set(["queued", "running", "canceling"]);
 const RENDER_FILE_DISPLAY_LIMIT = 100;
 const TILE_PALETTE_PAGE_SIZE = 200;
@@ -209,6 +215,8 @@ const elements = Object.fromEntries([
   "coordinates",
   "tileCoordinates",
   "selectionState",
+  "mapAiFocusStatusButton",
+  "mapAiFocusStatusBar",
   "gamepadState",
   "warningState",
   "documentState",
@@ -230,6 +238,9 @@ const elements = Object.fromEntries([
   "taskTrayPanel",
   "taskTrayState",
   "conversationThreadSelect",
+  "conversationContextState",
+  "conversationActivityState",
+  "conversationActivityList",
   "refreshConversationButton",
   "focusMainConversationButton",
   "conversationMessageList",
@@ -550,6 +561,11 @@ const elements = Object.fromEntries([
   "aiPatchDialog",
   "closeAiPatchDialogButton",
   "aiEditRequest",
+  "mapAiFocusTarget",
+  "mapAiFocusDetails",
+  "mapAiFocusState",
+  "copyMapAiFocusButton",
+  "insertMapAiFocusButton",
   "copyAiPromptButton",
   "aiPatchSource",
   "aiPatchState",
@@ -721,6 +737,9 @@ const state = {
   detailTab: "tiles",
   selectedObjectId: null,
   selectedObjectIds: new Set(),
+  mapAiFocusContextKey: "",
+  mapAiFocusMessage: "",
+  mapAiFocusMessageStatus: "ready",
   objectDrag: null,
   objectTransform: null,
   objectMarqueeAdditive: false,
@@ -815,6 +834,8 @@ const state = {
   collaborationOpen: matchMedia("(min-width: 1201px)").matches,
   collaborationTab: "conversation",
   conversationSnapshot: null,
+  conversationBindingResolved: false,
+  conversationBindingActionPending: false,
   conversationSnapshotRequestedAt: 0,
   conversationPendingRequests: new Map(),
   conversationRequestTimer: null,
@@ -1075,14 +1096,10 @@ function bindControls() {
   elements.conversationTabButton.addEventListener("click", () => setCollaborationTab("conversation"));
   elements.proposalTabButton.addEventListener("click", () => setCollaborationTab("proposal"));
   elements.taskTrayTabButton.addEventListener("click", () => setCollaborationTab("tasks"));
-  elements.refreshConversationButton.addEventListener("click", requestMapConversationSnapshot);
+  elements.refreshConversationButton.addEventListener("click", () => requestMapConversationSnapshot({ refresh: true }));
   elements.focusMainConversationButton.addEventListener("click", () => sendMapConversationRequest("focus-main"));
-  elements.conversationThreadSelect.addEventListener("change", () => {
-    void switchMapConversationThread().catch((error) => {
-      elements.conversationSendState.textContent = `对话切换失败：${error?.message || "未知错误"}`;
-      elements.conversationSendState.dataset.status = "error";
-      renderMapConversation({ preserveScroll: true });
-    });
+  elements.conversationThreadSelect.addEventListener("change", (event) => {
+    void handleConversationThreadSelection(event);
   });
   elements.conversationComposer.addEventListener("submit", (event) => void submitMapConversation(event));
   elements.conversationInput.addEventListener("keydown", (event) => {
@@ -1097,6 +1114,7 @@ function bindControls() {
   });
   elements.interruptConversationButton.addEventListener("click", () => sendMapConversationRequest("interrupt", {
     threadId: state.conversationSnapshot?.boundThreadId,
+    turnId: state.conversationSnapshot?.conversation?.activeTurnId,
   }));
   elements.openProposalInboxButton.addEventListener("click", showAiPatchDialog);
   elements.refreshMapAiManagedAuthorizationsButton.addEventListener("click", () => void loadMapAiManagedAuthorizations());
@@ -1151,6 +1169,9 @@ function bindControls() {
   elements.undoButton.addEventListener("click", undoEdit);
   elements.redoButton.addEventListener("click", redoEdit);
   elements.aiEditButton.addEventListener("click", showAiPatchDialog);
+  elements.mapAiFocusStatusButton.addEventListener("click", showAiPatchDialog);
+  elements.copyMapAiFocusButton.addEventListener("click", () => void copyMapAiFocus());
+  elements.insertMapAiFocusButton.addEventListener("click", insertMapAiFocusIntoConversation);
   elements.autoMapButton.addEventListener("click", () => void showAutoMapDialog());
   elements.mapImageButton.addEventListener("click", () => void showMapImageDialog());
   elements.assetLibraryButton.addEventListener("click", showAssetLibrary);
@@ -1756,21 +1777,21 @@ function mapSessionCredentials() {
   const sessionId = fragment.get("session");
   const editorInstanceId = fragment.get("editor");
   if (sessionId && editorInstanceId) {
-    const threadId = fragment.get("thread");
     const hostWindowId = fragment.get("host");
     const projectPath = fragment.get("project");
     const projectFile = fragment.get("projectFile");
     const projectSessionId = fragment.get("projectSession");
+    const gameProjectId = fragment.get("gameProjectId");
     const accountId = fragment.get("account");
     state.mapAiAutoConnectRequested = fragment.get("connect") === "1";
     const credentials = {
       sessionId,
       editorInstanceId,
-      ...(threadId ? { threadId } : {}),
       ...(hostWindowId ? { hostWindowId } : {}),
       ...(projectPath ? { projectPath } : {}),
       ...(projectFile ? { projectFile } : {}),
       ...(projectSessionId ? { projectSessionId } : {}),
+      ...(gameProjectId ? { gameProjectId } : {}),
       ...(accountId ? { accountId } : {}),
     };
     sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(credentials));
@@ -1779,7 +1800,19 @@ function mapSessionCredentials() {
   }
   try {
     const stored = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || "null");
-    if (stored?.sessionId && stored?.editorInstanceId) return stored;
+    if (stored?.sessionId && stored?.editorInstanceId) {
+      // Older links stored a Thread in this session record.  The host's
+      // snapshot is authoritative now, so discard that legacy hint before it
+      // can affect leases or game-work-mode commands.
+      const { threadId: _legacyThreadId, ...credentials } = stored;
+      void _legacyThreadId;
+      try {
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(credentials));
+      } catch {
+        // The live host binding remains authoritative when storage is unavailable.
+      }
+      return credentials;
+    }
   } catch {
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
   }
@@ -1796,9 +1829,21 @@ function persistMapSessionCredentials() {
 }
 
 function bindMapConversationThread(threadId) {
-  if (!threadId || state.credentials?.threadId === threadId) return;
+  if (!threadId) {
+    if (!state.credentials?.threadId) return;
+    delete state.credentials.threadId;
+    persistMapSessionCredentials();
+    return;
+  }
+  if (state.credentials?.threadId === threadId) return;
   state.credentials.threadId = threadId;
   persistMapSessionCredentials();
+}
+
+function mapConversationThreadId() {
+  return state.conversationBindingResolved
+    ? state.credentials?.threadId || null
+    : null;
 }
 
 async function fetchMapSession() {
@@ -2007,7 +2052,7 @@ function sendMapConversationRequest(action, extra = {}) {
   }
 }
 
-function requestMapConversationSnapshot() {
+function requestMapConversationSnapshot({ refresh = false } = {}) {
   if (Date.now() - state.conversationSnapshotRequestedAt < 250) return;
   const request = sendMapConversationRequest("snapshot-request");
   if (!request) {
@@ -2015,6 +2060,11 @@ function requestMapConversationSnapshot() {
     return;
   }
   state.conversationSnapshotRequestedAt = Date.now();
+  if (refresh && state.conversationSnapshot?.boundThreadId) {
+    sendMapConversationRequest("hydrate-thread", {
+      threadId: state.conversationSnapshot.boundThreadId,
+    });
+  }
   elements.conversationSendState.textContent = "正在同步主界面对话";
 }
 
@@ -2024,11 +2074,12 @@ function handleMapConversationSnapshot(event) {
   const snapshot = parseMapConversationSnapshot(event?.data, binding);
   if (!snapshot || snapshot.revision < state.conversationLastRevision) return;
   state.conversationLastRevision = snapshot.revision;
-  const previousThreadId = state.credentials.threadId || null;
+  const previousThreadId = mapConversationThreadId();
   state.conversationSnapshot = snapshot;
-  if (snapshot.boundThreadId) bindMapConversationThread(snapshot.boundThreadId);
+  state.conversationBindingResolved = true;
+  bindMapConversationThread(snapshot.boundThreadId);
   if (snapshot.boundThreadId) void loadMapAiManagedAuthorizations({ silent: true });
-  if (previousThreadId && previousThreadId !== snapshot.boundThreadId) {
+  if (previousThreadId !== snapshot.boundThreadId) {
     state.gameWorkModeEnabled = false;
     state.gameWorkModeHostConnected = false;
     state.gameWorkModeHostActive = false;
@@ -2045,6 +2096,7 @@ function handleMapConversationSnapshot(event) {
   }
   if (snapshot.requestId) state.conversationPendingRequests.delete(snapshot.requestId);
   renderMapConversation({ preserveScroll: true });
+  void maybeAutoConnectMapAi();
 }
 
 function handleMapConversationResult(event) {
@@ -2054,6 +2106,9 @@ function handleMapConversationResult(event) {
   if (!result) return;
   const pending = state.conversationPendingRequests.get(result.requestId);
   state.conversationPendingRequests.delete(result.requestId);
+  if (result.action === "switch-thread" || result.action === "unbind-thread") {
+    state.conversationBindingActionPending = false;
+  }
   if (result.threadId) {
     bindMapConversationThread(result.threadId);
     void loadMapAiManagedAuthorizations({ silent: true });
@@ -2074,11 +2129,14 @@ function scheduleConversationRequestExpiry() {
   if (!state.conversationPendingRequests.size) return;
   state.conversationRequestTimer = setTimeout(() => {
     state.conversationRequestTimer = null;
-    const threshold = Date.now() - 15_000;
+    const threshold = Date.now() - MAP_CONVERSATION_REQUEST_TIMEOUT_MS;
     let expired = false;
     for (const [requestId, request] of state.conversationPendingRequests) {
       if (request.sentAt > threshold) continue;
       state.conversationPendingRequests.delete(requestId);
+      if (request.action === "switch-thread" || request.action === "unbind-thread") {
+        state.conversationBindingActionPending = false;
+      }
       expired = true;
     }
     if (expired) {
@@ -2090,31 +2148,68 @@ function scheduleConversationRequestExpiry() {
   }, 1_000);
 }
 
-async function switchMapConversationThread() {
-  const threadId = elements.conversationThreadSelect.value;
+async function switchMapConversationThread(targetThreadId) {
   const snapshot = state.conversationSnapshot;
-  if (!threadId || threadId === snapshot?.boundThreadId) return false;
-  elements.conversationThreadSelect.disabled = true;
+  if (!targetThreadId || targetThreadId === snapshot?.boundThreadId || state.conversationBindingActionPending) return false;
+  state.conversationBindingActionPending = true;
   if (state.gameWorkModeEnabled) sendGameWorkModeSignal("disable");
   if (state.mapAiLease) await disconnectMapAiLease();
   if (state.mapAiLease) {
-    elements.conversationThreadSelect.value = snapshot.boundThreadId;
-    renderMapConversation({ preserveScroll: true });
+    state.conversationBindingActionPending = false;
     elements.conversationSendState.textContent = "旧地图 AI 授权尚未撤销，未切换对话";
     elements.conversationSendState.dataset.status = "error";
     return false;
   }
-  const request = sendMapConversationRequest("switch-thread", { threadId });
+  const request = sendMapConversationRequest("switch-thread", {
+    threadId: targetThreadId,
+    expectedBoundThreadId: snapshot?.boundThreadId || null,
+  });
   if (!request) {
-    elements.conversationThreadSelect.value = snapshot.boundThreadId;
+    state.conversationBindingActionPending = false;
     elements.conversationSendState.textContent = "主界面对话通道不可用，未切换对话";
     elements.conversationSendState.dataset.status = "error";
     renderMapConversation({ preserveScroll: true });
     return false;
   }
-  elements.conversationSendState.textContent = "正在切换对话；地图画布和未保存编辑保持不变";
+  elements.conversationSendState.textContent = "正在切换绑定对话；地图画布和未保存编辑保持不变";
   renderMapConversation({ preserveScroll: true });
   return true;
+}
+
+async function unbindMapConversationThread() {
+  const snapshot = state.conversationSnapshot;
+  if (!snapshot?.boundThreadId || state.conversationBindingActionPending) return false;
+  state.conversationBindingActionPending = true;
+  if (state.gameWorkModeEnabled) sendGameWorkModeSignal("disable");
+  if (state.mapAiLease) await disconnectMapAiLease();
+  if (state.mapAiLease) {
+    state.conversationBindingActionPending = false;
+    elements.conversationSendState.textContent = "旧地图 AI 授权尚未撤销，未解除绑定";
+    elements.conversationSendState.dataset.status = "error";
+    return false;
+  }
+  const request = sendMapConversationRequest("unbind-thread", {
+    expectedBoundThreadId: snapshot.boundThreadId,
+  });
+  if (!request) {
+    state.conversationBindingActionPending = false;
+    elements.conversationSendState.textContent = "主界面对话通道不可用，未解除绑定";
+    elements.conversationSendState.dataset.status = "error";
+    renderMapConversation({ preserveScroll: true });
+    return false;
+  }
+  elements.conversationSendState.textContent = "正在解除工程对话绑定；地图画布和未保存编辑保持不变";
+  renderMapConversation({ preserveScroll: true });
+  return true;
+}
+
+async function handleConversationThreadSelection(event) {
+  if (state.conversationBindingActionPending) return;
+  const snapshot = state.conversationSnapshot;
+  if (!snapshot) return;
+  const targetThreadId = event.target.value || null;
+  if (targetThreadId) await switchMapConversationThread(targetThreadId);
+  else await unbindMapConversationThread();
 }
 
 function submitMapConversation(event) {
@@ -2143,45 +2238,103 @@ function renderMapConversation({ preserveScroll = false } = {}) {
   elements.collaborationConnectionState.textContent = snapshot
     ? snapshot.conversation.label
     : state.gameWorkModeChannel ? "等待主界面对话快照" : "未连接主界面";
-  const currentSelection = elements.conversationThreadSelect.value;
   elements.conversationThreadSelect.replaceChildren();
-  if (!snapshot?.threads.length) {
+  if (!snapshot) {
     const option = document.createElement("option");
-    option.textContent = snapshot ? "当前工程没有可见对话" : "等待主界面";
     option.value = "";
+    option.textContent = "等待主界面";
     elements.conversationThreadSelect.append(option);
   } else {
-    for (const thread of snapshot.threads) {
+    const unbound = document.createElement("option");
+    unbound.value = "";
+    unbound.textContent = "未绑定，仅查看";
+    unbound.title = "可以读取当前工程对话，但地图 AI 修改入口保持关闭";
+    elements.conversationThreadSelect.append(unbound);
+    const threads = [...snapshot.threads];
+    if (snapshot.boundThreadId && !threads.some((thread) => thread.id === snapshot.boundThreadId)) {
+      threads.unshift({
+        id: snapshot.boundThreadId,
+        title: `绑定对话 · ${snapshot.boundThreadId.slice(0, 12)}`,
+        preview: "",
+        status: "idle",
+        model: "",
+        provider: "",
+      });
+    }
+    for (const thread of threads) {
       const option = document.createElement("option");
       option.value = thread.id;
-      option.textContent = `${thread.title}${thread.status === "running" ? " · 运行中" : thread.status === "waiting" ? " · 等待中" : ""}`;
+      const status = thread.status === "running"
+        ? " · 运行中"
+        : thread.status === "waiting" ? " · 等待中" : thread.status === "failed" ? " · 失败" : "";
+      option.textContent = `${thread.title || `对话 · ${thread.id.slice(0, 12)}`}${status}`;
       option.title = [thread.preview, thread.model, thread.provider].filter(Boolean).join(" · ");
       elements.conversationThreadSelect.append(option);
     }
-    const selected = snapshot.threads.some((thread) => thread.id === snapshot.boundThreadId)
-      ? snapshot.boundThreadId
-      : snapshot.threads.some((thread) => thread.id === currentSelection) ? currentSelection : snapshot.threads[0].id;
-    elements.conversationThreadSelect.value = selected;
+    elements.conversationThreadSelect.value = snapshot.boundThreadId || "";
   }
-  const switching = [...state.conversationPendingRequests.values()].some((entry) => entry.action === "switch-thread");
+  const loading = snapshot?.loading || {
+    status: "loading",
+    complete: false,
+    label: "等待对话快照",
+  };
+  const threadState = snapshot?.threadState || {};
+  const compaction = snapshot?.compaction || {
+    status: "idle",
+    count: 0,
+    label: "未记录上下文压缩",
+  };
+  const contextParts = [loading.label];
+  if (compaction.status === "running") contextParts.push("正在压缩上下文");
+  else if (compaction.count) contextParts.push(`压缩 ${compaction.count} 次`);
+  if (threadState.status === "failed") contextParts.push("对话发生错误");
+  elements.conversationContextState.textContent = contextParts.filter(Boolean).join(" · ") || "等待对话状态";
+  elements.conversationContextState.dataset.status = loading.status;
+  elements.conversationActivityState.textContent = snapshot?.eventSequence
+    ? `事件 ${snapshot.eventSequence}`
+    : "暂无事件序号";
+  const activityFragment = document.createDocumentFragment();
+  for (const activity of (snapshot?.activities || []).slice(0, 8)) {
+    const item = document.createElement("span");
+    item.className = "conversation-activity";
+    item.dataset.status = activity.status;
+    item.title = activity.fileCount
+      ? `${activity.title} · ${activity.fileCount} 个文件`
+      : activity.title;
+    item.innerHTML = `<i data-lucide="${activity.status === "running" ? "loader-circle" : activity.status === "failed" ? "circle-alert" : "circle-check"}"></i><span></span>`;
+    item.querySelector("span").textContent = activity.fileCount
+      ? `${activity.title} · ${activity.fileCount}`
+      : activity.title;
+    activityFragment.append(item);
+  }
+  elements.conversationActivityList.replaceChildren(activityFragment);
+  elements.conversationThreadSelect.disabled = !snapshot || state.conversationBindingActionPending;
+  elements.focusMainConversationButton.disabled = !snapshot?.boundThreadId;
   const sending = [...state.conversationPendingRequests.values()].some((entry) => entry.action === "send");
-  elements.conversationThreadSelect.disabled = !snapshot?.threads.length || switching;
+  const interrupting = [...state.conversationPendingRequests.values()].some((entry) => entry.action === "interrupt");
   elements.conversationInput.disabled = !snapshot?.conversation.canSend || sending;
+  renderMapAiFocus();
   elements.sendConversationButton.disabled = elements.conversationInput.disabled || !elements.conversationInput.value.trim();
   elements.interruptConversationButton.hidden = !snapshot?.conversation.canInterrupt;
-  elements.interruptConversationButton.disabled = [...state.conversationPendingRequests.values()]
-    .some((entry) => entry.action === "interrupt");
-  if (!sending && !switching && snapshot) {
+  elements.interruptConversationButton.disabled = interrupting;
+  if (!sending && snapshot) {
     elements.conversationSendState.textContent = snapshot.conversation.label;
     elements.conversationSendState.dataset.status = snapshot.conversation.canSend ? "ready" : "";
   }
   const fragment = document.createDocumentFragment();
-  if (!snapshot?.messages.length) {
+  if (!snapshot?.boundThreadId) {
     const empty = document.createElement("p");
     empty.className = "conversation-empty";
-    empty.textContent = snapshot?.activeThreadId === snapshot?.boundThreadId
-      ? "这个对话还没有可显示的用户消息或 Codex 回复。工具输出仍在主界面查看。"
-      : "切换到这个同项目对话后才读取最近的有界文本消息。";
+    empty.textContent = snapshot
+      ? "当前工程还没有绑定对话；主界面对话仍可正常使用。"
+      : "等待主界面连接";
+    fragment.append(empty);
+  } else if (!snapshot.messages.length) {
+    const empty = document.createElement("p");
+    empty.className = "conversation-empty";
+    empty.textContent = snapshot.loading?.complete
+      ? "这个对话还没有可显示的用户消息或 Codex 回复。工具活动摘要仍会显示在上方。"
+      : "正在同步这个绑定对话的历史内容…";
     fragment.append(empty);
   } else {
     for (const message of snapshot.messages) fragment.append(renderMapConversationMessage(message));
@@ -2280,7 +2433,7 @@ async function loadManagedMapAiTasks({ silent = false } = {}) {
   if (state.managedTaskLoading) return;
   state.managedTaskLoading = true;
   try {
-    const query = new URLSearchParams({ threadId: state.credentials.threadId || "", limit: "100" });
+    const query = new URLSearchParams({ threadId: mapConversationThreadId() || "", limit: "100" });
     const response = await mapFetch(`/api/map-ai/managed-tasks?${query}`);
     state.managedTasks = Array.isArray(response?.tasks)
       ? response.tasks.filter((task) => task.mapPath === state.session.relativePath)
@@ -2798,6 +2951,7 @@ async function ensureMapProjectWorkspace() {
   const session = await client.open({
     project: projectPath,
     projectFile: state.session?.projectFile || state.credentials?.projectFile || null,
+    gameProjectId: state.credentials?.gameProjectId || null,
   });
   if (state.projectWorkspaceClient !== client) {
     await client.close({ keepalive: true }).catch(() => {});
@@ -2962,7 +3116,7 @@ function sendMapEditorTabRequest(action, targetEditorInstanceId) {
 function gameWorkModeAvailable() {
   return Boolean(state.gameWorkModeChannel
     && state.credentials?.hostWindowId
-    && state.credentials?.threadId
+    && mapConversationThreadId()
     && state.credentials?.projectPath
     && state.credentials?.sessionId
     && state.credentials?.editorInstanceId);
@@ -3003,7 +3157,7 @@ function sendGameWorkModeSignal(action) {
       hostWindowId: state.credentials?.hostWindowId,
       editorInstanceId: state.credentials?.editorInstanceId,
       sessionId: state.credentials?.sessionId,
-      threadId: state.credentials?.threadId,
+      threadId: mapConversationThreadId(),
       projectPath: state.credentials?.projectPath,
     }));
     return true;
@@ -3047,7 +3201,7 @@ function handleGameWorkModeCommand(event) {
     hostWindowId: state.credentials?.hostWindowId,
     editorInstanceId: state.credentials?.editorInstanceId,
     sessionId: state.credentials?.sessionId,
-    threadId: state.credentials?.threadId,
+    threadId: mapConversationThreadId(),
     projectPath: state.credentials?.projectPath,
   });
   if (!command || !gameWorkModeAvailable()) return;
@@ -3081,7 +3235,7 @@ function shutdownGameWorkMode() {
 
 function renderGameWorkMode() {
   const hasBinding = Boolean(state.credentials?.hostWindowId
-    && state.credentials?.threadId
+    && mapConversationThreadId()
     && state.credentials?.projectPath);
   const supported = typeof BroadcastChannel === "function";
   const available = gameWorkModeAvailable();
@@ -3113,12 +3267,13 @@ function mapAiCurrentContext() {
 }
 
 function readStoredMapAiLease() {
+  if (!state.conversationBindingResolved) return null;
   try {
     const value = JSON.parse(sessionStorage.getItem(MAP_AI_LEASE_STORAGE_KEY) || "null");
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     if (value.sessionId !== state.credentials?.sessionId
       || value.editorInstanceId !== state.credentials?.editorInstanceId
-      || value.threadId !== state.credentials?.threadId
+      || value.threadId !== mapConversationThreadId()
       || !value.leaseId
       || Number(value.expiresAt) <= Date.now()) {
       sessionStorage.removeItem(MAP_AI_LEASE_STORAGE_KEY);
@@ -3135,7 +3290,7 @@ function persistMapAiLease(lease) {
   const safe = {
     sessionId: state.credentials.sessionId,
     editorInstanceId: state.credentials.editorInstanceId,
-    threadId: state.credentials.threadId,
+    threadId: mapConversationThreadId(),
     leaseId: lease.leaseId,
     mapSessionId: lease.mapSessionId,
     mapVersion: lease.mapVersion,
@@ -3150,7 +3305,7 @@ function clearStoredMapAiLease() {
 }
 
 function setMapAiLease(lease, { persist = true } = {}) {
-  if (!lease?.leaseId || lease.threadId !== state.credentials?.threadId
+  if (!lease?.leaseId || lease.threadId !== mapConversationThreadId()
     || lease.mapSessionId !== state.session?.id
     || lease.editorInstanceId !== state.credentials?.editorInstanceId
     || lease.mapVersion !== state.session?.version
@@ -3169,9 +3324,37 @@ function setMapAiLease(lease, { persist = true } = {}) {
   renderMapAiConnection();
 }
 
+async function maybeAutoConnectMapAi() {
+  if (!state.mapAiAutoConnectRequested || !state.conversationBindingResolved) return;
+  const threadId = mapConversationThreadId();
+  if (!state.mapAiToolsLoaded || !threadId || !state.session?.writable) {
+    if (state.mapAiToolsLoaded && !threadId) state.mapAiAutoConnectRequested = false;
+    return;
+  }
+  if (!state.mapAiToolsEnabled || state.mapAiLease || state.mapAiConnectionLoading) {
+    state.mapAiAutoConnectRequested = false;
+    return;
+  }
+  state.mapAiAutoConnectRequested = false;
+  const stored = readStoredMapAiLease();
+  if (stored) {
+    try {
+      setMapAiLease(stored, { persist: false });
+      await loadMapAiProposals({ silent: true });
+      return;
+    } catch {
+      state.mapAiLease = null;
+      state.mapAiProposalClient = null;
+      clearStoredMapAiLease();
+    }
+  }
+  await connectMapAiLease();
+}
+
 function mapAiLeaseMatchesCurrentState() {
   const lease = state.mapAiLease;
   return Boolean(lease
+    && lease.threadId === mapConversationThreadId()
     && lease.mapSessionId === state.session?.id
     && lease.mapVersion === state.session?.version
     && Number(lease.editorStateId) === state.editor?.headStateId
@@ -3194,22 +3377,7 @@ async function initializeMapAiIntegration() {
   state.mapAiToolsLoaded = true;
   await loadMapAiCollaborationPolicy({ silent: true });
   if (!state.mapAiToolsEnabled) clearStoredMapAiLease();
-  const autoConnectRequested = state.mapAiAutoConnectRequested;
-  state.mapAiAutoConnectRequested = false;
-  const stored = readStoredMapAiLease();
-  if (stored) {
-    try {
-      setMapAiLease(stored, { persist: false });
-      await loadMapAiProposals({ silent: true });
-    } catch {
-      state.mapAiLease = null;
-      state.mapAiProposalClient = null;
-      clearStoredMapAiLease();
-    }
-  } else if (autoConnectRequested && state.mapAiToolsEnabled
-    && state.credentials?.threadId && state.session?.writable) {
-    await connectMapAiLease();
-  }
+  await maybeAutoConnectMapAi();
   if (state.mapAiLease) scheduleMapAiProposalPolling();
   renderMapAiConnection();
   await loadMapAiManagedAuthorizations({ silent: true });
@@ -3348,7 +3516,8 @@ async function saveMapAiCollaborationPolicy() {
 
 async function connectMapAiLease() {
   if (state.mapAiConnectionLoading || !state.session?.writable) return;
-  if (!state.credentials?.threadId) {
+  const threadId = mapConversationThreadId();
+  if (!threadId) {
     setMapAiConnectionMessage("当前编辑器没有绑定对话，请从对话中的工程文件管理器重新打开地图", "error");
     return;
   }
@@ -3366,7 +3535,7 @@ async function connectMapAiLease() {
         method: "POST",
         action: "map-ai-lease-grant",
         json: {
-          threadId: state.credentials.threadId,
+          threadId,
           allowedOps: ["get_map_context", "propose_tiled_patch"],
           editorStateId: state.editor.headStateId,
         },
@@ -3558,7 +3727,7 @@ async function confirmRevokeMapAiManagedAuthorization() {
 }
 
 function transferThreadCandidates() {
-  const currentThreadId = state.credentials?.threadId || state.conversationSnapshot?.boundThreadId || "";
+  const currentThreadId = mapConversationThreadId() || state.conversationSnapshot?.boundThreadId || "";
   return (Array.isArray(state.conversationSnapshot?.threads) ? state.conversationSnapshot.threads : [])
     .filter((thread) => thread?.id && thread.id !== currentThreadId);
 }
@@ -3607,18 +3776,17 @@ async function confirmTransferMapAiManagedAuthorization() {
         reason: "用户在地图编辑器中显式转交托管授权",
       },
     });
-    elements.conversationThreadSelect.value = targetThreadId;
     // The host window is authoritative for Thread switching. Its eventual
     // switch-thread result refreshes the authorization list after the new
     // binding is acknowledged; do not read the old Thread in the meantime.
     // Await the request so a failed lease revoke or disconnected channel is
-    // represented as a handoff that still needs manual Thread switching.
-    const queued = await switchMapConversationThread();
+    // represented as a handoff that still needs explicit recovery.
+    const queued = await switchMapConversationThread(targetThreadId);
     elements.managedAuthorizationTransferDialog.close();
     setMapAiManagedAuthorizationMessage(
       queued
         ? "托管授权已转交；正在切换到目标 Thread，旧 Thread 任务已停止，新 Thread 可在授权范围内继续"
-        : "托管授权已转交，但当前窗口未能切换到目标 Thread；请在右侧对话下拉框中手动切换，旧 Thread 任务已停止",
+        : "托管授权已转交，但当前窗口未能切换到目标 Thread；请重新连接主界面，旧 Thread 任务已停止",
       queued ? "ready" : "error",
     );
   } catch (error) {
@@ -3775,15 +3943,16 @@ function renderMapAiConnection() {
   if (!elements.mapAiConnectionState) return;
   const connected = Boolean(state.mapAiLease);
   const compatible = mapAiLeaseMatchesCurrentState();
-  elements.mapAiThreadState.textContent = state.credentials?.threadId
-    ? `当前对话：${state.credentials.threadId.slice(0, 12)}…`
+  const threadId = mapConversationThreadId();
+  elements.mapAiThreadState.textContent = threadId
+    ? `当前对话：${threadId.slice(0, 12)}…`
     : "未绑定当前对话";
   elements.connectMapAiButton.disabled = state.mapAiConnectionLoading
     || state.mapAiLeaseInvalidationPending
     || !state.session?.writable
     || !state.mapAiToolsLoaded
     || !state.mapAiToolsEnabled
-    || !state.credentials?.threadId
+    || !threadId
     || connected;
   elements.disconnectMapAiButton.disabled = state.mapAiConnectionLoading
     || !connected
@@ -3793,7 +3962,7 @@ function renderMapAiConnection() {
   let status = state.mapAiConnectionMessageStatus;
   if (state.mapAiConnectionLoading && !message) [message, status] = ["正在更新地图 AI 授权…", "busy"];
   else if (!state.mapAiToolsLoaded) [message, status] = ["正在读取账号地图 AI 开关…", "busy"];
-  else if (!state.credentials?.threadId) [message, status] = ["未绑定对话；地图 AI 收件箱保持关闭", "ready"];
+  else if (!threadId) [message, status] = ["未绑定对话；地图 AI 收件箱保持关闭", "ready"];
   else if (!state.mapAiToolsEnabled) [message, status] = ["账号地图 AI 工具开关已关闭（默认关闭）", "ready"];
   else if (!connected && !message) [message, status] = ["未连接当前对话；点击连接后才读取提案", "ready"];
   else if (connected && !compatible && state.mapAiAppliedPendingAck.size) {
@@ -4224,9 +4393,90 @@ function showAiPatchDialog() {
   updateMapAiProposalIndicator();
   invalidateAiPatchPreview();
   setAiPatchMessage("");
+  renderMapAiFocus();
   if (!elements.aiPatchDialog.open) elements.aiPatchDialog.showModal();
   void loadMapAiProposals({ silent: true });
   elements.aiEditRequest.focus();
+}
+
+function currentMapAiFocusContext() {
+  const projectPath = state.credentials?.projectPath || "";
+  const projectName = state.credentials?.projectName
+    || state.session?.projectName
+    || projectPath.split(/[\\/]/u).filter(Boolean).at(-1)
+    || null;
+  return createMapAiFocusContext({
+    projectId: state.credentials?.projectId || state.session?.projectId || null,
+    projectName,
+    mapPath: state.session?.relativePath,
+    mapVersion: state.session?.version,
+    editorStateId: state.editor?.headStateId,
+    activeLayer: state.editor?.layerById(state.activeLayerId),
+    selectedObjects: selectedObjects(),
+    selection: state.selection,
+  });
+}
+
+function setMapAiFocusMessage(message, status = "ready") {
+  state.mapAiFocusMessage = message || "";
+  state.mapAiFocusMessageStatus = status;
+  if (elements.mapAiFocusState) {
+    elements.mapAiFocusState.textContent = state.mapAiFocusMessage;
+    elements.mapAiFocusState.dataset.status = state.mapAiFocusMessage ? status : "";
+  }
+}
+
+function renderMapAiFocus() {
+  const context = currentMapAiFocusContext();
+  const key = context ? JSON.stringify(context) : "";
+  if (key !== state.mapAiFocusContextKey) {
+    state.mapAiFocusContextKey = key;
+    state.mapAiFocusMessage = "";
+    state.mapAiFocusMessageStatus = "ready";
+  }
+  const summary = mapAiFocusSummary(context);
+  elements.mapAiFocusStatusBar.textContent = summary;
+  elements.mapAiFocusStatusBar.title = summary;
+  elements.mapAiFocusStatusButton.disabled = !context;
+  elements.mapAiFocusTarget.textContent = summary;
+  elements.mapAiFocusDetails.textContent = context
+    ? JSON.stringify(context, null, 2)
+    : "当前没有可用的地图定位。";
+  elements.copyMapAiFocusButton.disabled = !context;
+  elements.insertMapAiFocusButton.disabled = !context || elements.conversationInput.disabled;
+  elements.mapAiFocusState.textContent = state.mapAiFocusMessage
+    || (context ? "复制定位后，把具体修改要求补在定位前后即可。" : "先在画布或图层树中选择目标。");
+  elements.mapAiFocusState.dataset.status = state.mapAiFocusMessage ? state.mapAiFocusMessageStatus : "";
+}
+
+async function copyMapAiFocus() {
+  const context = currentMapAiFocusContext();
+  if (!context) return;
+  try {
+    await writeClipboardText(formatMapAiFocus(context));
+    setMapAiFocusMessage("定位已复制；可直接粘贴给当前或其他 AI 对话。", "ready");
+  } catch (error) {
+    setMapAiFocusMessage(`复制定位失败：${error.message}`, "error");
+  }
+}
+
+function insertMapAiFocusIntoConversation() {
+  const context = currentMapAiFocusContext();
+  if (!context) return;
+  if (elements.conversationInput.disabled) {
+    setMapAiFocusMessage("当前绑定对话不可发送；仍可使用“复制定位”。", "error");
+    return;
+  }
+  const focus = formatMapAiFocus(context);
+  const existing = elements.conversationInput.value.trim();
+  elements.conversationInput.value = existing
+    ? `${existing}\n\n${focus}`
+    : `${focus}\n\n请描述要修改的内容。`;
+  elements.conversationInput.dispatchEvent(new Event("input", { bubbles: true }));
+  setCollaborationOpen(true);
+  setCollaborationTab("conversation");
+  elements.conversationInput.focus();
+  setMapAiFocusMessage("定位已插入当前绑定对话，补充要求后再发送。", "ready");
 }
 
 async function copyAiEditPrompt() {
@@ -4235,13 +4485,14 @@ async function copyAiEditPrompt() {
   try {
     const toolContext = mapAiLeaseMatchesCurrentState()
       ? {
-          threadId: state.credentials.threadId,
+          threadId: mapConversationThreadId(),
           mapSessionId: state.session.id,
           editorInstanceId: state.credentials.editorInstanceId,
           editorStateId: state.editor.headStateId,
         }
       : null;
-    const prompt = buildTiledAiPrompt({
+    const focus = currentMapAiFocusContext();
+    const prompt = [buildTiledAiPrompt({
       document: state.editor.document,
       ...currentAiPatchContext(),
       activeLayerId: state.activeLayerId,
@@ -4250,7 +4501,7 @@ async function copyAiEditPrompt() {
       loadedTilesets: state.viewer?.tilesets || [],
       request: elements.aiEditRequest.value,
       ...(toolContext ? { toolContext } : {}),
-    });
+    }), formatMapAiFocus(focus)].join("\n\n");
     await writeClipboardText(prompt);
     setAiPatchMessage("地图编辑提示词已复制");
   } catch (error) {
@@ -11352,44 +11603,48 @@ function worldRectBetween(start, end, kind = null) {
 
 function renderSelectionState() {
   updateMapImageControls();
-  const objects = selectedObjects();
-  if (objects.length > 1) {
-    elements.selectionState.textContent = `${objects.length} 个对象 · ${Math.round(state.selection?.width || 0)} × ${Math.round(state.selection?.height || 0)}`;
-    return;
-  }
-  const object = selectedObject();
-  if (object) {
-    const transformChanges = state.objectTransform?.current?.find((entry) => entry.id === object.id)?.changes;
-    const position = transformChanges
-      ? { ...object, ...transformChanges }
-      : state.objectDrag?.objects?.find((entry) => entry.objectId === object.id)?.current || object;
-    elements.selectionState.textContent = `${object.name || object.class || `对象 ${object.id}`} · X ${Math.round(Number(position.x || 0))} Y ${Math.round(Number(position.y || 0))}`;
-    return;
-  }
-  if (!state.selection) {
-    const layer = state.editor?.layerById(state.activeLayerId);
-    elements.selectionState.textContent = layer?.name || "未选择";
-    return;
-  }
-  if (state.selection.kind === "tile-cells") {
-    elements.selectionState.textContent = `${state.selection.cells.length} 格 · ${state.selection.width} × ${state.selection.height}`;
-    return;
-  }
-  if (state.selection.kind === "image-layers") {
-    const layers = state.selection.layerIds || [];
-    if (layers.length > 1) {
-      elements.selectionState.textContent = `${layers.length} 个图片层 · ${Math.round(state.selection.width)} × ${Math.round(state.selection.height)}`;
-    } else {
-      const layer = state.editor?.layerById(layers[0]);
-      const drag = state.imageLayerDrag?.layers.find((entry) => entry.layerId === layer?.id);
-      const position = drag?.current || layer || {};
-      elements.selectionState.textContent = `${layer?.name || "图片层"} · X ${Math.round(Number(position.x || 0))} Y ${Math.round(Number(position.y || 0))}`;
+  try {
+    const objects = selectedObjects();
+    if (objects.length > 1) {
+      elements.selectionState.textContent = `${objects.length} 个对象 · ${Math.round(state.selection?.width || 0)} × ${Math.round(state.selection?.height || 0)}`;
+      return;
     }
-    return;
+    const object = selectedObject();
+    if (object) {
+      const transformChanges = state.objectTransform?.current?.find((entry) => entry.id === object.id)?.changes;
+      const position = transformChanges
+        ? { ...object, ...transformChanges }
+        : state.objectDrag?.objects?.find((entry) => entry.objectId === object.id)?.current || object;
+      elements.selectionState.textContent = `${object.name || object.class || `对象 ${object.id}`} · X ${Math.round(Number(position.x || 0))} Y ${Math.round(Number(position.y || 0))}`;
+      return;
+    }
+    if (!state.selection) {
+      const layer = state.editor?.layerById(state.activeLayerId);
+      elements.selectionState.textContent = layer?.name || "未选择";
+      return;
+    }
+    if (state.selection.kind === "tile-cells") {
+      elements.selectionState.textContent = `${state.selection.cells.length} 格 · ${state.selection.width} × ${state.selection.height}`;
+      return;
+    }
+    if (state.selection.kind === "image-layers") {
+      const layers = state.selection.layerIds || [];
+      if (layers.length > 1) {
+        elements.selectionState.textContent = `${layers.length} 个图片层 · ${Math.round(state.selection.width)} × ${Math.round(state.selection.height)}`;
+      } else {
+        const layer = state.editor?.layerById(layers[0]);
+        const drag = state.imageLayerDrag?.layers.find((entry) => entry.layerId === layer?.id);
+        const position = drag?.current || layer || {};
+        elements.selectionState.textContent = `${layer?.name || "图片层"} · X ${Math.round(Number(position.x || 0))} Y ${Math.round(Number(position.y || 0))}`;
+      }
+      return;
+    }
+    const columns = state.selection.endColumn - state.selection.startColumn + 1;
+    const rows = state.selection.endRow - state.selection.startRow + 1;
+    elements.selectionState.textContent = `${columns} × ${rows}`;
+  } finally {
+    renderMapAiFocus();
   }
-  const columns = state.selection.endColumn - state.selection.startColumn + 1;
-  const rows = state.selection.endRow - state.selection.startRow + 1;
-  elements.selectionState.textContent = `${columns} × ${rows}`;
 }
 
 function selectedObject() {
@@ -12096,6 +12351,7 @@ async function openReferencedTiledDocument(relativePath, extension) {
         projectSessionId: projectSession.id,
         path: relativePath,
         editorInstanceId,
+        ...(projectSession.gameProjectId ? { gameProjectId: projectSession.gameProjectId } : {}),
       }),
     }, 20_000);
     if (!response.ok) throw await responseError(response, "无法打开引用的 Tiled 文档");
@@ -12113,6 +12369,7 @@ async function openReferencedTiledDocument(relativePath, extension) {
       project: state.credentials.projectPath || "",
       ...(state.credentials.projectFile ? { projectFile: state.credentials.projectFile } : {}),
       ...(extension === ".tmj" ? { projectSession: projectSession.id } : {}),
+      ...(projectSession.gameProjectId ? { gameProjectId: projectSession.gameProjectId } : {}),
       ...(state.credentials.accountId ? { account: state.credentials.accountId } : {}),
     });
     popup.location.replace(`${config.page}#${fragment}`);

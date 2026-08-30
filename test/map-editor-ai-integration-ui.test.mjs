@@ -24,6 +24,13 @@ const AI_ELEMENT_IDS = [
   "createMapAiManagedAuthorizationButton",
   "mapAiManagedAuthorizationList",
   "refreshMapAiManagedAuthorizationsButton",
+  "mapAiFocusStatusButton",
+  "mapAiFocusStatusBar",
+  "mapAiFocusTarget",
+  "mapAiFocusDetails",
+  "mapAiFocusState",
+  "copyMapAiFocusButton",
+  "insertMapAiFocusButton",
   "managedAuthorizationConfirmDialog",
   "confirmManagedAuthorizationRevokeButton",
   "managedAuthorizationTransferDialog",
@@ -40,7 +47,14 @@ test("map editor renders an explicit opt-in proposal inbox without replacing man
   assert.match(html, /不会读取图片像素、自动应用补丁或保存地图/u);
   assert.match(html, /id="aiPatchSource"/u);
   assert.match(html, /id="copyAiPromptButton"/u);
+  assert.match(html, /当前 AI 定位/u);
+  assert.match(script, /createMapAiFocusContext/u);
+  assert.match(script, /formatMapAiFocus/u);
+  assert.match(script, /insertMapAiFocusIntoConversation/u);
+  assert.match(script, /mapAiFocusContextKey/u);
   assert.match(css, /\.map-ai-proposal-list/u);
+  assert.match(css, /\.map-ai-focus-panel/u);
+  assert.match(css, /\.map-ai-focus-status/u);
   assert.match(script, new RegExp(`from "\\./map-ai-proposals\\.js\\?v=${assetVersion}"`, "u"));
 });
 

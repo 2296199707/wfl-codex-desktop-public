@@ -1,12 +1,12 @@
-import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.65";
-import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.65";
-import { parseTiledDocument } from "./tiled-document.js?v=0.44.65";
-import { decodeTiledTileData } from "./tiled-tile-codec.js?v=0.44.65";
+import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.66-beta";
+import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.66-beta";
+import { parseTiledDocument } from "./tiled-document.js?v=0.44.66-beta";
+import { decodeTiledTileData } from "./tiled-tile-codec.js?v=0.44.66-beta";
 import {
   mapPixelBounds,
   tiledObjectScreenBounds,
   tiledTileRegionBounds,
-} from "./tiled-render-model.js?v=0.44.65";
+} from "./tiled-render-model.js?v=0.44.66-beta";
 import {
   TiledWorldEditDocument,
   adjacentWorldMapIndexes,
@@ -16,12 +16,12 @@ import {
   worldBounds,
   worldMapAtPoint,
   worldMapReference,
-} from "./tiled-world.js?v=0.44.65";
+} from "./tiled-world.js?v=0.44.66-beta";
 import {
   collectWorldMapNavigation,
   planWorldMapPreviews,
   validateWorldPortalReferences,
-} from "./tiled-world-navigation.js?v=0.44.65";
+} from "./tiled-world-navigation.js?v=0.44.66-beta";
 
 const elements = Object.fromEntries([
   "worldApp", "worldTitle", "worldMeta", "saveButton", "undoButton", "redoButton",
@@ -195,6 +195,7 @@ async function connectProject() {
   await client.open({
     project: state.credentials.projectPath,
     projectFile: state.credentials.projectFile,
+    gameProjectId: state.credentials.gameProjectId || null,
   });
   state.projectReady = true;
 }
@@ -1051,6 +1052,7 @@ async function openSelectedMap() {
       host: `world-host-${crypto.randomUUID()}`,
       project: state.credentials.projectPath,
       ...(state.credentials.projectFile ? { projectFile: state.credentials.projectFile } : {}),
+      ...(state.credentials.gameProjectId ? { gameProjectId: state.credentials.gameProjectId } : {}),
       ...(state.credentials.accountId ? { account: state.credentials.accountId } : {}),
     });
     editorWindow.location.replace(`/map-editor.html#${fragment}`);
@@ -1273,6 +1275,7 @@ async function readCredentials() {
   const editorInstanceId = params.get("editor") || "";
   const projectPath = params.get("project") || "";
   const projectFile = params.get("projectFile") || null;
+  const gameProjectId = params.get("gameProjectId") || null;
   if (!/^[A-Za-z0-9_-]{16,128}$/u.test(sessionId)) throw new Error("World 会话标识无效");
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/u.test(editorInstanceId)) throw new Error("World 窗口标识无效");
   if (!projectPath.startsWith("/") || projectPath.includes("\0")) throw new Error("World 工程路径无效");
@@ -1282,6 +1285,7 @@ async function readCredentials() {
     editorInstanceId,
     projectPath,
     projectFile,
+    gameProjectId,
     accountId: params.get("account") || null,
   });
 }

@@ -1,5 +1,5 @@
-import { MapProjectWorkspaceClient } from "/map-project-session.js?v=0.44.65";
-import { createMapAccountSessionGuard } from "/map-editor/map-account-session-guard.js?v=0.44.65";
+import { MapProjectWorkspaceClient } from "/map-project-session.js?v=0.44.66-beta";
+import { createMapAccountSessionGuard } from "/map-editor/map-account-session-guard.js?v=0.44.66-beta";
 import {
   CHARACTER_PROFILES,
   clipFrameAt,
@@ -8,7 +8,7 @@ import {
   frameRect,
   normalizeCharacterAnimationDocument,
   normalizeProjectRelativePath,
-} from "/character-editor/character-animation-model.js?v=0.44.65";
+} from "/character-editor/character-animation-model.js?v=0.44.66-beta";
 
 // The editor is always loaded with the release asset query.  Never fall back
 // to an older release: a direct reload must not mix editor code with an old
@@ -35,6 +35,7 @@ const params = new URLSearchParams(location.hash.replace(/^#/, ""));
 const workspace = new MapProjectWorkspaceClient();
 const initialProject = params.get("project") || "";
 const initialProjectFile = params.get("projectFile") || null;
+const initialGameProjectId = params.get("gameProjectId") || null;
 const initialCharacterPath = params.get("path") || "";
 const initialSourcePath = params.get("source") || "";
 const CHARACTER_VERSION_CONFLICT_CODES = new Set([
@@ -49,6 +50,7 @@ const CHARACTER_RESOURCE_UNAVAILABLE_CODES = new Set([
 const state = {
   project: initialProject,
   projectFile: initialProjectFile,
+  gameProjectId: initialGameProjectId,
   projects: [],
   initialSelectionPending: true,
   projectLoading: false,
@@ -335,6 +337,7 @@ async function openProject({ keepSelection = false, projectOverride = null, proj
   const projectFile = projectFileOverride !== undefined
     ? projectFileOverride
     : (project === state.project ? state.projectFile : null);
+  const gameProjectId = project === state.project ? state.gameProjectId : null;
   // Capture the requested resource before clearing the old editor state. A
   // stale URL is allowed to be attempted once below, but it must never leave
   // its old conflict banner attached to the newly opened project.
@@ -358,11 +361,16 @@ async function openProject({ keepSelection = false, projectOverride = null, proj
     state.project = project;
     state.projectFile = projectFile || null;
     rememberProject(project);
-    const session = await workspace.open({ project, projectFile: state.projectFile });
+    const session = await workspace.open({
+      project,
+      projectFile: state.projectFile,
+      gameProjectId,
+    });
     if (loadToken !== state.projectLoadToken) return;
     elements.projectPathInput.value = project;
     elements.projectSelect.value = project;
     state.projectFile = session.projectFile || null;
+    state.gameProjectId = session.gameProjectId || null;
     elements.projectState.textContent = `${session.projectName || project} · ${session.projectFile || "临时工程"} · ${session.writable ? "可写" : "只读"}`;
     elements.projectListState.textContent = `已绑定 ${project}；可从列表切换工程`;
     await loadEntries();

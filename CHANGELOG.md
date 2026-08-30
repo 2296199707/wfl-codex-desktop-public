@@ -3,6 +3,12 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.66-beta] - 2026-08-30
+
+- 增加通用游戏工程工作区：支持新建、登记、切换多个工程，并恢复最近资源和编辑器环境。
+- 统一地图、World、瓦片集和角色编辑器的工程上下文，增加工程级路径校验和最近资源恢复。
+- 增加工程与对话的单一修改绑定、跨窗口只读上下文，以及可复制或插入对话的 AI 定位信息。
+
 ## [0.44.65] - 2026-08-29
 
 - 修复正式主站发布误匹配同版本号 beta 目录、导致候选部署复用旧 beta 包的问题。

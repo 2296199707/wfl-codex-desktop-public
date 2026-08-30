@@ -136,7 +136,7 @@ test("map workspace opens a project session with paginated tree and bounded sear
     app.indexOf("async function loadMapAiToolsSetting"),
   );
   assert.match(app, /MapProjectWorkspaceClient/u);
-  assert.match(list, /client\.open\(\{ project: project\.path, projectFile \}\)/u);
+  assert.match(list, /client\.open\(\{[\s\S]*project: project\.path,[\s\S]*projectFile,[\s\S]*gameProjectId/u);
   assert.match(list, /client\.tree\(\{/u);
   assert.match(list, /client\.search\(\{ query/u);
   assert.match(list, /entry\.kind === "directory"/u);

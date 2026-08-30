@@ -3,11 +3,11 @@ import {
   relativeTiledProjectReference,
   resolveTiledProjectReference,
   serializeTiledDocument,
-} from "./tiled-document.js?v=0.44.65";
-import { TiledTilesetEditDocument } from "./tiled-tileset-edit-document.js?v=0.44.65";
-import { tiledObjectShape } from "./map-object-model.js?v=0.44.65";
-import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.65";
-import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.65";
+} from "./tiled-document.js?v=0.44.66-beta";
+import { TiledTilesetEditDocument } from "./tiled-tileset-edit-document.js?v=0.44.66-beta";
+import { tiledObjectShape } from "./map-object-model.js?v=0.44.66-beta";
+import { MapProjectWorkspaceClient } from "../map-project-session.js?v=0.44.66-beta";
+import { createMapAccountSessionGuard } from "./map-account-session-guard.js?v=0.44.66-beta";
 
 const PAGE_SIZE = 200;
 const COLLECTION_COLUMNS = 6;
@@ -211,6 +211,7 @@ async function connectProject() {
   await client.open({
     project: state.credentials.projectPath,
     projectFile: state.credentials.projectFile,
+    gameProjectId: state.credentials.gameProjectId || null,
   });
   state.projectReady = true;
 }
@@ -1811,6 +1812,7 @@ async function readCredentials() {
   const editorInstanceId = params.get("editor") || "";
   const projectPath = params.get("project") || "";
   const projectFile = params.get("projectFile") || null;
+  const gameProjectId = params.get("gameProjectId") || null;
   if (!/^[A-Za-z0-9_-]{16,128}$/u.test(sessionId)) throw new Error("瓦片集会话标识无效");
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/u.test(editorInstanceId)) throw new Error("瓦片集窗口标识无效");
   if (!projectPath.startsWith("/") || projectPath.includes("\0")) throw new Error("瓦片集工程路径无效");
@@ -1820,6 +1822,7 @@ async function readCredentials() {
     editorInstanceId,
     projectPath,
     projectFile,
+    gameProjectId,
     accountId: params.get("account") || null,
   });
 }

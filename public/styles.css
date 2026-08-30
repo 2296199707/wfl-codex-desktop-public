@@ -7368,6 +7368,112 @@ dialog::backdrop {
   text-align: right;
 }
 
+.toolbox-game-projects {
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.toolbox-game-projects-header {
+  padding-top: 12px;
+}
+
+.toolbox-game-project-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.toolbox-game-project-list {
+  display: grid;
+  gap: 6px;
+}
+
+.toolbox-game-project-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(130px, 0.8fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.toolbox-game-project-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.toolbox-game-project-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.toolbox-game-project-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.toolbox-game-project-copy strong,
+.toolbox-game-project-copy span,
+.toolbox-game-project-row > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbox-game-project-copy strong {
+  font-size: 11px;
+}
+
+.toolbox-game-project-copy span,
+.toolbox-game-project-row > small {
+  color: var(--ink-muted);
+  font: 400 9px/1.35 var(--font-mono);
+}
+
+.toolbox-game-project-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.toolbox-game-project-open {
+  min-height: 28px;
+  padding-inline: 9px;
+  font-size: 10px;
+}
+
+.toolbox-game-project-open svg {
+  width: 13px;
+  height: 13px;
+}
+
+.toolbox-game-project-empty,
+.toolbox-game-project-state {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.toolbox-game-project-state {
+  min-height: 15px;
+  margin-top: 7px;
+}
+
+.toolbox-game-project-state[data-status="error"] {
+  color: var(--red);
+}
+
 .toolbox-category-tabs {
   display: flex;
   min-width: 0;
@@ -7753,6 +7859,32 @@ dialog::backdrop {
   .toolbox-detail-actions .secondary-button {
     flex: 1 1 auto;
     justify-content: center;
+  }
+
+  .toolbox-game-projects-header {
+    align-items: flex-start;
+  }
+
+  .toolbox-game-project-actions {
+    flex: 0 0 auto;
+  }
+
+  .toolbox-game-project-row {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .toolbox-game-project-row > small {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .toolbox-game-project-actions-row {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+
+  .game-project-new-body .map-new-path-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -13413,6 +13545,36 @@ dialog::backdrop {
   background: var(--surface-subtle);
 }
 
+.resource-location-form {
+  display: flex;
+  flex: 0 1 min(420px, 32vw);
+  min-width: 220px;
+  align-items: center;
+  gap: 4px;
+}
+
+.resource-location-form input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 11px var(--font-mono);
+}
+
+.resource-location-form input:focus {
+  border-color: var(--blue);
+  outline: 2px solid color-mix(in srgb, var(--blue) 22%, transparent);
+  outline-offset: 0;
+}
+
+.resource-location-form .icon-button {
+  flex: 0 0 auto;
+}
+
 .resource-path {
   min-width: 0;
   flex: 1;
@@ -17884,12 +18046,19 @@ dialog::backdrop {
     flex-wrap: wrap;
   }
 
-  .resource-path {
+  .resource-location-form {
     order: 1;
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .resource-path {
+    order: 2;
+    flex-basis: 100%;
   }
 
   .resource-search {
-    order: 2;
+    order: 3;
     width: 100%;
   }
 

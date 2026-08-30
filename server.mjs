@@ -165,6 +165,12 @@ import {
 import { MapProjectCatalog } from "./lib/map-project-catalog.mjs";
 import { createTiledMap } from "./lib/map-project-create.mjs";
 import {
+  createGameProjectWorkspace,
+  gameProjectDirectoryName,
+  GAME_PROJECT_WORKSPACE_DEFAULTS,
+} from "./lib/game-project-workspace-create.mjs";
+import { GameProjectWorkspaceStore } from "./lib/game-project-workspace-store.mjs";
+import {
   inspectMapProjectResourceTransactions,
   MapProjectResourceWriter,
   recoverMapProjectResourceTransactions,
@@ -176,6 +182,7 @@ import {
 import { createTiledTilesetFile } from "./lib/map-project-tileset-create.mjs";
 import { createTiledWorldFile } from "./lib/map-project-world-create.mjs";
 import { MapProjectSessionStore } from "./lib/map-project-sessions.mjs";
+import { MapConversationBindingStore } from "./lib/map-conversation-binding-store.mjs";
 import {
   commitMapProjectImportPlan,
   planMapProjectImport,
@@ -1077,6 +1084,11 @@ const tilesetFileSessions = RESCUE_MODE ? null : new MapFileSessionStore({
 });
 const mapProjectSessions = RESCUE_MODE ? null : new MapProjectSessionStore();
 const mapProjectCatalog = RESCUE_MODE ? null : new MapProjectCatalog();
+const mapConversationBindings = RESCUE_MODE
+  ? null
+  : await new MapConversationBindingStore(STATE_DIR).initialize({
+    writeOnInitialize: BACKEND_PRIMARY_AT_START,
+  });
 // Map AI access is deliberately account-scoped and opt-in.  The store keeps
 // only hashed bearer tokens; all public routes below construct the remaining
 // identity/context fields from the authenticated request and live map session.
@@ -2063,6 +2075,7 @@ class UserRuntime {
     this.backgroundTaskStore = null;
     this.externalMigrationStore = null;
     this.memoryStore = null;
+    this.gameProjectWorkspaceStore = null;
     this.pendingExternalMigrationNotifications = new Map();
     this.backgroundTaskTimer = null;
     this.backgroundTaskPumpInFlight = null;
@@ -2279,6 +2292,11 @@ class UserRuntime {
         uid: this.legacy ? null : this.user.uid,
         gid: this.legacy ? null : this.user.gid,
       }).initialize();
+    }
+    if (!RESCUE_MODE && !this.gameProjectWorkspaceStore) {
+      this.gameProjectWorkspaceStore = await new GameProjectWorkspaceStore(this.user.stateDirectory).initialize({
+        writeOnInitialize: BACKEND_PRIMARY_AT_START,
+      });
     }
     const runtimeStateDirectory = RESCUE_MODE ? RESCUE_SESSION_STATE_DIR : this.user.stateDirectory;
     if (!this.threadImportStore) this.threadImportStore = await new ThreadImportStore(runtimeStateDirectory).initialize();
@@ -9079,6 +9097,60 @@ app.put("/api/account/map-ai", async (request, response, next) => {
   }
 });
 
+// A project has one editing conversation per account.  This relationship is
+// separate from the active conversation so opening a map never changes the
+// main chat selection, and it survives another browser window or a refresh.
+app.get("/api/account/map-conversation-binding", async (request, response, next) => {
+  try {
+    if (!mapConversationBindings) throw httpError(404, "地图对话绑定在救援窗口中不可用");
+    const runtime = await runtimeForRequest(request);
+    const { projectPath } = await resolveResourceTarget(request.query.project, null, runtime);
+    response.setHeader("Cache-Control", "no-store");
+    response.json({
+      binding: mapConversationBindings.get({
+        userId: request.user.id,
+        projectPath,
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/account/map-conversation-binding", async (request, response, next) => {
+  try {
+    assertOperationRequest(request, "map-conversation-binding");
+    if (!mapConversationBindings) throw httpError(404, "地图对话绑定在救援窗口中不可用");
+    const body = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body
+      : {};
+    const allowed = new Set(["projectPath", "threadId", "expectedRevision"]);
+    if (
+      Object.keys(body).some((key) => !allowed.has(key))
+      || typeof body.projectPath !== "string"
+      || !Object.hasOwn(body, "threadId")
+    ) throw httpError(400, "地图对话绑定参数无效");
+    const runtime = await runtimeForRequest(request);
+    const { projectPath } = await resolveResourceTarget(body.projectPath, null, runtime);
+    const current = mapConversationBindings.get({ userId: request.user.id, projectPath });
+    const threadId = body.threadId == null || body.threadId === "" ? null : body.threadId;
+    if (threadId !== null) {
+      await assertMapConversationBindingThread(runtime, threadId, projectPath);
+    }
+    const binding = await mapConversationBindings.set({
+      userId: request.user.id,
+      projectPath,
+      threadId,
+      expectedRevision: body.expectedRevision ?? 0,
+    });
+    broadcastMapConversationBinding(runtime, binding, current?.threadId || null);
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ binding });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/account/official-quota", async (request, response, next) => {
   try {
     if (!canUseOfficialAccounts(request)) {
@@ -14034,6 +14106,125 @@ app.get("/api/projects", async (_request, response, next) => {
   }
 });
 
+app.get("/api/game-projects", async (request, response, next) => {
+  try {
+    const runtime = await runtimeForRequest(request);
+    const store = requireGameProjectWorkspaceStore(runtime);
+    response.setHeader("Cache-Control", "no-store");
+    response.json({
+      projects: await listRegisteredGameProjects(runtime, store),
+      roots: publicProjectRoots(runtime.projectRoots, runtime.defaultProject),
+      defaultProject: runtime.defaultProject,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/game-projects/:projectId", async (request, response, next) => {
+  try {
+    const runtime = await runtimeForRequest(request);
+    const store = requireGameProjectWorkspaceStore(runtime);
+    const project = await registeredGameProjectForRuntime(runtime, store, request.params.projectId);
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ project: await decorateRegisteredGameProject(project.project, runtime) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/game-projects", async (request, response, next) => {
+  try {
+    const body = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body
+      : {};
+    const action = String(body.action || (body.projectPath ? "register" : "create"));
+    if (action === "register") {
+      assertOperationRequest(request, "game-project-register");
+      const runtime = await runtimeForRequest(request);
+      const store = requireGameProjectWorkspaceStore(runtime);
+      const project = await registerGameProjectForRuntime(body, runtime, store);
+      response.setHeader("Cache-Control", "no-store");
+      response.status(project.created ? 201 : 200).json({ project: project.project });
+      return;
+    }
+    if (action === "create") {
+      assertOperationRequest(request, "game-project-create");
+      const runtime = await runtimeForRequest(request);
+      const created = await createGameProjectForRuntime(body, runtime);
+      response.setHeader("Cache-Control", "no-store");
+      response.status(201).json({ project: created.project, creation: created.creation });
+      return;
+    }
+    throw httpError(400, "游戏工程操作无效");
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/game-projects/:projectId/open", async (request, response, next) => {
+  try {
+    assertOperationRequest(request, "game-project-open");
+    const runtime = await runtimeForRequest(request);
+    const store = requireGameProjectWorkspaceStore(runtime);
+    const target = await registeredGameProjectForRuntime(runtime, store, request.params.projectId);
+    const body = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body
+      : {};
+    assertAllowedGameProjectKeys(body, new Set(["relativePath", "editor"]));
+    const project = await store.open({
+      projectId: target.project.projectId,
+      ...(body.relativePath !== undefined ? { relativePath: normalizeGameProjectRelativePath(body.relativePath, { label: "最近资源" }) } : {}),
+      ...(body.editor !== undefined ? { editor: body.editor } : {}),
+    });
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ project: await decorateRegisteredGameProject(project, runtime) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/game-projects/:projectId/snapshot", async (request, response, next) => {
+  try {
+    assertOperationRequest(request, "game-project-snapshot");
+    const runtime = await runtimeForRequest(request);
+    const store = requireGameProjectWorkspaceStore(runtime);
+    const target = await registeredGameProjectForRuntime(runtime, store, request.params.projectId);
+    const body = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body
+      : {};
+    assertAllowedGameProjectKeys(body, new Set(["recentResource", "recentEditor"]));
+    const project = await store.snapshot(target.project.projectId, {
+      ...(body.recentResource !== undefined ? { recentResource: normalizeGameProjectRelativePath(body.recentResource, { label: "最近资源" }) } : {}),
+      ...(body.recentEditor !== undefined ? { recentEditor: body.recentEditor } : {}),
+    });
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ project: await decorateRegisteredGameProject(project, runtime) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/game-projects/:projectId", async (request, response, next) => {
+  try {
+    assertOperationRequest(request, "game-project-remove");
+    const runtime = await runtimeForRequest(request);
+    const store = requireGameProjectWorkspaceStore(runtime);
+    const body = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body
+      : {};
+    assertAllowedGameProjectKeys(body, new Set(["expectedRevision"]));
+    const target = await registeredGameProjectForRuntime(runtime, store, request.params.projectId, { requireAvailable: false });
+    const project = await store.remove(target.project.projectId, {
+      ...(body.expectedRevision !== undefined ? { expectedRevision: body.expectedRevision } : {}),
+    });
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ project });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/projects", async (request, response, next) => {
   try {
     const runtime = await runtimeForRequest(request);
@@ -18832,9 +19023,16 @@ app.get("/api/files/image", async (request, response, next) => {
     }
     const filePath = path.resolve(request.query.path);
     const runtime = await runtimeForRequest(request);
-    const accessRoot = await accessibleImageRootForPath(filePath, runtime);
-    if (!accessRoot || filePath === accessRoot.path) throw httpError(400, "Invalid file path");
-    const realFilePath = await assertRealPathInside(accessRoot.realPath, filePath);
+    const resourceManagerProject = typeof request.query.project === "string" && request.query.project
+      ? request.query.project
+      : null;
+    const realFilePath = isSingleUserResourceMode(runtime) && resourceManagerProject
+      ? (await resolveResourceManagerTarget(resourceManagerProject, filePath, runtime)).targetPath
+      : await (async () => {
+        const accessRoot = await accessibleImageRootForPath(filePath, runtime);
+        if (!accessRoot || filePath === accessRoot.path) throw httpError(400, "Invalid file path");
+        return assertRealPathInside(accessRoot.realPath, filePath);
+      })();
     const stat = await fs.stat(realFilePath);
     if (!stat.isFile() || stat.size > UPLOAD_LIMIT_BYTES) {
       throw httpError(413, "Image preview exceeds the safe size limit");
@@ -18860,7 +19058,11 @@ app.get("/api/files/image", async (request, response, next) => {
 app.get("/api/files/list", async (request, response, next) => {
   try {
     const runtime = await runtimeForRequest(request);
-    const { projectPath, targetPath } = await resolveResourceTarget(request.query.project, request.query.path, runtime);
+    const { projectPath, targetPath } = await resolveResourceManagerTarget(
+      request.query.project,
+      request.query.path,
+      runtime,
+    );
     const targetStat = await fs.stat(targetPath);
     if (!targetStat.isDirectory()) throw httpError(400, "Resource path is not a directory");
     const dirents = await fs.readdir(targetPath, { withFileTypes: true });
@@ -18884,7 +19086,7 @@ app.get("/api/files/list", async (request, response, next) => {
           return {
             name: entry.name,
             path: entryPath,
-            relativePath: path.relative(projectPath, entryPath) || ".",
+            relativePath: resourceRelativePath(projectPath, entryPath),
             type,
             size,
             modifiedAt,
@@ -18897,9 +19099,12 @@ app.get("/api/files/list", async (request, response, next) => {
     response.json({
       projectPath,
       directoryPath: targetPath,
-      relativePath: path.relative(projectPath, targetPath) || ".",
-      parentPath: targetPath === projectPath ? null : path.dirname(targetPath),
+      relativePath: resourceRelativePath(projectPath, targetPath),
+      parentPath: targetPath === projectPath || targetPath === path.parse(targetPath).root
+        ? null
+        : path.dirname(targetPath),
       writable: resourceProjectIsWritable(projectPath, runtime),
+      unrestricted: isSingleUserResourceMode(runtime),
       entries,
     });
   } catch (error) {
@@ -18912,8 +19117,14 @@ app.get("/api/files/search", async (request, response, next) => {
     const runtime = await runtimeForRequest(request);
     const query = String(request.query.query || "").trim().toLowerCase();
     if (query.length < 2 || query.length > 100) throw httpError(400, "Search query must contain 2-100 characters");
-    const { projectPath } = await resolveResourceTarget(request.query.project, null, runtime);
-    const entries = await searchProjectResources(projectPath, query);
+    const { projectPath, targetPath } = await resolveResourceManagerTarget(
+      request.query.project,
+      request.query.path,
+      runtime,
+    );
+    const targetStat = await fs.stat(targetPath);
+    if (!targetStat.isDirectory()) throw httpError(400, "Resource search path is not a directory");
+    const entries = await searchProjectResources(targetPath, query, { projectPath });
     response.json({ projectPath, entries });
   } catch (error) {
     next(error);
@@ -18923,14 +19134,18 @@ app.get("/api/files/search", async (request, response, next) => {
 app.get("/api/files/read", async (request, response, next) => {
   try {
     const runtime = await runtimeForRequest(request);
-    const { projectPath, targetPath } = await resolveResourceTarget(request.query.project, request.query.path, runtime);
+    const { projectPath, targetPath } = await resolveResourceManagerTarget(
+      request.query.project,
+      request.query.path,
+      runtime,
+    );
     const stat = await fs.stat(targetPath);
     if (!stat.isFile()) throw httpError(400, "Resource path is not a file");
     const preview = await readResourcePreview(targetPath, stat);
     response.json({
       name: path.basename(targetPath),
       path: targetPath,
-      relativePath: path.relative(projectPath, targetPath),
+      relativePath: resourceRelativePath(projectPath, targetPath),
       size: stat.size,
       modifiedAt: stat.mtimeMs,
       version: preview.version,
@@ -18955,7 +19170,7 @@ app.get("/api/files/read", async (request, response, next) => {
 app.get("/api/files/read-chunk", async (request, response, next) => {
   try {
     const runtime = await runtimeForRequest(request);
-    const { projectPath, targetPath } = await resolveResourceTarget(
+    const { projectPath, targetPath } = await resolveResourceManagerTarget(
       request.query.project,
       request.query.path,
       runtime,
@@ -18971,7 +19186,7 @@ app.get("/api/files/read-chunk", async (request, response, next) => {
     response.json({
       projectPath,
       path: targetPath,
-      relativePath: path.relative(projectPath, targetPath),
+      relativePath: resourceRelativePath(projectPath, targetPath),
       size: stat.size,
       modifiedAt: stat.mtimeMs,
       version: resourceEntryVersion(stat),
@@ -18991,10 +19206,27 @@ app.post("/api/map-projects/sessions", async (request, response, next) => {
     assertOperationRequest(request, "map-project-session-open");
     if (!mapProjectSessions) throw httpError(404, "地图项目工作区在救援窗口中不可用");
     const runtime = await runtimeForRequest(request);
-    const { projectPath } = await resolveResourceTarget(request.body?.project, null, runtime);
+    const body = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body
+      : {};
+    if (Object.keys(body).some((key) => !new Set(["project", "projectFile", "gameProjectId"]).has(key))) {
+      throw httpError(400, "地图项目会话参数包含未知字段");
+    }
+    let gameProject = null;
+    let projectPath;
+    if (body.gameProjectId) {
+      gameProject = (await registeredGameProjectForRuntime(runtime, null, body.gameProjectId)).project;
+      projectPath = path.resolve(gameProject.projectPath);
+      if (body.project !== undefined && path.resolve(String(body.project || "")) !== projectPath) {
+        throw httpError(403, "游戏工程 ID 与工程路径不匹配");
+      }
+    } else {
+      ({ projectPath } = await resolveResourceTarget(body.project, null, runtime));
+    }
     let projectFilePath = null;
-    if (request.body?.projectFile !== undefined && request.body?.projectFile !== null && request.body.projectFile !== "") {
-      const projectFile = normalizeMapProjectRelativePath(request.body.projectFile, {
+    const requestedProjectFile = body.projectFile || gameProject?.projectFile || null;
+    if (requestedProjectFile !== null && requestedProjectFile !== "") {
+      const projectFile = normalizeMapProjectRelativePath(requestedProjectFile, {
         extension: ".tiled-project",
         label: "Tiled 项目文件",
       });
@@ -19006,6 +19238,7 @@ app.post("/api/map-projects/sessions", async (request, response, next) => {
     }
     const session = await mapProjectSessions.open({
       identity: mapProjectSessionIdentity(request),
+      gameProjectId: gameProject?.projectId || null,
       projectPath,
       projectFilePath,
       writable: resourceProjectIsWritable(projectPath, runtime),
@@ -19514,6 +19747,9 @@ app.post("/api/maps/sessions", async (request, response, next) => {
     if (request.body?.projectSessionId) {
       if (!mapProjectSessions) throw httpError(404, "地图项目工作区在救援窗口中不可用");
       const projectContext = await mapProjectContextForRequest(request, runtime, request.body.projectSessionId);
+      if (request.body?.gameProjectId && request.body.gameProjectId !== projectContext.gameProjectId) {
+        throw httpError(403, "游戏工程 ID 与地图项目会话不匹配");
+      }
       if (request.body?.project) {
         const expectedProject = await resolveResourceTarget(request.body.project, null, runtime);
         if (path.resolve(expectedProject.projectPath) !== path.resolve(projectContext.projectPath)) {
@@ -19534,6 +19770,19 @@ app.post("/api/maps/sessions", async (request, response, next) => {
       projectSessionWritable = projectContext.writable;
       projectFilePath = projectContext.projectFilePath;
       projectResourceRoots = projectContext.resourceRoots;
+    } else if (request.body?.gameProjectId) {
+      const registered = await registeredGameProjectForRuntime(runtime, null, request.body.gameProjectId);
+      const relativePath = normalizeMapProjectRelativePath(request.body?.path, {
+        extension: ".tmj",
+        label: "地图资源",
+      });
+      projectPath = registered.projectPath;
+      ({ targetPath } = await resolveResourceTarget(
+        projectPath,
+        path.join(projectPath, ...relativePath.split("/")),
+        runtime,
+      ));
+      projectSessionWritable = resourceProjectIsWritable(projectPath, runtime);
     } else {
       ({ projectPath, targetPath } = await resolveResourceTarget(
         request.body?.project,
@@ -19824,6 +20073,9 @@ app.post("/api/map-worlds/sessions", async (request, response, next) => {
     const runtime = await runtimeForRequest(request);
     const editorInstanceId = normalizeMapEditorInstanceId(request.body?.editorInstanceId);
     const projectContext = await mapProjectContextForRequest(request, runtime, request.body?.projectSessionId);
+    if (request.body?.gameProjectId && request.body.gameProjectId !== projectContext.gameProjectId) {
+      throw httpError(403, "游戏工程 ID 与地图项目会话不匹配");
+    }
     const relativePath = mapProjectSessions.authorizeRelativePath({
       sessionId: request.body?.projectSessionId,
       identity: mapProjectSessionIdentity(request),
@@ -19927,6 +20179,9 @@ app.post("/api/map-tilesets/sessions", async (request, response, next) => {
     const runtime = await runtimeForRequest(request);
     const editorInstanceId = normalizeMapEditorInstanceId(request.body?.editorInstanceId);
     const projectContext = await mapProjectContextForRequest(request, runtime, request.body?.projectSessionId);
+    if (request.body?.gameProjectId && request.body.gameProjectId !== projectContext.gameProjectId) {
+      throw httpError(403, "游戏工程 ID 与地图项目会话不匹配");
+    }
     const relativePath = mapProjectSessions.authorizeRelativePath({
       sessionId: request.body?.projectSessionId,
       identity: mapProjectSessionIdentity(request),
@@ -22543,7 +22798,11 @@ app.delete("/api/map-tilesets/save-sessions/:saveId", async (request, response, 
 app.get("/api/files/download", async (request, response, next) => {
   try {
     const runtime = await runtimeForRequest(request);
-    const { targetPath } = await resolveResourceTarget(request.query.project, request.query.path, runtime);
+    const { targetPath } = await resolveResourceManagerTarget(
+      request.query.project,
+      request.query.path,
+      runtime,
+    );
     const stat = await fs.stat(targetPath);
     if (!stat.isFile()) throw httpError(400, "Resource path is not a file");
     const filename = sanitizeDownloadName(path.basename(targetPath));
@@ -22560,7 +22819,7 @@ app.get("/api/files/download", async (request, response, next) => {
 app.get("/api/files/archive", async (request, response, next) => {
   try {
     const runtime = await runtimeForRequest(request);
-    const { projectPath, targetPath } = await resolveResourceTarget(
+    const { projectPath, targetPath } = await resolveResourceManagerTarget(
       request.query.project,
       request.query.path,
       runtime,
@@ -22620,10 +22879,10 @@ app.post("/api/files/archive", async (request, response, next) => {
     }
     const selected = [];
     for (const value of values) {
-      const resolved = await resolveResourceTarget(projectPath, value, runtime);
+      const resolved = await resolveResourceManagerTarget(projectPath, value, runtime);
       if (resolved.targetPath === resolved.projectPath) throw httpError(400, "多选下载不能包含工程根目录");
-      const relative = path.relative(resolved.projectPath, resolved.targetPath);
-      if (!selected.includes(relative)) selected.push(relative);
+      const archivePath = resourceArchivePath(resolved.projectPath, resolved.targetPath);
+      if (!selected.some((candidate) => candidate === archivePath)) selected.push(archivePath);
     }
     response.setHeader("Content-Type", "application/gzip");
     response.setHeader("Content-Disposition", `attachment; filename="WFL-Codex-selection-${Date.now()}.tar.gz"`);
@@ -22641,12 +22900,14 @@ app.put(
     try {
       assertOperationRequest(request, "resource-file-save");
       const runtime = await runtimeForRequest(request);
-      const { projectPath, targetPath } = await resolveResourceTarget(
+      const { projectPath, targetPath } = await resolveResourceManagerTarget(
         request.query.project,
         request.query.path,
         runtime,
       );
-      const { share } = await assertWritableProjectDirectory(projectPath, runtime);
+      const { share } = await assertWritableProjectDirectory(projectPath, runtime, {
+        allowAnyDirectory: true,
+      });
       const expectedVersion = String(request.headers["x-codex-desktop-file-version"] || "").trim();
       if (!/^[a-f0-9]{64}$/.test(expectedVersion)) throw httpError(400, "File version is required");
       if (typeof request.body !== "string") throw httpError(400, "File content must be UTF-8 text");
@@ -22675,7 +22936,7 @@ app.put(
       response.json({
         name: path.basename(targetPath),
         path: targetPath,
-        relativePath: path.relative(projectPath, targetPath),
+        relativePath: resourceRelativePath(projectPath, targetPath),
         size: updated.length,
         modifiedAt: updatedStat.mtimeMs,
         version: resourceFileVersion(updated),
@@ -22697,7 +22958,9 @@ app.post("/api/files/action", async (request, response, next) => {
       throw httpError(400, "文件操作无效");
     }
     const projectPath = path.resolve(String(request.body?.project || ""));
-    const { share } = await assertWritableProjectDirectory(projectPath, runtime);
+    const { share } = await assertWritableProjectDirectory(projectPath, runtime, {
+      allowAnyDirectory: true,
+    });
     const quotaRuntime = share ? await runtimeForUser(share.sourceUserId) : runtime;
     let result;
 
@@ -22721,7 +22984,7 @@ app.post("/api/files/action", async (request, response, next) => {
         entry: await resourceEntrySnapshot(projectPath, destination.targetPath),
       };
     } else {
-      const source = await resolveResourceTarget(projectPath, request.body?.path, runtime);
+      const source = await resolveResourceManagerTarget(projectPath, request.body?.path, runtime);
       if (source.targetPath === projectPath) throw httpError(400, "不能对工程根目录执行此操作");
       const sourceStat = await fs.stat(source.targetPath);
       assertResourceExpectedVersion(sourceStat, request.body?.expectedVersion);
@@ -22805,7 +23068,9 @@ app.post(
       assertOperationRequest(request, "resource-file-upload");
       const runtime = await runtimeForRequest(request);
       const projectPath = path.resolve(String(request.query.project || ""));
-      const { share } = await assertWritableProjectDirectory(projectPath, runtime);
+      const { share } = await assertWritableProjectDirectory(projectPath, runtime, {
+        allowAnyDirectory: true,
+      });
       if (!Buffer.isBuffer(request.body)) throw httpError(400, "上传内容无效");
       const quotaRuntime = share ? await runtimeForUser(share.sourceUserId) : runtime;
       await assertQuotaAvailable(quotaRuntime, request.body.length);
@@ -24017,7 +24282,11 @@ async function startCodexFileWatch(runtime, client, params) {
   const clientWatchCount = [...runtime.fileWatchSessions.values()]
     .filter((session) => session.client === client).length;
   if (clientWatchCount >= 8) throw httpError(429, "当前窗口的文件监听数量已达上限");
-  const { projectPath, targetPath } = await resolveResourceTarget(params.project, params.path, runtime);
+  const { projectPath, targetPath } = await resolveResourceManagerTarget(
+    params.project,
+    params.path,
+    runtime,
+  );
   const stat = await fs.stat(targetPath);
   if (!stat.isDirectory() && !stat.isFile()) throw httpError(400, "只能监听普通文件或文件夹");
 
@@ -25570,6 +25839,7 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
       runtime.recoveryStore.remove(imported.id).catch(() => false),
     ]);
     await mapAiAccess?.revokeForThread({ userId: runtime.user.id, threadId: publicThreadId });
+    await removeMapConversationBindingsForThread(runtime, publicThreadId);
     runtime.forgetImportedThread(imported);
     return {};
   }
@@ -25638,6 +25908,7 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
       recordRescueSnapshot(() => runtime.rescueChatSnapshots.removeThread(publicThreadId)),
     ]);
     await mapAiAccess?.revokeForThread({ userId: runtime.user.id, threadId: publicThreadId });
+    await removeMapConversationBindingsForThread(runtime, publicThreadId);
     return {
       alreadyMissing,
       migrationSnapshotId: materializedImport.id,
@@ -25959,6 +26230,7 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
             );
             effectiveThreadId = rebound.thread.id;
             reboundWorktree = rebound.worktree;
+            await migrateMapConversationBindingThread(runtime, publicThreadId, effectiveThreadId, bridgeParams.cwd);
             bridgeParams = {
               ...bridgeParams,
               threadId: effectiveThreadId,
@@ -26243,6 +26515,7 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
       }
       await runtime.worktreeStore?.removeDetachedThread(publicThreadId).catch(() => {});
       await mapAiAccess?.revokeForThread({ userId: runtime.user.id, threadId: publicThreadId });
+      await removeMapConversationBindingsForThread(runtime, publicThreadId);
     }
     return publicResult;
   } catch (error) {
@@ -26700,12 +26973,277 @@ async function listProjects(runtime, {
       }
     }
   }
-  return projects.sort((a, b) => {
+  const sorted = projects.sort((a, b) => {
     if (a.path === runtime.defaultProject) return -1;
     if (b.path === runtime.defaultProject) return 1;
     if (a.worktree !== b.worktree) return Number(a.worktree) - Number(b.worktree);
     return b.modifiedAt - a.modifiedAt;
   });
+  return sorted.map((project) => decorateProjectListing(project, runtime));
+}
+
+function requireGameProjectWorkspaceStore(runtime) {
+  if (RESCUE_MODE || !runtime?.gameProjectWorkspaceStore) {
+    throw httpError(404, "备用窗口不提供游戏工程工作区");
+  }
+  return runtime.gameProjectWorkspaceStore;
+}
+
+async function listRegisteredGameProjects(runtime, store = requireGameProjectWorkspaceStore(runtime)) {
+  return Promise.all(store.list().map((project) => decorateRegisteredGameProject(project, runtime)));
+}
+
+async function decorateRegisteredGameProject(project, runtime) {
+  let available = false;
+  let writable = false;
+  let projectFileAvailable = project.projectFile == null ? null : false;
+  try {
+    const target = await registeredGameProjectForRuntime(runtime, null, project.projectId);
+    available = true;
+    writable = resourceProjectIsWritable(target.projectPath, runtime);
+    if (project.projectFile) {
+      await assertExistingGameProjectFile(target.projectPath, project.projectFile);
+      projectFileAvailable = true;
+    }
+  } catch {
+    // Keep missing or moved registrations visible so the user can repair them.
+  }
+  return {
+    ...project,
+    available,
+    writable,
+    projectFileAvailable,
+    binding: mapConversationBindings?.get({
+      userId: runtime.user.id,
+      projectPath: project.projectPath,
+    }) || null,
+  };
+}
+
+async function registeredGameProjectForRuntime(runtime, store, projectId, { requireAvailable = true } = {}) {
+  const registry = store || requireGameProjectWorkspaceStore(runtime);
+  const project = registry.get(projectId);
+  if (!project) throw httpError(404, "游戏工程登记不存在");
+  if (!requireAvailable) return { project, projectPath: path.resolve(project.projectPath), realPath: null };
+  try {
+    const realPath = await assertGameProjectDirectory(project.projectPath, runtime);
+    return { project, projectPath: path.resolve(project.projectPath), realPath };
+  } catch (error) {
+    if (error?.statusCode === 403) throw error;
+    const unavailable = httpError(404, "游戏工程目录不存在或不可访问");
+    unavailable.code = "GAME_PROJECT_UNAVAILABLE";
+    throw unavailable;
+  }
+}
+
+async function registerGameProjectForRuntime(input, runtime, store) {
+  const allowed = new Set([
+    "action", "projectId", "name", "projectPath", "projectFile", "initialMap", "preset",
+    "orientation", "width", "height", "tilewidth", "tileheight", "initializeGit",
+  ]);
+  assertAllowedGameProjectKeys(input, allowed);
+  const requestedPath = path.resolve(String(input.projectPath || ""));
+  await assertGameProjectDirectory(requestedPath, runtime);
+  const hasProjectFile = Object.hasOwn(input, "projectFile");
+  const projectFile = input.projectFile == null || input.projectFile === ""
+    ? await discoverGameProjectFile(requestedPath)
+    : normalizeGameProjectRelativePath(input.projectFile, {
+      extension: ".tiled-project",
+      label: "Tiled 项目文件",
+    });
+  if (projectFile) await assertExistingGameProjectFile(requestedPath, projectFile);
+  const initialMap = input.initialMap == null || input.initialMap === ""
+    ? undefined
+    : normalizeGameProjectRelativePath(input.initialMap, { extension: ".tmj", label: "初始地图" });
+  if (initialMap) await assertExistingGameProjectFile(requestedPath, initialMap);
+  const existing = store.findByPath(requestedPath);
+  const project = await store.register({
+    ...input,
+    projectPath: requestedPath,
+    ...(projectFile
+      ? { projectFile }
+      : (hasProjectFile ? { projectFile: null } : {})),
+    ...(initialMap ? { initialMap } : {}),
+  });
+  return {
+    created: !existing,
+    project: await decorateRegisteredGameProject(project, runtime),
+  };
+}
+
+async function createGameProjectForRuntime(input, runtime) {
+  const store = requireGameProjectWorkspaceStore(runtime);
+  const allowed = new Set([
+    "action", "name", "directoryName", "rootId", "projectFile", "initialMap", "preset",
+    "orientation", "width", "height", "tilewidth", "tileheight", "initializeGit",
+    "initialLayerName", "infinite", "renderorder", "backgroundcolor", "targetVersion",
+  ]);
+  assertAllowedGameProjectKeys(input, allowed);
+  const storageRoot = selectProjectStorageRoot(runtime, input.rootId);
+  const storageRootIndex = runtime.projectRoots.indexOf(storageRoot);
+  await assertRealPathInside(runtime.projectRootReals[storageRootIndex], storageRoot);
+  const directoryName = gameProjectDirectoryName(input.directoryName || input.name);
+  const projectPath = path.resolve(storageRoot, directoryName);
+  if (!isInsideRoot(projectPath, runtime) || projectPath === storageRoot) {
+    throw httpError(400, "游戏工程目录必须位于项目存储位置内");
+  }
+  if (pathIsWithin(SOURCE_DIR, projectPath) || pathIsWithin(MULTI_USER_ROOT, projectPath)) {
+    throw httpError(409, "不能在系统源码或用户管理目录中创建游戏工程");
+  }
+  if (input.initializeGit !== undefined && typeof input.initializeGit !== "boolean") {
+    throw httpError(400, "initializeGit 必须是布尔值");
+  }
+  if (input.infinite !== undefined && typeof input.infinite !== "boolean") {
+    throw httpError(400, "infinite 必须是布尔值");
+  }
+  if (await exists(projectPath)) throw httpError(409, "目标游戏工程目录已经存在");
+  await assertQuotaAvailable(runtime, 1);
+  let created = false;
+  try {
+    const creation = await createGameProjectWorkspace({
+      ...input,
+      name: input.name,
+      directoryName,
+      projectPath,
+      initializeGit: input.initializeGit === undefined
+        ? GAME_PROJECT_WORKSPACE_DEFAULTS.initializeGit
+        : input.initializeGit,
+    }, {
+      mapOptions: {
+        maxTileBytes: mapSaveSessionConfig().maxBytes,
+        validationMemoryMb: MAP_SAVE_VALIDATION_MEMORY_MB,
+        validationTimeoutMs: MAP_SAVE_VALIDATION_TIMEOUT_MS,
+      },
+    });
+    created = true;
+    await chownRuntimePath(runtime, projectPath);
+    const initializeGit = input.initializeGit === undefined
+      ? GAME_PROJECT_WORKSPACE_DEFAULTS.initializeGit
+      : input.initializeGit === true;
+    if (initializeGit) initializeGameProjectGit(runtime, projectPath);
+    await chownRuntimePath(runtime, projectPath);
+    const project = await store.register({
+      name: creation.name,
+      projectPath: creation.projectPath,
+      projectFile: creation.projectFile,
+      initialMap: creation.initialMap,
+      preset: creation.preset,
+      orientation: creation.orientation,
+      width: creation.width,
+      height: creation.height,
+      tilewidth: creation.tilewidth,
+      tileheight: creation.tileheight,
+      initializeGit,
+    });
+    directorySizeCache.clear();
+    return {
+      project: await decorateRegisteredGameProject(project, runtime),
+      creation: {
+        projectPath: creation.projectPath,
+        projectFile: creation.projectFile,
+        initialMap: creation.initialMap,
+        directories: creation.directories,
+        map: creation.map,
+        initializeGit,
+      },
+    };
+  } catch (error) {
+    if (created) await fs.rm(projectPath, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+function initializeGameProjectGit(runtime, projectPath) {
+  const options = { encoding: "utf8" };
+  if (!runtime.legacy && Number.isInteger(runtime.user.uid) && Number.isInteger(runtime.user.gid)) {
+    options.uid = runtime.user.uid;
+    options.gid = runtime.user.gid;
+  }
+  const result = spawnSync("git", ["init", "--quiet", projectPath], options);
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(result.stderr || "git init failed");
+}
+
+async function assertGameProjectDirectory(projectPath, runtime) {
+  const normalized = path.resolve(String(projectPath || ""));
+  if (!path.isAbsolute(normalized) || normalized === path.parse(normalized).root) {
+    throw httpError(400, "游戏工程目录无效");
+  }
+  const realPath = await assertSafeProjectDirectory(normalized, runtime);
+  const stat = await fs.lstat(normalized);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || realPath !== normalized) {
+    throw httpError(403, "游戏工程目录必须是安全的真实目录");
+  }
+  return realPath;
+}
+
+async function assertExistingGameProjectFile(projectPath, relativePath) {
+  const normalized = normalizeGameProjectRelativePath(relativePath, { label: "工程资源" });
+  const targetPath = path.resolve(projectPath, ...normalized.split("/"));
+  const relative = path.relative(path.resolve(projectPath), targetPath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw httpError(400, "工程资源必须位于游戏工程内");
+  }
+  const [realPath, stat] = await Promise.all([fs.realpath(targetPath), fs.lstat(targetPath)]);
+  if (!stat.isFile() || stat.isSymbolicLink() || realPath !== targetPath) {
+    throw httpError(403, "工程资源必须是安全的真实文件");
+  }
+  return normalized;
+}
+
+async function discoverGameProjectFile(projectPath) {
+  const entries = await fs.readdir(projectPath, { withFileTypes: true });
+  const candidates = entries
+    .filter((entry) => entry.isFile() && (
+      path.extname(entry.name).toLowerCase() === ".tiled-project"
+      || entry.name.toLowerCase() === ".tiled-project"
+    ))
+    .map((entry) => entry.name);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function normalizeGameProjectRelativePath(value, { extension = null, label = "工程资源" } = {}) {
+  if (
+    typeof value !== "string"
+    || !value
+    || value.length > 4_096
+    || value.includes("\0")
+    || value.includes("\\")
+    || path.posix.isAbsolute(value)
+    || /^[a-z][a-z0-9+.-]*:/iu.test(value)
+  ) throw httpError(400, `${label}必须使用工程相对路径`);
+  const segments = value.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === ".." || (
+    segment.startsWith(".") && segment !== ".tiled-project"
+  ))) throw httpError(400, `${label}路径无效`);
+  const normalized = segments.join("/");
+  const extensionMatches = extension === ".tiled-project"
+    && path.posix.basename(normalized).toLowerCase() === ".tiled-project";
+  if (extension && !extensionMatches && path.posix.extname(normalized).toLowerCase() !== extension) {
+    throw httpError(400, `${label}必须使用 ${extension} 扩展名`);
+  }
+  return normalized;
+}
+
+function assertAllowedGameProjectKeys(input, allowed) {
+  if (Object.keys(input || {}).some((key) => !allowed.has(key))) {
+    throw httpError(400, "游戏工程参数包含未支持的字段");
+  }
+}
+
+function decorateProjectListing(project, runtime) {
+  const registered = runtime.gameProjectWorkspaceStore?.findByPath(project.path);
+  return registered
+    ? {
+      ...project,
+      gameProject: true,
+      gameProjectId: registered.projectId,
+      gameProjectName: registered.name,
+      gameProjectRecentResource: registered.recentResource,
+      gameProjectRecentEditor: registered.recentEditor,
+      gameProjectRevision: registered.revision,
+    }
+    : project;
 }
 
 async function describeProject(projectPath) {
@@ -28479,17 +29017,29 @@ async function runContextCompaction(
   });
 }
 
+async function resolveResourceManagerTarget(projectValue, targetValue, runtime = defaultRuntime) {
+  return resolveResourceTarget(projectValue, targetValue, runtime, {
+    allowAnyDirectory: true,
+  });
+}
+
 async function resolveResourceTarget(projectValue, targetValue, runtime = defaultRuntime, {
   symlinkError = null,
+  allowAnyDirectory = false,
 } = {}) {
   if (typeof projectValue !== "string" || !projectValue) throw httpError(400, "Project path is required");
   const projectPath = path.resolve(projectValue);
-  const projectRealPath = await assertSafeProjectDirectory(projectPath, runtime);
+  const unrestricted = allowAnyDirectory && isSingleUserResourceMode(runtime);
+  const projectRealPath = unrestricted
+    ? await assertUnrestrictedResourceDirectory(projectPath)
+    : await assertSafeProjectDirectory(projectPath, runtime);
 
   const targetPath = typeof targetValue === "string" && targetValue ? path.resolve(targetValue) : projectPath;
   const relative = path.relative(projectPath, targetPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) throw httpError(400, "Resource path is outside the project");
-  if (relative.split(path.sep).some((segment) => HIDDEN_RESOURCE_NAMES.has(segment))) {
+  if (!unrestricted && (relative.startsWith("..") || path.isAbsolute(relative))) {
+    throw httpError(400, "Resource path is outside the project");
+  }
+  if (resourcePathHasProtectedSegment(targetPath)) {
     throw httpError(403, "Resource path is protected");
   }
   const [targetRealPath, targetStat] = await Promise.all([
@@ -28497,7 +29047,7 @@ async function resolveResourceTarget(projectValue, targetValue, runtime = defaul
     fs.lstat(targetPath),
   ]);
   const realRelative = path.relative(projectRealPath, targetRealPath);
-  if (realRelative.startsWith("..") || path.isAbsolute(realRelative) || targetStat.isSymbolicLink()) {
+  if ((!unrestricted && (realRelative.startsWith("..") || path.isAbsolute(realRelative))) || targetStat.isSymbolicLink()) {
     if (typeof symlinkError === "function") throw symlinkError();
     throw httpError(403, "Symbolic links outside the project are not available");
   }
@@ -28540,6 +29090,22 @@ async function assertSafeProjectDirectory(projectPath, runtime = defaultRuntime)
   if (!share) throw httpError(400, "Invalid project path");
   const realPath = await assertSharedProjectDirectory(projectPath, share);
   return realPath;
+}
+
+async function assertUnrestrictedResourceDirectory(projectPath) {
+  if (resourcePathHasProtectedSegment(projectPath)) throw httpError(403, "Resource path is protected");
+  const [realPath, stat] = await Promise.all([
+    fs.realpath(projectPath),
+    fs.lstat(projectPath),
+  ]);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw httpError(400, "Project path is not a directory");
+  }
+  return realPath;
+}
+
+function resourcePathHasProtectedSegment(candidate) {
+  return path.resolve(candidate).split(path.sep).some((segment) => HIDDEN_RESOURCE_NAMES.has(segment));
 }
 
 async function authorizeRescueBoundWorktreeDirectory(candidate) {
@@ -28589,8 +29155,12 @@ async function assertOwnedProjectDirectory(projectPath, runtime = defaultRuntime
   return realPath;
 }
 
-async function assertWritableProjectDirectory(projectPath, runtime = defaultRuntime) {
-  const realPath = await assertSafeProjectDirectory(projectPath, runtime);
+async function assertWritableProjectDirectory(projectPath, runtime = defaultRuntime, {
+  allowAnyDirectory = false,
+} = {}) {
+  const realPath = allowAnyDirectory && isSingleUserResourceMode(runtime)
+    ? await assertUnrestrictedResourceDirectory(projectPath)
+    : await assertSafeProjectDirectory(projectPath, runtime);
   const share = projectShareForExactPath(runtime, projectPath);
   if (share && share.access !== "write") throw httpError(403, "这个共享工程是只读的");
   return { realPath, share };
@@ -28677,6 +29247,23 @@ function resourceEntrySort(left, right) {
 function resourceProjectIsWritable(projectPath, runtime) {
   const share = projectShareForExactPath(runtime, projectPath);
   return !share || share.access === "write";
+}
+
+function isSingleUserResourceMode(runtime) {
+  return !RESCUE_MODE
+    && runtime?.legacy === true
+    && multiUserStore.modeSnapshot().enabled !== true;
+}
+
+function resourceRelativePath(projectPath, targetPath) {
+  const relative = path.relative(projectPath, targetPath);
+  if (!relative) return ".";
+  return relative.startsWith("..") || path.isAbsolute(relative) ? targetPath : relative;
+}
+
+function resourceArchivePath(projectPath, targetPath) {
+  const relative = path.relative(projectPath, targetPath);
+  return relative.startsWith("..") || path.isAbsolute(relative) ? targetPath : relative;
 }
 
 async function assertReadableMapContext(context, runtime) {
@@ -28848,18 +29435,20 @@ function normalizeResourceName(value) {
 
 async function resolveResourceDestination(projectPath, parentValue, nameValue, runtime) {
   if (typeof parentValue !== "string" || !parentValue) throw httpError(400, "目标文件夹无效");
-  const { targetPath: parentPath } = await resolveResourceTarget(projectPath, parentValue, runtime);
+  const unrestricted = isSingleUserResourceMode(runtime);
+  const { targetPath: parentPath } = await resolveResourceTarget(projectPath, parentValue, runtime, {
+    allowAnyDirectory: true,
+  });
   const parentStat = await fs.stat(parentPath);
   if (!parentStat.isDirectory()) throw httpError(400, "目标位置不是文件夹");
   const name = normalizeResourceName(nameValue);
   const targetPath = path.join(parentPath, name);
   const relative = path.relative(projectPath, targetPath);
-  if (
+  if ((!unrestricted && (
     !relative
     || relative.startsWith("..")
     || path.isAbsolute(relative)
-    || relative.split(path.sep).some((segment) => HIDDEN_RESOURCE_NAMES.has(segment))
-  ) {
+  )) || resourcePathHasProtectedSegment(targetPath)) {
     throw httpError(400, "目标路径无效");
   }
   let exists = false;
@@ -28887,7 +29476,7 @@ async function resourceEntrySnapshot(projectPath, targetPath) {
   return {
     name: path.basename(targetPath),
     path: targetPath,
-    relativePath: path.relative(projectPath, targetPath),
+    relativePath: resourceRelativePath(projectPath, targetPath),
     type,
     size: type === "file" ? stat.size : null,
     modifiedAt: stat.mtimeMs,
@@ -29343,9 +29932,9 @@ function normalizeDurableOperationRequestId(value, label = "操作请求 ID") {
   return requestId;
 }
 
-async function searchProjectResources(projectPath, query) {
+async function searchProjectResources(searchRoot, query, { projectPath = searchRoot } = {}) {
   const results = [];
-  const pending = [projectPath];
+  const pending = [searchRoot];
   let scanned = 0;
   while (pending.length && results.length < 100 && scanned < 20_000) {
     const directory = pending.pop();
@@ -29360,7 +29949,7 @@ async function searchProjectResources(projectPath, query) {
       scanned += 1;
       if (HIDDEN_RESOURCE_NAMES.has(entry.name) || entry.name === "node_modules" || entry.isSymbolicLink()) continue;
       const entryPath = path.join(directory, entry.name);
-      const relativePath = path.relative(projectPath, entryPath);
+      const relativePath = resourceRelativePath(projectPath, entryPath);
       if (entry.name.toLowerCase().includes(query) || relativePath.toLowerCase().includes(query)) {
         const stat = await fs.stat(entryPath);
         results.push({
@@ -29489,6 +30078,7 @@ async function prepareImportedThreadExclusive(runtime, inputRecord, requestParam
 async function finalizeImportedThread(runtime, inputRecord) {
   const current = runtime.threadImportStore.get(inputRecord.id);
   if (!current) throw httpError(404, "导入对话不存在");
+  const wasMaterialized = current.materialized === true;
   const updated = current.materialized
     ? current
     : await runtime.threadImportStore.update(current.id, {
@@ -29506,6 +30096,9 @@ async function finalizeImportedThread(runtime, inputRecord) {
       thread: nativeImportedThreadSummary(updated),
     },
   });
+  if (!wasMaterialized) {
+    await migrateMapConversationBindingThread(runtime, updated.id, updated.codexThreadId);
+  }
   return updated;
 }
 
@@ -34996,6 +35589,118 @@ async function assertMapAiThreadProject(runtime, threadId, projectPath, { signal
   await assertSafeProjectDirectory(path.resolve(projectPath), runtime);
   throwIfMapAiOperationAborted(signal);
   return { threadId, nativeThreadId };
+}
+
+async function assertMapConversationBindingThread(runtime, threadId, projectPath) {
+  if (!runtime?.bridge?.ready) throw httpError(503, "Codex 服务尚未就绪，暂时无法绑定地图对话");
+  const normalizedProjectPath = path.resolve(projectPath);
+  await assertSafeProjectDirectory(normalizedProjectPath, runtime);
+
+  const imported = runtime.threadImportStore?.get(threadId);
+  if (imported) {
+    if (path.resolve(imported.cwd) !== normalizedProjectPath) {
+      throw httpError(409, "地图对话不属于当前工程");
+    }
+    return {
+      threadId,
+      nativeThreadId: imported.codexThreadId,
+      imported: true,
+    };
+  }
+
+  const worktree = runtime.worktreeStore?.forThread(threadId) || null;
+  if (
+    worktree
+    && worktree.state !== "deleted"
+    && await runtime.codexThreadIsUnmaterialized(threadId)
+  ) {
+    const worktreeProjectPath = path.resolve(worktreeCwd(worktree));
+    if (worktreeProjectPath !== normalizedProjectPath) {
+      throw httpError(409, "地图对话不属于当前工程");
+    }
+    return { threadId, nativeThreadId: runtime.nativeThreadIdForPublic(threadId), worktree: true };
+  }
+
+  const nativeThreadId = runtime.nativeThreadIdForPublic(threadId);
+  const read = await runtime.bridge.request(
+    "thread/read",
+    { threadId: nativeThreadId, includeTurns: false },
+    { timeoutMs: 15_000 },
+  );
+  const returnedId = read?.thread?.id;
+  const threadCwd = typeof read?.thread?.cwd === "string"
+    ? path.resolve(read.thread.cwd)
+    : null;
+  if (returnedId !== nativeThreadId || !threadCwd || threadCwd !== normalizedProjectPath) {
+    throw httpError(409, "地图对话不属于当前工程，或对话已经不存在");
+  }
+  return { threadId, nativeThreadId };
+}
+
+function broadcastMapConversationBinding(runtime, binding, previousThreadId = null) {
+  if (!runtime || !binding?.projectPath) return;
+  runtime.broadcast({
+    type: "map-conversation/binding",
+    payload: {
+      projectPath: binding.projectPath,
+      previousThreadId: previousThreadId || null,
+      binding,
+    },
+  });
+}
+
+async function migrateMapConversationBindingThread(
+  runtime,
+  previousThreadId,
+  nextThreadId,
+  projectPath = null,
+) {
+  if (
+    !mapConversationBindings
+    || typeof previousThreadId !== "string"
+    || !previousThreadId
+    || typeof nextThreadId !== "string"
+    || !nextThreadId
+    || previousThreadId === nextThreadId
+  ) return [];
+  try {
+    const replaced = await mapConversationBindings.replaceThread({
+      userId: runtime.user.id,
+      previousThreadId,
+      nextThreadId,
+      projectPath,
+    });
+    for (const binding of replaced) {
+      broadcastMapConversationBinding(runtime, binding, previousThreadId);
+    }
+    return replaced;
+  } catch (error) {
+    runtime.bridge?.emit("log", {
+      level: "warn",
+      message: `地图对话绑定迁移失败：${previousThreadId} -> ${nextThreadId}：${error.message}`,
+    });
+    return [];
+  }
+}
+
+async function removeMapConversationBindingsForThread(runtime, threadId) {
+  if (!mapConversationBindings || typeof threadId !== "string" || !threadId) return [];
+  try {
+    const removed = await mapConversationBindings.removeForThread({
+      userId: runtime.user.id,
+      threadId,
+    });
+    for (const binding of removed) {
+      broadcastMapConversationBinding(runtime, binding, threadId);
+    }
+    return removed;
+  } catch (error) {
+    runtime.bridge?.emit("log", {
+      level: "warn",
+      message: `删除对话后的地图绑定清理失败：${threadId}：${error.message}`,
+    });
+    return [];
+  }
 }
 
 async function mapAiLeaseRequestContext(request, {

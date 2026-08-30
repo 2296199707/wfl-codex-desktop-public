@@ -35,7 +35,7 @@ export class MapProjectWorkspaceClient {
     this.operationVersion = 0;
   }
 
-  async open({ project, projectFile = null } = {}) {
+  async open({ project, projectFile = null, gameProjectId = null } = {}) {
     if (typeof project !== "string" || !project) throw new TypeError("project is required");
     const operationVersion = ++this.operationVersion;
     await this.closeCurrent().catch(() => {});
@@ -47,7 +47,11 @@ export class MapProjectWorkspaceClient {
         "Content-Type": "application/json",
         "X-Codex-Desktop-Action": "map-project-session-open",
       },
-      body: JSON.stringify({ project, ...(projectFile ? { projectFile: normalizeRelativePath(projectFile) } : {}) }),
+      body: JSON.stringify({
+        project,
+        ...(projectFile ? { projectFile: normalizeRelativePath(projectFile) } : {}),
+        ...(gameProjectId ? { gameProjectId: normalizeGameProjectId(gameProjectId) } : {}),
+      }),
     });
     const data = await readJson(response, "无法打开地图项目工作区");
     const session = normalizeSession(data.session);
@@ -323,6 +327,7 @@ export class MapProjectWorkspaceClient {
     if (!mapPath.toLowerCase().endsWith(".tmj")) throw new TypeError("map path must end in .tmj");
     return Object.freeze({
       projectSessionId: session.id,
+      ...(session.gameProjectId ? { gameProjectId: session.gameProjectId } : {}),
       path: mapPath,
       editorInstanceId: String(editorInstanceId || ""),
     });
@@ -334,6 +339,7 @@ export class MapProjectWorkspaceClient {
     if (!worldPath.toLowerCase().endsWith(".world")) throw new TypeError("world path must end in .world");
     return Object.freeze({
       projectSessionId: session.id,
+      ...(session.gameProjectId ? { gameProjectId: session.gameProjectId } : {}),
       path: worldPath,
       editorInstanceId: String(editorInstanceId || ""),
     });
@@ -345,6 +351,7 @@ export class MapProjectWorkspaceClient {
     if (!tilesetPath.toLowerCase().endsWith(".tsj")) throw new TypeError("tileset path must end in .tsj");
     return Object.freeze({
       projectSessionId: session.id,
+      ...(session.gameProjectId ? { gameProjectId: session.gameProjectId } : {}),
       path: tilesetPath,
       editorInstanceId: String(editorInstanceId || ""),
     });
@@ -381,6 +388,7 @@ function normalizeSession(value) {
   if (!resourceRoots) throw new Error("地图项目会话 folders 响应无效");
   return Object.freeze({
     id: value.id,
+    gameProjectId: value.gameProjectId == null ? null : normalizeGameProjectId(value.gameProjectId),
     projectName: String(value.projectName || ""),
     projectFile: value.projectFile == null ? null : normalizeRelativePath(value.projectFile),
     temporary: value.temporary === true,
@@ -391,6 +399,12 @@ function normalizeSession(value) {
     createdAt: Number(value.createdAt) || 0,
     expiresAt: Number(value.expiresAt) || 0,
   });
+}
+
+function normalizeGameProjectId(value) {
+  const text = String(value || "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/u.test(text)) throw new Error("游戏工程 ID 无效");
+  return text;
 }
 
 function normalizePage(value, expected) {

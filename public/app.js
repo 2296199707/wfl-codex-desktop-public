@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.65";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.65";
+} from "./thread-state.js?v=0.44.66-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.66-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.65";
+} from "./image-context-policy.js?v=0.44.66-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.65";
+} from "./image-attachment-context.js?v=0.44.66-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,28 +44,29 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.65";
+} from "./game-work-mode.js?v=0.44.66-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.65";
+} from "./map-editor/map-tab-channel.js?v=0.44.66-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.65";
+} from "./map-editor/map-conversation-channel.js?v=0.44.66-beta";
 import {
   createConversationState,
+  listConversationThreads,
   reduceConversationNotification,
   removeConversationThread,
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.65";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.65";
+} from "./conversation-state.js?v=0.44.66-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.66-beta";
 
-const UI_VERSION = "0.44.65";
-const UI_VERSION_LABEL = "0.44.65";
+const UI_VERSION = "0.44.66-beta";
+const UI_VERSION_LABEL = "0.44.66-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -86,6 +87,9 @@ const THREAD_LIST_CACHE_MAX_VIEWS = 12;
 const THREAD_LIST_CACHE_MAX_BYTES = 2 * 1024 * 1024;
 const THREAD_LIST_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const THREAD_LIST_CACHE_VERSION = 1;
+const MAP_CONVERSATION_RPC_TIMEOUT_MS = 125_000;
+const MAP_CONVERSATION_RPC_MAX_ATTEMPTS = 2;
+const MAP_CONVERSATION_OPERATION_CACHE_LIMIT = 128;
 const THREAD_LIST_CACHE_PREFIX = "codexDesktop.threadLists.v1";
 const THREAD_RECOVERY_KEY = "codexDesktop.activeThread";
 const SIDEBAR_VIEW_KEY = "codexDesktop.sidebarView";
@@ -279,15 +283,15 @@ function replaceActiveConversationThread(thread) {
 
 function conversationThreadById(threadId, project = null) {
   if (!threadId) return null;
-  if (state.activeThread?.id === threadId) return state.activeThread;
-  const listed = state.threads.find((thread) => thread.id === threadId);
-  if (listed) return listed;
   const projectId = conversationProjectForThread(threadId, project);
-  return selectConversationThread(
+  const stored = selectConversationThread(
     state.conversationState,
     activeConversationScope(projectId),
     threadId,
   );
+  if (stored) return stored;
+  if (state.activeThread?.id === threadId) return state.activeThread;
+  return state.threads.find((thread) => thread.id === threadId) || null;
 }
 
 function codexThreadNeedsResume(threadId = state.activeThread?.id) {
@@ -342,6 +346,12 @@ function forgetCodexThreadRecovery(threadId) {
 function forgetConversationThread(threadId) {
   if (!threadId) return;
   forgetCodexThreadRecovery(threadId);
+  for (const [key, hydration] of state.mapConversationHydrations) {
+    if (hydration.threadId === threadId) state.mapConversationHydrations.delete(key);
+  }
+  for (const [operationId, pending] of state.mapConversationPendingMessages) {
+    if (pending.threadId === threadId) state.mapConversationPendingMessages.delete(operationId);
+  }
   const projectId = conversationProjectForThread(threadId);
   state.conversationState = removeConversationThread(
     state.conversationState,
@@ -757,6 +767,7 @@ const state = {
   },
   uploading: false,
   resourceDirectory: null,
+  resourceProjectPath: null,
   resourceParentPath: null,
   resourceEntries: [],
   resourceTreeDirectories: new Map(),
@@ -769,6 +780,7 @@ const state = {
   resourceGitLoading: false,
   resourceChunkLoading: false,
   resourceWritable: false,
+  resourceUnrestricted: false,
   resourceSearchTimer: null,
   resourcePreviewEntry: null,
   resourcePreviewData: null,
@@ -793,6 +805,10 @@ const state = {
   mapWorkspaceClient: null,
   mapWorkspaceProjectSession: null,
   mapWorkspaceProjectPath: null,
+  mapWorkspaceGameProjectId: null,
+  gameProjects: [],
+  gameProjectsLoading: false,
+  gameProjectCreating: false,
   toolboxCategory: readToolboxCategory(),
   toolboxRecent: readToolboxList(TOOLBOX_RECENT_KEY),
   toolboxFavorites: new Set(readToolboxList(TOOLBOX_FAVORITES_KEY)),
@@ -815,9 +831,15 @@ const state = {
   tilesetNewSelectedImages: new Set(),
   mapEditorOpeningPath: null,
   mapEditorGameBindings: new Map(),
+  mapConversationBindings: new Map(),
+  mapConversationBindingRequests: new Map(),
   mapConversationRevision: 0,
   mapConversationSnapshotTimer: null,
   mapConversationOperations: new Map(),
+  mapConversationDirectOperations: new Map(),
+  mapConversationThreadLocks: new Map(),
+  mapConversationPendingMessages: new Map(),
+  mapConversationHydrations: new Map(),
   mapConversationImageDeliveries: new Map(),
   worldEditorWindows: new Map(),
   tilesetEditorWindows: new Map(),
@@ -1637,6 +1659,10 @@ const elements = Object.fromEntries(
     "mapWorkspaceProjectName",
     "mapWorkspaceProjectMeta",
     "mapWorkspaceActionState",
+    "gameProjectList",
+    "gameProjectState",
+    "gameProjectRefreshButton",
+    "gameProjectNewButton",
     "mapWorkspaceSearch",
     "mapWorkspaceKindFilter",
     "mapWorkspaceSelectionState",
@@ -1710,6 +1736,32 @@ const elements = Object.fromEntries(
     "tilesetNewTargetVersion",
     "tilesetNewPathPreview",
     "tilesetNewError",
+    "gameProjectNewDialog",
+    "gameProjectNewForm",
+    "gameProjectNewCloseButton",
+    "gameProjectNewCancelButton",
+    "gameProjectNewSubmitButton",
+    "gameProjectNewName",
+    "gameProjectNewDirectory",
+    "gameProjectNewRoot",
+    "gameProjectNewProjectFile",
+    "gameProjectNewInitialMap",
+    "gameProjectNewPreset",
+    "gameProjectNewOrientation",
+    "gameProjectNewInfinite",
+    "gameProjectNewSizeGrid",
+    "gameProjectNewWidth",
+    "gameProjectNewHeight",
+    "gameProjectNewTileWidth",
+    "gameProjectNewTileHeight",
+    "gameProjectNewInitialLayer",
+    "gameProjectNewRenderOrder",
+    "gameProjectNewBackgroundEnabled",
+    "gameProjectNewBackgroundColor",
+    "gameProjectNewInitializeGit",
+    "gameProjectNewPathPreview",
+    "gameProjectNewFilePreview",
+    "gameProjectNewError",
   "mapAiToolsToggle",
   "mapAiToolsState",
   "mapGameWorkModeToggle",
@@ -2161,6 +2213,9 @@ const elements = Object.fromEntries(
     "resourceDownloadSelectedButton",
     "resourceUploadInput",
     "downloadProjectButton",
+    "resourceLocationForm",
+    "resourceLocationInput",
+    "resourceLocationButton",
     "resourcePath",
     "resourceWorkspace",
     "resourceBrowserPane",
@@ -6531,6 +6586,17 @@ function bindEvents() {
   elements.toolboxOpenGameResourcesButton.addEventListener("click", openToolboxGameResources);
   elements.toolboxOpenMobileAppButton.addEventListener("click", openToolboxMobileApp);
   elements.toolboxOpenServerFilesButton.addEventListener("click", openToolboxServerFiles);
+  elements.gameProjectRefreshButton.addEventListener("click", () => void loadGameProjects());
+  elements.gameProjectNewButton.addEventListener("click", openGameProjectNewDialog);
+  elements.gameProjectNewCloseButton.addEventListener("click", closeGameProjectNewDialog);
+  elements.gameProjectNewCancelButton.addEventListener("click", closeGameProjectNewDialog);
+  elements.gameProjectNewForm.addEventListener("submit", submitGameProjectNewForm);
+  elements.gameProjectNewForm.addEventListener("input", updateGameProjectNewForm);
+  elements.gameProjectNewForm.addEventListener("change", updateGameProjectNewForm);
+  elements.gameProjectNewDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeGameProjectNewDialog();
+  });
   elements.toolboxBackButton.addEventListener("click", () => setToolboxView("overview"));
   elements.mapWorkspaceCloseButton.addEventListener("click", closeMapWorkspace);
   elements.mapWorkspaceOpenEditorButton.addEventListener("click", () => void openMapWorkspaceEditor());
@@ -6804,6 +6870,7 @@ function bindEvents() {
   elements.resourceDownloadDirectoryButton.addEventListener("click", downloadResourceDirectory);
   elements.resourceDownloadSelectedButton.addEventListener("click", downloadSelectedResources);
   elements.resourceUploadInput.addEventListener("change", uploadResourceFiles);
+  elements.resourceLocationForm.addEventListener("submit", submitResourceLocation);
   elements.resourceExternalRefreshButton.addEventListener("click", refreshResourceAfterExternalChange);
   elements.resourceActionForm.addEventListener("submit", submitResourceAction);
   elements.resourceActionType.addEventListener("change", renderResourceActionFields);
@@ -7149,12 +7216,18 @@ async function loadAccount({ summary = false } = {}) {
       state.imageContextIsolationScope = "";
       state.gameWorkModeLeases.clear();
       state.mapEditorGameBindings.clear();
+      state.mapConversationBindings.clear();
+      state.mapConversationBindingRequests.clear();
       state.worldEditorWindows.clear();
       state.tilesetEditorWindows.clear();
       state.mapConversationOperations.clear();
+      state.mapConversationDirectOperations.clear();
+      state.mapConversationThreadLocks.clear();
+      state.mapConversationPendingMessages.clear();
       state.mapConversationImageDeliveries.clear();
       clearTimeout(state.mapConversationSnapshotTimer);
       state.mapConversationSnapshotTimer = null;
+      state.mapConversationHydrations.clear();
       clearTimeout(state.gameWorkModeLeaseTimer);
       state.gameWorkModeLeaseTimer = null;
       state.mapAiToolsRequest = null;
@@ -7227,6 +7300,7 @@ async function loadAccount({ summary = false } = {}) {
     }
     if (!summary) state.accountSnapshot = data;
     state.multiUserMode = data.mode;
+    renderResourceLocationControls();
     restoreThreadListSessionCache(data.user);
     const admin = isAccountAdmin();
     elements.versionButton.hidden = false;
@@ -10014,6 +10088,11 @@ function handleSocketMessage(message, socketGeneration = state.socketGeneration,
     return;
   }
 
+  if (message.type === "map-conversation/binding") {
+    handleMapConversationBindingUpdate(message.payload);
+    return;
+  }
+
   if (message.type === "provider/routing-updated") {
     applyProviderRoutingSnapshot(message.payload);
     return;
@@ -10476,6 +10555,7 @@ async function loadProjects() {
     renderProjects();
     renderProjectContext();
     renderSidebarWorktrees();
+    void loadGameProjects({ silent: true });
   } catch (error) {
     elements.projectList.innerHTML = '<div class="list-empty">无法读取工程</div>';
     toast(error.message, "error");
@@ -11194,7 +11274,10 @@ async function selectProject(project) {
   renderProjectContext();
   renderSidebarWorktrees();
   if (previousCodexThreadId) void releaseThreadSubscription(previousCodexThreadId);
-  if (elements.resourceDialog.open) loadResourceDirectory(project.path);
+  if (elements.resourceDialog.open) {
+    state.resourceProjectPath = project.path;
+    loadResourceDirectory(project.path);
+  }
   if (elements.browserDialog.open) loadBrowserPreviewEntries();
   if (elements.mapWorkspaceDialog.open) void loadMapWorkspaceProject();
   renderActiveThread();
@@ -16970,6 +17053,7 @@ async function openConversationSearchPreview({ thread, turn, preview }) {
   if (elements.browserDialog.open) elements.browserDialog.close();
   closeMobilePanels();
   elements.resourceSearch.value = "";
+  state.resourceProjectPath = state.currentProject?.path || null;
   if (!elements.resourceDialog.open) {
     elements.resourceDialog.showModal();
     await loadResourceDirectory(state.currentProject?.path);
@@ -17925,6 +18009,12 @@ function clearThreadSessionCache() {
   state.threadGoalControlRequestVersions.clear();
   state.threadRecentRefreshVersions.clear();
   state.threadRecentRefreshInFlight.clear();
+  state.mapConversationDirectOperations.clear();
+  state.mapConversationThreadLocks.clear();
+  state.mapConversationPendingMessages.clear();
+  state.mapConversationHydrations.clear();
+  state.mapConversationBindings.clear();
+  state.mapConversationBindingRequests.clear();
   state.threadSubagents.clear();
   state.threadListCache.clear();
   state.threadListViewKey = null;
@@ -20812,6 +20902,653 @@ function initializeGameWorkModeChannel() {
   }
 }
 
+function mapConversationBindingForProject(projectPath) {
+  if (typeof projectPath !== "string" || !projectPath) return null;
+  return state.mapConversationBindings.get(projectPath) || null;
+}
+
+async function loadMapConversationBinding(projectPath, { force = false } = {}) {
+  if (typeof projectPath !== "string" || !projectPath) return null;
+  const accountId = state.account?.id || "legacy";
+  if (!force && state.mapConversationBindings.has(projectPath)) {
+    return state.mapConversationBindings.get(projectPath) || null;
+  }
+  const existing = state.mapConversationBindingRequests.get(projectPath);
+  if (existing) return existing;
+  const request = (async () => {
+    const url = new URL("/api/account/map-conversation-binding", location.origin);
+    url.searchParams.set("project", projectPath);
+    url.searchParams.set("_", String(Date.now()));
+    const response = await fetchWithTimeout(url, { cache: "no-store" }, 15_000);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data.error || "无法读取工程对话绑定");
+      error.status = response.status;
+      error.code = data.code;
+      throw error;
+    }
+    if ((state.account?.id || "legacy") !== accountId) return null;
+    const raw = data.binding;
+    const binding = raw && typeof raw === "object" && !Array.isArray(raw)
+      ? {
+        ...raw,
+        projectPath: typeof raw.projectPath === "string" && raw.projectPath
+          ? raw.projectPath
+          : projectPath,
+        threadId: typeof raw.threadId === "string" && raw.threadId ? raw.threadId : null,
+        revision: Number.isSafeInteger(raw.revision) && raw.revision >= 0 ? raw.revision : 0,
+      }
+      : null;
+    handleMapConversationBindingUpdate({
+      projectPath,
+      previousThreadId: null,
+      binding,
+    });
+    if (!binding && !state.mapConversationBindings.get(projectPath)) {
+      state.mapConversationBindings.set(projectPath, null);
+    }
+    return state.mapConversationBindings.get(projectPath) || null;
+  })();
+  state.mapConversationBindingRequests.set(projectPath, request);
+  try {
+    return await request;
+  } finally {
+    if (state.mapConversationBindingRequests.get(projectPath) === request) {
+      state.mapConversationBindingRequests.delete(projectPath);
+    }
+  }
+}
+
+async function saveMapConversationBinding(projectPath, threadId, expectedRevision) {
+  const response = await fetchWithTimeout("/api/account/map-conversation-binding", {
+    method: "PUT",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Codex-Desktop-Action": "map-conversation-binding",
+    },
+    body: JSON.stringify({
+      projectPath,
+      threadId: threadId || null,
+      expectedRevision: Number.isSafeInteger(expectedRevision) ? expectedRevision : 0,
+    }),
+  }, 20_000);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || "无法保存工程对话绑定");
+    error.status = response.status;
+    error.code = data.code;
+    throw error;
+  }
+  const raw = data.binding;
+  if (!raw || typeof raw !== "object" || raw.projectPath !== projectPath) {
+    throw new Error("工程对话绑定响应无效");
+  }
+  const binding = {
+    ...raw,
+    projectPath,
+    threadId: typeof raw.threadId === "string" && raw.threadId ? raw.threadId : null,
+    revision: Number.isSafeInteger(raw.revision) && raw.revision >= 0 ? raw.revision : expectedRevision + 1,
+  };
+  const accepted = handleMapConversationBindingUpdate({
+    projectPath,
+    previousThreadId: null,
+    binding,
+  });
+  return accepted ? binding : state.mapConversationBindings.get(projectPath) || null;
+}
+
+async function ensureMapConversationBinding(project, candidateThreadId = null) {
+  const projectPath = project?.path;
+  if (typeof projectPath !== "string" || !projectPath || state.runtime !== "codex") return null;
+  let current;
+  try {
+    current = await loadMapConversationBinding(projectPath);
+  } catch (error) {
+    console.warn("Unable to load map conversation binding:", error);
+    return null;
+  }
+  // A null threadId is a deliberate, persisted "read only" binding. The
+  // presence check prevents a later map window from silently reclaiming it.
+  if (current || !candidateThreadId) return current;
+  try {
+    return await saveMapConversationBinding(projectPath, candidateThreadId, 0);
+  } catch (error) {
+    if (error?.status === 409) {
+      try {
+        return await loadMapConversationBinding(projectPath, { force: true });
+      } catch (reloadError) {
+        console.warn("Unable to reload map conversation binding:", reloadError);
+      }
+    } else {
+      console.warn("Unable to claim map conversation binding:", error);
+    }
+    return null;
+  }
+}
+
+function handleMapConversationBindingUpdate(payload = {}) {
+  const projectPath = payload.binding?.projectPath || payload.projectPath;
+  if (typeof projectPath !== "string" || !projectPath) return false;
+  const incoming = payload.binding && typeof payload.binding === "object"
+    ? {
+      ...payload.binding,
+      projectPath,
+      threadId: typeof payload.binding.threadId === "string" && payload.binding.threadId
+        ? payload.binding.threadId
+        : null,
+      revision: Number.isSafeInteger(payload.binding.revision) && payload.binding.revision >= 0
+        ? payload.binding.revision
+        : 0,
+    }
+    : null;
+  if (!incoming) return false;
+  const current = state.mapConversationBindings.get(projectPath) || null;
+  if (current && incoming.revision < (Number(current.revision) || 0)) return false;
+  if (
+    current
+    && incoming.revision === (Number(current.revision) || 0)
+    && incoming.threadId !== current.threadId
+  ) return false;
+  state.mapConversationBindings.set(projectPath, incoming);
+  const nextThreadId = incoming.threadId;
+  const previousThreadId = payload.previousThreadId || current?.threadId || null;
+  let changed = false;
+  for (const binding of state.mapEditorGameBindings.values()) {
+    if (binding.projectPath !== projectPath) continue;
+    if (binding.threadId !== nextThreadId) {
+      revokeMapBindingGameWorkMode(binding);
+      binding.threadId = nextThreadId;
+      binding.conversationBindingGeneration = (
+        Number(binding.conversationBindingGeneration) || 0
+      ) + 1;
+      changed = true;
+    }
+  }
+  if (changed || previousThreadId !== nextThreadId) {
+    state.imageContextLedger.clear();
+    renderMapGameWorkModeSetting();
+    scheduleMapConversationSnapshots(0);
+  } else {
+    scheduleMapConversationSnapshots();
+  }
+  return true;
+}
+
+function mapConversationHydrationKey(threadId, projectPath) {
+  return `${projectPath}\0${threadId}`;
+}
+
+function mapConversationHydrationFor(threadId, projectPath) {
+  if (!threadId || !projectPath) return null;
+  return state.mapConversationHydrations.get(mapConversationHydrationKey(threadId, projectPath)) || null;
+}
+
+function mapConversationHydrationIsCurrent(record, key, accountId, socketGeneration) {
+  return state.mapConversationHydrations.get(key) === record
+    && (state.account?.id || "legacy") === accountId
+    && state.socketGeneration === socketGeneration;
+}
+
+function ensureMapConversationThreadHydrated(binding, { force = false } = {}) {
+  const threadId = binding?.threadId;
+  const projectPath = binding?.projectPath;
+  if (
+    state.runtime !== "codex"
+    || !state.bridgeReady
+    || typeof threadId !== "string"
+    || !threadId
+    || typeof projectPath !== "string"
+    || !projectPath
+  ) return Promise.resolve(null);
+
+  // The active view is already hydrated by resumeThread. Reading it again from
+  // the map mirror would add latency to the main conversation's critical path.
+  if (
+    state.activeThread?.id === threadId
+    && state.currentProject?.path === projectPath
+  ) return Promise.resolve(mapConversationHydrationFor(threadId, projectPath));
+
+  const key = mapConversationHydrationKey(threadId, projectPath);
+  const accountId = state.account?.id || "legacy";
+  const socketGeneration = state.socketGeneration;
+  const existing = state.mapConversationHydrations.get(key);
+  if (existing?.promise) return existing.promise;
+  if (!force && existing?.status === "ready") return Promise.resolve(existing);
+  if (
+    !force
+    && existing?.status === "error"
+    && Date.now() - existing.updatedAt < 5_000
+  ) return Promise.resolve(existing);
+
+  const record = {
+    ...(existing || {}),
+    key,
+    threadId,
+    projectPath,
+    status: "loading",
+    error: "",
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    accountId,
+    socketGeneration,
+    promise: null,
+  };
+  state.mapConversationHydrations.set(key, record);
+  scheduleMapConversationSnapshots(0);
+
+  const operation = (async () => {
+    let metadata = null;
+    try {
+      const readResult = await rpc("thread/read", {
+        threadId,
+        includeTurns: false,
+      }, { timeoutMs: THREAD_READ_RPC_TIMEOUT_MS });
+      metadata = readResult?.thread;
+      if (!metadata?.id || metadata.id !== threadId) {
+        throw new Error("绑定对话元数据无效");
+      }
+      if (metadata.cwd && metadata.cwd !== projectPath) {
+        throw new Error("绑定对话所属工程已变化");
+      }
+
+      if (!mapConversationHydrationIsCurrent(record, key, accountId, socketGeneration)) return record;
+      const metadataCurrent = conversationThreadById(threadId, projectPath);
+      const hydratedThread = {
+        ...(metadataCurrent || {}),
+        ...metadata,
+        cwd: metadata.cwd || metadataCurrent?.cwd || projectPath,
+        turns: Array.isArray(metadataCurrent?.turns) ? metadataCurrent.turns : [],
+      };
+      state.conversationThreadProjects.set(threadId, hydratedThread.cwd);
+      state.conversationState = replaceConversationThread(
+        state.conversationState,
+        activeConversationScope(projectPath),
+        hydratedThread,
+      );
+      settleMapConversationPendingMessages(threadId, hydratedThread);
+      const existingThreadIndex = state.threads.findIndex((entry) => entry.id === threadId);
+      if (existingThreadIndex >= 0) {
+        state.threads = state.threads.map((entry, index) => (
+          index === existingThreadIndex ? { ...entry, ...hydratedThread, turns: entry.turns || [] } : entry
+        ));
+      } else {
+        state.threads = [hydratedThread, ...state.threads];
+      }
+      if (metadata.status) state.threadRuntimeStatuses.set(threadId, metadata.status);
+      record.loaded = true;
+      record.complete = false;
+      record.turnCount = hydratedThread.turns.length;
+      record.updatedAt = Date.now();
+
+      const turnsPage = await rpc("thread/turns/list", recentTurnsParams(threadId), {
+        timeoutMs: THREAD_HISTORY_RPC_TIMEOUT_MS,
+      });
+      if (!mapConversationHydrationIsCurrent(record, key, accountId, socketGeneration)) return record;
+      const incomingTurns = normalizeTurnPage(turnsPage?.data, "desc");
+      const current = conversationThreadById(threadId, projectPath);
+      const currentTurns = Array.isArray(current?.turns) ? current.turns : [];
+      const mergedTurns = fenceCodexTurns(mergeLoadedTurnPage(
+        currentTurns,
+        incomingTurns,
+        { chronological: true },
+      ), threadId);
+      const historyThread = {
+        ...(current || {}),
+        ...metadata,
+        cwd: metadata.cwd || current?.cwd || projectPath,
+        turns: mergedTurns,
+      };
+      state.conversationThreadProjects.set(threadId, historyThread.cwd);
+      state.conversationState = replaceConversationThread(
+        state.conversationState,
+        activeConversationScope(projectPath),
+        historyThread,
+      );
+      settleMapConversationPendingMessages(threadId, historyThread);
+      state.threads = state.threads.map((entry) => (
+        entry.id === threadId
+          ? { ...entry, ...metadata, cwd: historyThread.cwd, turns: entry.turns || [] }
+          : entry
+      ));
+      if (metadata.status) state.threadRuntimeStatuses.set(threadId, metadata.status);
+
+      record.status = "ready";
+      record.loaded = true;
+      record.complete = true;
+      record.earlierAvailable = Boolean(turnsPage?.nextCursor);
+      record.nextCursor = typeof turnsPage?.nextCursor === "string"
+        ? turnsPage.nextCursor
+        : null;
+      record.turnCount = mergedTurns.length;
+      record.error = "";
+      record.updatedAt = Date.now();
+      record.sourceRevision = state.conversationState.revision;
+      record.sourceEventSequence = state.codexEventSequence;
+      return record;
+    } catch (error) {
+      if (!mapConversationHydrationIsCurrent(record, key, accountId, socketGeneration)) return record;
+      record.loaded = record.loaded === true || Boolean(metadata);
+      record.complete = false;
+      record.turnCount = Array.isArray(conversationThreadById(threadId, projectPath)?.turns)
+        ? conversationThreadById(threadId, projectPath).turns.length
+        : record.turnCount || 0;
+      record.status = "error";
+      record.error = String(error?.message || error || "无法读取绑定对话").slice(0, 500);
+      record.updatedAt = Date.now();
+      return record;
+    } finally {
+      if (state.mapConversationHydrations.get(key) === record) {
+        record.promise = null;
+        if (
+          (state.account?.id || "legacy") !== accountId
+          || state.socketGeneration !== socketGeneration
+        ) {
+          state.mapConversationHydrations.delete(key);
+        }
+        scheduleMapConversationSnapshots();
+      }
+    }
+  })();
+  record.promise = operation;
+  return operation;
+}
+
+function mapConversationThreadOperationKey(threadId, projectPath) {
+  return `${projectPath}\0${threadId}`;
+}
+
+function mapConversationTargetFor(binding, threadId, operationId = null) {
+  return {
+    binding,
+    operationId,
+    accountId: state.account?.id || "legacy",
+    editorInstanceId: binding.editorInstanceId,
+    sessionId: binding.sessionId,
+    projectPath: binding.projectPath,
+    threadId,
+    bindingGeneration: Number(binding.conversationBindingGeneration) || 0,
+  };
+}
+
+function mapConversationTargetStillBound(target) {
+  const current = state.mapEditorGameBindings.get(target?.editorInstanceId);
+  return Boolean(
+    current
+    && current === target.binding
+    && current.sessionId === target.sessionId
+    && current.projectPath === target.projectPath
+    && current.threadId === target.threadId
+    && (Number(current.conversationBindingGeneration) || 0) === target.bindingGeneration
+    && (state.account?.id || "legacy") === target.accountId,
+  );
+}
+
+function mapConversationThreadOperationInFlight(threadId, projectPath) {
+  if (!threadId || !projectPath) return false;
+  return state.mapConversationThreadLocks.has(
+    mapConversationThreadOperationKey(threadId, projectPath),
+  );
+}
+
+async function mapConversationRpcWithRetry(
+  method,
+  params,
+  { timeoutMs = MAP_CONVERSATION_RPC_TIMEOUT_MS, maxAttempts = MAP_CONVERSATION_RPC_MAX_ATTEMPTS } = {},
+) {
+  const expectedEpoch = state.codexRuntimeEpoch;
+  const attempts = Math.min(Math.max(Number(maxAttempts) || 1, 1), 3);
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (state.runtime !== "codex") throw new Error("主界面当前不是 Codex 模式");
+    try {
+      return await rpc(method, params, { timeoutMs });
+    } catch (error) {
+      lastError = error;
+      if (error?.deliveryUnknown !== true || attempt >= attempts) throw error;
+      try {
+        await waitForCodexTransport(expectedEpoch);
+      } catch (recoveryError) {
+        // The original request may already have reached Codex. Preserve the
+        // uncertainty instead of allowing a new message to race it.
+        recoveryError.deliveryUnknown = true;
+        throw recoveryError;
+      }
+    }
+  }
+  throw lastError || new Error(`${method} 无法确认`);
+}
+
+function runMapConversationDirectOperation(target, operationId, operation) {
+  const existing = state.mapConversationDirectOperations.get(operationId);
+  if (existing?.promise) return existing.promise;
+  if (existing?.result) return Promise.resolve(existing.result);
+  if (existing?.error) return Promise.reject(existing.error);
+
+  const key = mapConversationThreadOperationKey(target.threadId, target.projectPath);
+  const previous = state.mapConversationThreadLocks.get(key) || Promise.resolve();
+  const record = {
+    operationId,
+    threadId: target.threadId,
+    projectPath: target.projectPath,
+    target,
+    promise: null,
+    result: null,
+    error: null,
+  };
+  const queued = previous
+    .catch(() => {})
+    .then(() => operation());
+  let settled;
+  settled = queued.then(
+    (result) => {
+      record.result = result;
+      return result;
+    },
+    (error) => {
+      record.error = error;
+      throw error;
+    },
+  ).finally(() => {
+    record.promise = null;
+    if (state.mapConversationThreadLocks.get(key) === settled) {
+      state.mapConversationThreadLocks.delete(key);
+    }
+  });
+  record.promise = settled;
+  state.mapConversationDirectOperations.set(operationId, record);
+  while (state.mapConversationDirectOperations.size > MAP_CONVERSATION_OPERATION_CACHE_LIMIT) {
+    const oldest = state.mapConversationDirectOperations.entries().next().value;
+    if (!oldest) break;
+    if (oldest[1]?.promise) {
+      const completed = [...state.mapConversationDirectOperations.entries()]
+        .find(([, entry]) => !entry?.promise);
+      if (!completed) break;
+      state.mapConversationDirectOperations.delete(completed[0]);
+    } else {
+      state.mapConversationDirectOperations.delete(oldest[0]);
+    }
+  }
+  state.mapConversationThreadLocks.set(key, settled);
+  return settled;
+}
+
+function rememberMapConversationPendingMessage(target, request) {
+  if (!request?.operationId || !target?.threadId) return;
+  const existing = state.mapConversationPendingMessages.get(request.operationId);
+  state.mapConversationPendingMessages.set(request.operationId, {
+    ...(existing || {}),
+    operationId: request.operationId,
+    threadId: target.threadId,
+    projectPath: target.projectPath,
+    text: request.text,
+    turnId: existing?.turnId || null,
+    status: existing?.status || "sending",
+    createdAt: existing?.createdAt || Date.now(),
+  });
+}
+
+function updateMapConversationPendingMessage(operationId, values = {}) {
+  const current = state.mapConversationPendingMessages.get(operationId);
+  if (!current) return;
+  state.mapConversationPendingMessages.set(operationId, { ...current, ...values });
+}
+
+function mapConversationUserItemText(item) {
+  return visibleUserContent(item?.content || [])
+    .filter((entry) => entry?.type === "text")
+    .map(userInputDisplayText)
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function mapConversationPendingMessageRecorded(pending, thread) {
+  if (!pending || !thread) return false;
+  for (const turn of thread.turns || []) {
+    for (const item of turn.items || []) {
+      if (item?.type !== "userMessage") continue;
+      if (item.clientId === pending.operationId || item.clientUserMessageId === pending.operationId) {
+        return true;
+      }
+      if (
+        pending.status === "accepted"
+        && pending.turnId
+        && turn.id === pending.turnId
+        && mapConversationUserItemText(item) === pending.text
+      ) return true;
+    }
+  }
+  return false;
+}
+
+function settleMapConversationPendingMessages(threadId, thread = null) {
+  const current = thread || conversationThreadById(threadId);
+  if (!current) return false;
+  let changed = false;
+  for (const [operationId, pending] of state.mapConversationPendingMessages) {
+    if (pending.threadId !== threadId) continue;
+    if (!mapConversationPendingMessageRecorded(pending, current)) continue;
+    state.mapConversationPendingMessages.delete(operationId);
+    changed = true;
+  }
+  return changed;
+}
+
+function mergeMapConversationTurn(target, incomingTurn) {
+  if (!target?.threadId || !incomingTurn?.id) return null;
+  invalidateThreadTaskAuthority(target.threadId);
+  const current = conversationThreadById(target.threadId, target.projectPath);
+  const turns = [...(Array.isArray(current?.turns) ? current.turns : [])];
+  const index = turns.findIndex((turn) => turn?.id === incomingTurn.id);
+  const merged = fenceCodexTurn(mergeTurn(index === -1 ? null : turns[index], incomingTurn));
+  if (index === -1) turns.push(merged);
+  else turns[index] = merged;
+  const updatedThread = {
+    ...(current || {}),
+    id: target.threadId,
+    cwd: current?.cwd || target.projectPath,
+    turns: orderTurnsChronologically(turns),
+  };
+  state.conversationThreadProjects.set(target.threadId, updatedThread.cwd);
+  state.conversationState = replaceConversationThread(
+    state.conversationState,
+    activeConversationScope(target.projectPath),
+    updatedThread,
+  );
+  state.loadedThreadIds.add(target.threadId);
+  state.threads = state.threads.map((entry) => (
+    entry.id === target.threadId
+      ? { ...entry, status: updatedThread.status || entry.status, updatedAt: updatedThread.updatedAt || entry.updatedAt }
+      : entry
+  ));
+  const active = state.activeThread?.id === target.threadId
+    && state.currentProject?.path === target.projectPath;
+  if (active) {
+    replaceActiveConversationThread(updatedThread);
+    const activeTurn = updatedThread.turns.find((turn) => turnStatusType(turn) === "inProgress");
+    state.activeTurnId = activeTurn?.id || null;
+    state.codexActiveTurnId = state.activeTurnId;
+    rememberActiveThread(state.activeThread);
+    renderActiveThread({ preserveOptimistic: true, scrollToBottom: true });
+    renderThreads();
+  }
+  settleMapConversationPendingMessages(target.threadId, updatedThread);
+  return merged;
+}
+
+async function executeMapConversationSend(target, request) {
+  const threadState = mapConversationThreadState(target.threadId, target.projectPath);
+  const targetQueued = threadState.task?.status === "queued";
+  const steer = Boolean(
+    threadState.activeTurnId
+    && !targetQueued
+    && ["running", "waiting"].includes(threadState.status),
+  );
+  if (threadState.status === "stopping") throw new Error("绑定对话正在终止，暂时不能发送");
+  if (targetQueued) throw new Error("绑定对话正在排队，请等待当前回合启动");
+  if (["running", "waiting"].includes(threadState.status) && !threadState.activeTurnId) {
+    throw new Error("绑定对话正在同步运行回合，请稍后再试");
+  }
+  if (!threadState.thread) throw new Error("绑定对话尚未加载，请稍后再试");
+  const method = steer ? "turn/steer" : "turn/start";
+  const params = steer
+    ? {
+      threadId: target.threadId,
+      expectedTurnId: threadState.activeTurnId,
+      clientUserMessageId: request.operationId,
+      _wflProjectCwd: target.projectPath,
+      input: [{ type: "text", text: request.text }],
+    }
+    : {
+      threadId: target.threadId,
+      clientUserMessageId: request.operationId,
+      _wflThreadLeaseOwnerId: THREAD_LEASE_OWNER_ID,
+      _wflProjectCwd: target.projectPath,
+      cwd: target.projectPath,
+      input: [{ type: "text", text: request.text }],
+  };
+  const result = await mapConversationRpcWithRetry(method, params);
+  const returnedTurn = result?.turn?.id ? result.turn : null;
+  if (returnedTurn?.id) {
+    updateMapConversationPendingMessage(request.operationId, {
+      turnId: returnedTurn.id,
+      status: "accepted",
+    });
+    mergeMapConversationTurn(target, returnedTurn);
+  } else {
+    updateMapConversationPendingMessage(request.operationId, {
+      turnId: result?.turnId || threadState.activeTurnId || null,
+      status: "accepted",
+    });
+  }
+  scheduleMapConversationSnapshots();
+  return {
+    ok: true,
+    message: method === "turn/steer" ? "消息已追加到当前回合" : "消息已发送",
+    threadId: target.threadId,
+  };
+}
+
+function mapConversationSendErrorResult(target, error) {
+  const deliveryUnknown = error?.deliveryUnknown === true;
+  if (deliveryUnknown) {
+    updateMapConversationPendingMessage(target.operationId, {
+      status: "awaiting-confirmation",
+    });
+  } else {
+    state.mapConversationPendingMessages.delete(target.operationId);
+  }
+  scheduleMapConversationSnapshots();
+  return {
+    ok: false,
+    message: deliveryUnknown
+      ? "连接中断，消息状态尚未确认；请先刷新绑定对话再决定是否重试"
+      : error?.message || "消息发送失败",
+    threadId: target.threadId,
+  };
+}
+
 async function handleMapConversationRequest(event) {
   const request = parseMapConversationRequest(event?.data, { hostWindowId: CLIENT_WINDOW_ID });
   if (!request) return;
@@ -20821,33 +21558,107 @@ async function handleMapConversationRequest(event) {
     || binding.projectPath !== request.projectPath
     || !binding.editorWindow
     || binding.editorWindow.closed) return;
-  if (request.action === "snapshot-request") {
+  try {
+    if (request.action === "snapshot-request") {
+      void ensureMapConversationThreadHydrated(binding);
+      broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+      return;
+    }
+    if (request.action === "hydrate-thread") {
+      if (request.threadId !== binding.threadId) {
+        postMapConversationResult(binding, request, {
+          ok: false,
+          message: "只能读取当前工程绑定的对话",
+          threadId: binding.threadId,
+        });
+        return;
+      }
+      const hydration = await ensureMapConversationThreadHydrated(binding, { force: true });
+      postMapConversationResult(binding, request, {
+        ok: hydration?.status === "ready" || (
+          state.activeThread?.id === binding.threadId
+          && state.currentProject?.path === binding.projectPath
+        ),
+        message: hydration?.status === "error"
+          ? `绑定对话读取失败：${hydration.error}`
+          : "绑定对话历史已同步",
+        threadId: binding.threadId,
+      });
+      broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+      return;
+    }
+    if (request.action === "focus-main") {
+      await focusMapConversationMain(binding, request);
+      return;
+    }
+    if (["switch-thread", "unbind-thread"].includes(request.action)
+      && request.expectedBoundThreadId !== binding.threadId) {
+      postMapConversationResult(binding, request, {
+        ok: false,
+        message: "工程对话绑定已经变化，请刷新后再操作",
+        threadId: binding.threadId,
+      });
+      return;
+    }
+    if (request.action === "switch-thread") {
+      await switchMapConversationThread(binding, request);
+      return;
+    }
+    if (request.action === "unbind-thread") {
+      await unbindMapConversationThread(binding, request);
+      return;
+    }
+    if (request.action === "send") {
+      await sendMapConversationMessage(binding, request);
+      return;
+    }
+    if (request.action === "interrupt") {
+      await interruptMapConversationTurn(binding, request);
+    }
+  } catch (error) {
+    postMapConversationResult(binding, request, {
+      ok: false,
+      message: error?.message || "地图对话操作失败",
+      threadId: binding.threadId,
+    });
     broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
-    return;
-  }
-  if (request.action === "focus-main") {
-    window.focus();
-    postMapConversationResult(binding, request, { ok: true, message: "已切回主界面" });
-    broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
-    return;
-  }
-  if (request.action === "switch-thread") {
-    await switchMapConversationThread(binding, request);
-    return;
-  }
-  if (request.action === "send") {
-    await sendMapConversationMessage(binding, request);
-    return;
-  }
-  if (request.action === "interrupt") {
-    await interruptMapConversationTurn(binding, request);
   }
 }
 
+async function focusMapConversationMain(binding, request) {
+  const thread = conversationThreadById(binding.threadId, binding.projectPath);
+  if (state.runtime !== "codex" || !thread) {
+    postMapConversationResult(binding, request, {
+      ok: false,
+      message: "绑定对话尚未加载，暂时无法在主界面打开",
+      threadId: binding.threadId,
+    });
+    broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+    return;
+  }
+  window.focus();
+  await selectThread({ ...thread, cwd: thread.cwd || binding.projectPath });
+  const opened = state.activeThread?.id === binding.threadId
+    && state.currentProject?.path === binding.projectPath;
+  postMapConversationResult(binding, request, {
+    ok: opened,
+    message: opened ? "已在主界面打开绑定对话" : "主界面未能打开绑定对话，请查看主界面状态",
+    threadId: binding.threadId,
+  });
+  broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+}
+
 async function switchMapConversationThread(binding, request) {
-  const thread = state.threads.find((entry) => (
-    entry.id === request.threadId && entry.cwd === binding.projectPath
-  ));
+  if (binding.conversationSwitchPending) {
+    postMapConversationResult(binding, request, {
+      ok: false,
+      message: "当前工程正在切换绑定对话，请等待结果后再试",
+      threadId: binding.threadId,
+    });
+    return;
+  }
+  const thread = conversationThreadById(request.threadId, binding.projectPath)
+    || state.threads.find((entry) => entry.id === request.threadId);
   if (state.runtime !== "codex" || !thread) {
     postMapConversationResult(binding, request, {
       ok: false,
@@ -20855,77 +21666,328 @@ async function switchMapConversationThread(binding, request) {
     });
     return;
   }
-  if (binding.threadId !== thread.id) revokeMapBindingGameWorkMode(binding);
-  await selectThread(thread);
-  if (state.activeThread?.id !== thread.id || state.currentProject?.path !== binding.projectPath) {
+  if (thread.cwd && thread.cwd !== binding.projectPath) {
     postMapConversationResult(binding, request, {
       ok: false,
-      message: "主界面未能切换到所选对话",
+      message: "只能切换到当前工程中的 Codex 对话",
       threadId: binding.threadId,
     });
-    broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
     return;
   }
-  binding.threadId = thread.id;
-  state.imageContextLedger.clear();
+  const projectBindings = [...state.mapEditorGameBindings.values()].filter((entry) => (
+    entry.projectPath === binding.projectPath
+  ));
+  if (projectBindings.some((entry) => (
+    entry.threadId !== thread.id
+    && mapConversationThreadOperationInFlight(entry.threadId, entry.projectPath)
+  ))) {
+    postMapConversationResult(binding, request, {
+      ok: false,
+      message: "当前绑定对话仍有发送或终止操作，完成后再切换",
+      threadId: binding.threadId,
+    });
+    return;
+  }
+  binding.conversationSwitchPending = true;
+  try {
+    const current = await loadMapConversationBinding(binding.projectPath, { force: true });
+    const currentThreadId = current?.threadId || null;
+    if (request.expectedBoundThreadId !== currentThreadId) {
+      throw new Error("工程对话绑定已经变化，请刷新后再操作");
+    }
+    if (currentThreadId && mapConversationThreadOperationInFlight(currentThreadId, binding.projectPath)) {
+      throw new Error("当前绑定对话仍有发送或终止操作，完成后再切换");
+    }
+    let saved;
+    try {
+      saved = await saveMapConversationBinding(
+        binding.projectPath,
+        thread.id,
+        Number(current?.revision) || 0,
+      );
+    } catch (error) {
+      if (error?.status !== 409) throw error;
+      const latest = await loadMapConversationBinding(binding.projectPath, { force: true });
+      if (latest?.threadId !== thread.id) throw error;
+      saved = latest;
+    }
+    handleMapConversationBindingUpdate({
+      projectPath: binding.projectPath,
+      previousThreadId: currentThreadId,
+      binding: saved,
+    }, { fromCache: true });
+  } finally {
+    binding.conversationSwitchPending = false;
+  }
   postMapConversationResult(binding, request, {
     ok: true,
-    message: "已切换同项目对话；旧游戏模式和地图 AI 授权需重新握手",
+    message: "已切换工程绑定对话；主界面当前对话保持不变，地图 AI 授权需重新握手",
     threadId: thread.id,
   });
   renderMapGameWorkModeSetting();
+  scheduleMapConversationSnapshots();
+  broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+}
+
+async function unbindMapConversationThread(binding, request) {
+  if (binding.conversationSwitchPending) {
+    postMapConversationResult(binding, request, {
+      ok: false,
+      message: "当前工程正在修改绑定，请等待结果后再试",
+      threadId: binding.threadId,
+    });
+    return;
+  }
+  const projectBindings = [...state.mapEditorGameBindings.values()].filter((entry) => (
+    entry.projectPath === binding.projectPath
+  ));
+  if (projectBindings.some((entry) => (
+    entry.threadId && mapConversationThreadOperationInFlight(entry.threadId, entry.projectPath)
+  ))) {
+    throw new Error("当前绑定对话仍有发送或终止操作，完成后再解除绑定");
+  }
+  binding.conversationSwitchPending = true;
+  try {
+    const current = await loadMapConversationBinding(binding.projectPath, { force: true });
+    if (request.expectedBoundThreadId !== (current?.threadId || null)) {
+      throw new Error("工程对话绑定已经变化，请刷新后再操作");
+    }
+    let saved;
+    try {
+      saved = await saveMapConversationBinding(
+        binding.projectPath,
+        null,
+        Number(current?.revision) || 0,
+      );
+    } catch (error) {
+      if (error?.status !== 409) throw error;
+      const latest = await loadMapConversationBinding(binding.projectPath, { force: true });
+      if (latest?.threadId !== null) throw error;
+      saved = latest;
+    }
+    handleMapConversationBindingUpdate({
+      projectPath: binding.projectPath,
+      previousThreadId: current?.threadId || null,
+      binding: saved,
+    }, { fromCache: true });
+  } finally {
+    binding.conversationSwitchPending = false;
+  }
+  postMapConversationResult(binding, request, {
+    ok: true,
+    message: "已解除工程对话绑定；当前工程仍可读取全部可见对话",
+    threadId: null,
+  });
+  renderMapGameWorkModeSetting();
+  scheduleMapConversationSnapshots();
   broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
 }
 
 async function sendMapConversationMessage(binding, request) {
   const cached = state.mapConversationOperations.get(request.operationId);
   if (cached) {
+    if (request.threadId !== binding.threadId) {
+      postMapConversationResult(binding, request, {
+        ok: false,
+        message: "绑定对话已经变化，未重放旧请求",
+        threadId: binding.threadId,
+      });
+      return;
+    }
     postMapConversationResult(binding, request, cached);
     broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
     return;
   }
+  if (request.threadId !== binding.threadId) {
+    const result = { ok: false, message: "绑定对话已经变化，消息未发送", threadId: binding.threadId };
+    rememberMapConversationOperation(request.operationId, result);
+    postMapConversationResult(binding, request, result);
+    return;
+  }
+  const inFlight = state.mapConversationDirectOperations.get(request.operationId);
+  if (inFlight) {
+    try {
+      const result = inFlight.promise
+        ? await inFlight.promise
+        : inFlight.result || await Promise.reject(inFlight.error);
+      if (mapConversationTargetStillBound(inFlight.target)) {
+        postMapConversationResult(binding, request, result);
+        broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+      }
+    } catch (error) {
+      const result = mapConversationSendErrorResult(inFlight.target, error);
+      if (mapConversationTargetStillBound(inFlight.target)) {
+        postMapConversationResult(binding, request, result);
+        broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+      }
+    }
+    return;
+  }
   const availability = mapConversationAvailability(binding);
-  if (!availability.canSend || request.threadId !== binding.threadId) {
+  if (!availability.canSend) {
     const result = { ok: false, message: availability.label, threadId: binding.threadId };
     rememberMapConversationOperation(request.operationId, result);
     postMapConversationResult(binding, request, result);
     return;
   }
-  elements.promptInput.value = request.text;
-  resizePrompt();
-  await sendPrompt();
-  const accepted = elements.promptInput.value.trim() !== request.text.trim();
-  const result = accepted
-    ? { ok: true, message: state.activeTurnId ? "消息已送达当前回合" : "消息已发送", threadId: binding.threadId }
-    : { ok: false, message: "消息未发送，请在主界面检查账号、供应商或权限状态", threadId: binding.threadId };
-  if (!accepted && elements.promptInput.value.trim() === request.text.trim()) {
-    elements.promptInput.value = "";
-    resizePrompt();
+  const target = mapConversationTargetFor(binding, request.threadId, request.operationId);
+  rememberMapConversationPendingMessage(target, request);
+  scheduleMapConversationSnapshots(0);
+  const operation = runMapConversationDirectOperation(
+    target,
+    request.operationId,
+    () => executeMapConversationSend(target, request),
+  );
+  const record = state.mapConversationDirectOperations.get(request.operationId);
+  if (record) record.target = target;
+  let result;
+  try {
+    result = await operation;
+  } catch (error) {
+    result = mapConversationSendErrorResult(target, error);
   }
   rememberMapConversationOperation(request.operationId, result);
+  if (!mapConversationTargetStillBound(target)) return;
   postMapConversationResult(binding, request, result);
   broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
 }
 
 async function interruptMapConversationTurn(binding, request) {
-  if (request.threadId !== binding.threadId
-    || state.runtime !== "codex"
-    || state.activeThread?.id !== binding.threadId
-    || !state.activeTurnId) {
+  const targetThreadId = request.threadId;
+  const targetTurnId = request.turnId;
+  const target = mapConversationTargetFor(binding, targetThreadId, request.requestId);
+  if (targetThreadId !== binding.threadId) {
     postMapConversationResult(binding, request, {
       ok: false,
-      message: "当前绑定对话没有可终止的运行中回合",
+      message: "绑定对话已经变化，未停止其他回合",
       threadId: binding.threadId,
     });
     return;
   }
-  await interruptTurn();
-  postMapConversationResult(binding, request, {
-    ok: true,
-    message: "已提交终止请求",
-    threadId: binding.threadId,
-  });
-  broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+
+  const cached = state.mapConversationOperations.get(request.requestId);
+  if (cached) {
+    if (cached.threadId === targetThreadId && mapConversationTargetStillBound(target)) {
+      postMapConversationResult(binding, request, cached);
+    }
+    return;
+  }
+  const direct = state.mapConversationDirectOperations.get(request.requestId);
+  if (direct) {
+    try {
+      const operationResult = direct.promise
+        ? await direct.promise
+        : direct.result || await Promise.reject(direct.error);
+      if (mapConversationTargetStillBound(direct.target || target)) {
+        postMapConversationResult(binding, request, operationResult);
+        broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+      }
+    } catch (error) {
+      const operationResult = {
+        ok: false,
+        message: error.message || "终止请求失败",
+        threadId: targetThreadId,
+      };
+      if (mapConversationTargetStillBound(direct.target || target)) {
+        postMapConversationResult(binding, request, operationResult);
+        broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+      }
+    }
+    return;
+  }
+
+  const threadState = mapConversationThreadState(targetThreadId, binding.projectPath);
+  if (state.runtime !== "codex"
+    || targetTurnId !== threadState.activeTurnId
+    || !threadState.activeTurnId
+    || !["running", "waiting", "stopping"].includes(threadState.status)) {
+    postMapConversationResult(binding, request, {
+      ok: false,
+      message: "当前绑定对话的运行回合已经变化或结束，未停止其他回合",
+      threadId: targetThreadId,
+    });
+    broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+    return;
+  }
+
+  const targetIsActive = () => (
+    state.activeThread?.id === targetThreadId
+    && (state.activeTurnId === targetTurnId || state.codexActiveTurnId === targetTurnId)
+  );
+  if (mapConversationThreadOperationInFlight(targetThreadId, binding.projectPath)) {
+    postMapConversationResult(binding, request, {
+      ok: false,
+      message: "绑定对话已有发送或终止操作，请稍后再试",
+      threadId: targetThreadId,
+    });
+    return;
+  }
+  const operation = runMapConversationDirectOperation(
+    target,
+    request.requestId,
+    async () => {
+      const result = await mapConversationRpcWithRetry("turn/interrupt", {
+        threadId: targetThreadId,
+        turnId: targetTurnId,
+      });
+      if (result?.taskStatus) {
+        rememberMapConversationTaskStatus(result.taskStatus);
+        if (targetIsActive()) renderTaskStatus(result.taskStatus);
+      }
+      const returnedTaskIsInactive = Boolean(
+        result?.taskStatus
+        && !ACTIVE_TASK_STATUSES.has(result.taskStatus.status),
+      );
+      const cleanupConfirmed = result?.confirmedInactive === true
+        && result.nativeVerified === true
+        && result.goalPauseConfirmed === true
+        && result.settlementEvidence !== "notification-terminal"
+        && returnedTaskIsInactive;
+      if (cleanupConfirmed && targetIsActive()) {
+        state.activeTurnId = null;
+        state.codexActiveTurnId = null;
+        state.interruptRequestPending = false;
+      }
+      const message = cleanupConfirmed
+        ? "已核实绑定回合结束"
+        : result?.goalPausePending === true || result?.stale
+          ? "已提交终止请求，正在核实实际状态"
+          : result?.reconciled ? "已找到绑定回合并发送终止请求" : "已发送终止请求";
+      return {
+        ok: true,
+        message,
+        threadId: targetThreadId,
+      };
+    },
+  );
+  let operationResult;
+  try {
+    operationResult = await operation;
+    const directRecord = state.mapConversationDirectOperations.get(request.requestId);
+    if (directRecord) directRecord.result = operationResult;
+    rememberMapConversationOperation(request.requestId, operationResult);
+    if (mapConversationTargetStillBound(target)) postMapConversationResult(binding, request, operationResult);
+    void loadTaskStatus({ force: true });
+    queueTaskCenterRefresh();
+  } catch (error) {
+    operationResult = {
+      ok: false,
+      message: error.message || "终止请求失败",
+      threadId: targetThreadId,
+    };
+    rememberMapConversationOperation(request.requestId, operationResult);
+    if (mapConversationTargetStillBound(target)) postMapConversationResult(binding, request, operationResult);
+  }
+  if (mapConversationTargetStillBound(target)) {
+    broadcastMapConversationSnapshot(binding, { requestId: request.requestId });
+  }
+}
+
+function rememberMapConversationTaskStatus(task) {
+  if (!task?.threadId) return;
+  const current = [...state.threadTaskStatuses.values()]
+    .filter((entry) => entry.threadId !== task.threadId);
+  rememberThreadTaskStatuses([...current, task]);
 }
 
 function rememberMapConversationOperation(operationId, result) {
@@ -20977,8 +22039,10 @@ function scheduleMapConversationSnapshots(delayMs = 80) {
 }
 
 function broadcastMapConversationSnapshot(binding, { requestId = null } = {}) {
-  if (!state.gameWorkModeChannel || !binding?.threadId) return;
+  if (!state.gameWorkModeChannel || !binding) return;
   try {
+    void ensureMapConversationThreadHydrated(binding);
+    const threadState = mapConversationThreadState(binding.threadId, binding.projectPath);
     state.gameWorkModeChannel.postMessage(createMapConversationSnapshot({
       hostWindowId: CLIENT_WINDOW_ID,
       editorInstanceId: binding.editorInstanceId,
@@ -20986,12 +22050,25 @@ function broadcastMapConversationSnapshot(binding, { requestId = null } = {}) {
       projectPath: binding.projectPath,
       requestId,
       revision: ++state.mapConversationRevision,
+      contextVersion: state.conversationState.revision,
+      eventSequence: state.codexEventSequence,
       runtime: state.runtime,
       boundThreadId: binding.threadId,
       activeThreadId: state.runtime === "codex" ? state.activeThread?.id || null : null,
       threads: mapConversationThreads(binding.projectPath),
-      messages: mapConversationMessages(binding.threadId),
-      conversation: mapConversationAvailability(binding),
+      messages: mapConversationMessages(binding.threadId, binding.projectPath),
+      conversation: mapConversationAvailability(binding, threadState),
+      threadState: {
+        status: threadState.status,
+        activeTurnId: threadState.activeTurnId,
+        loaded: threadState.loaded,
+        complete: threadState.complete,
+        earlierAvailable: threadState.earlierAvailable,
+        updatedAt: threadState.updatedAt,
+      },
+      compaction: mapConversationCompaction(binding.threadId, threadState.thread),
+      activities: mapConversationActivities(threadState.thread),
+      loading: mapConversationLoading(threadState, binding),
       imageDelivery: mapConversationImageDelivery(binding),
     }));
   } catch (error) {
@@ -21000,12 +22077,23 @@ function broadcastMapConversationSnapshot(binding, { requestId = null } = {}) {
 }
 
 function mapConversationThreads(projectPath) {
-  const candidates = state.threads.filter((thread) => thread?.id && thread.cwd === projectPath);
-  if (state.activeThread?.id && state.activeThread.cwd === projectPath
-    && !candidates.some((thread) => thread.id === state.activeThread.id)) {
-    candidates.unshift(state.activeThread);
+  const candidates = new Map();
+  for (const thread of listConversationThreads(
+    state.conversationState,
+    activeConversationScope(projectPath),
+  )) {
+    if (thread?.id && (!thread.cwd || thread.cwd === projectPath)) candidates.set(thread.id, thread);
   }
-  return candidates.slice(0, 100).map((thread) => ({
+  for (const thread of state.threads) {
+    if (thread?.id && thread.cwd === projectPath && !candidates.has(thread.id)) {
+      candidates.set(thread.id, thread);
+    }
+  }
+  if (state.activeThread?.id && state.activeThread.cwd === projectPath
+    && !candidates.has(state.activeThread.id)) {
+    candidates.set(state.activeThread.id, state.activeThread);
+  }
+  return [...candidates.values()].slice(0, 100).map((thread) => ({
     id: thread.id,
     title: conversationDisplayTitle(thread),
     preview: conversationDisplayText(thread.preview),
@@ -21018,20 +22106,26 @@ function mapConversationThreads(projectPath) {
 
 function mapConversationThreadStatus(thread) {
   const task = state.threadTaskStatuses.get(thread.id);
+  const runtime = state.threadRuntimeStatuses.get(thread.id);
   if (task?.status === "waiting") return "waiting";
   if (["queued", "running", "uncertain"].includes(task?.status)) return "running";
   if (task?.status === "stopping") return "stopping";
   if (task?.status === "failed") return "failed";
+  if (runtime?.type === "active") return "running";
+  if (runtime?.type === "systemError") return "failed";
+  if (runtime?.type === "notLoaded") return "notLoaded";
   if (thread.status?.type === "active") return "running";
   if (thread.status?.type === "systemError") return "failed";
   if (thread.status?.type === "notLoaded") return "notLoaded";
   return "idle";
 }
 
-function mapConversationMessages(threadId) {
-  if (state.runtime !== "codex" || state.activeThread?.id !== threadId) return [];
+function mapConversationMessages(threadId, projectPath = null) {
+  if (state.runtime !== "codex") return [];
+  const thread = conversationThreadById(threadId, projectPath);
+  if (!thread) return [];
   const messages = [];
-  for (const turn of state.activeThread.turns || []) {
+  for (const turn of thread.turns || []) {
     for (const item of turn.items || []) {
       if (item?.type === "userMessage") {
         const visible = visibleUserContent(item.content || []);
@@ -21065,7 +22159,7 @@ function mapConversationMessages(threadId) {
       }
     }
   }
-  if (state.pendingUserMessage) messages.push({
+  if (state.pendingUserMessage && state.activeThread?.id === threadId) messages.push({
     id: state.pendingUserMessage.clientId || "pending-user",
     turnId: state.pendingUserMessage.turnId || null,
     role: "user",
@@ -21086,7 +22180,194 @@ function mapConversationMessages(threadId) {
       streaming: false,
     });
   }
+  for (const pending of state.mapConversationPendingMessages.values()) {
+    if (pending.threadId !== threadId || mapConversationPendingMessageRecorded(pending, thread)) continue;
+    messages.push({
+      id: `pending-map-${pending.operationId}`,
+      turnId: pending.turnId || null,
+      role: "user",
+      text: pending.text || "",
+      attachments: [],
+      createdAt: mapConversationTimestamp(pending.createdAt),
+      streaming: false,
+    });
+  }
   return messages.slice(-80);
+}
+
+function mapConversationThreadState(threadId, projectPath = null) {
+  const thread = conversationThreadById(threadId, projectPath);
+  const task = state.threadTaskStatuses.get(threadId) || null;
+  const hydration = mapConversationHydrationFor(threadId, projectPath);
+  const turns = Array.isArray(thread?.turns) ? thread.turns : [];
+  const activeTurn = turns.find((turn) => turnStatusType(turn) === "inProgress") || null;
+  const activeTurnId = activeTurn?.id || (
+    task && ACTIVE_TASK_STATUSES.has(task.status) ? task.turnId : null
+  );
+  let status = mapConversationThreadStatus(thread || { id: threadId });
+  if (task?.status === "stopping") status = "stopping";
+  else if (activeTurnId && status === "idle") status = "running";
+  const active = state.activeThread?.id === threadId
+    && state.currentProject?.path === projectPath;
+  const loaded = active
+    ? Boolean(thread && state.loadedThreadIds.has(threadId))
+    : hydration?.loaded === true;
+  const complete = active
+    ? loaded && !Boolean(state.threadHistoryCursor)
+    : hydration?.status === "ready";
+  const earlierAvailable = active
+    ? Boolean(state.threadHistoryCursor)
+    : hydration?.earlierAvailable === true;
+  const updatedAt = Math.max(
+    mapConversationTimestamp(thread?.updatedAt),
+    mapConversationTimestamp(task?.updatedAt),
+    mapConversationTimestamp(activeTurn?.completedAtMs),
+    mapConversationTimestamp(activeTurn?.startedAtMs),
+  );
+  return {
+    thread,
+    task,
+    hydration,
+    status,
+    activeTurnId,
+    active,
+    loaded,
+    complete,
+    earlierAvailable,
+    updatedAt,
+  };
+}
+
+function mapConversationCompaction(threadId, thread) {
+  const records = new Map(state.threadCompactionEvents.get(threadId) || []);
+  let runningTurnId = null;
+  let lastAt = 0;
+  for (const turn of thread?.turns || []) {
+    for (const item of turn.items || []) {
+      if (item?.type !== "contextCompaction") continue;
+      const key = turn.id || item.id || `compaction-${records.size}`;
+      const at = mapConversationTimestamp(messageTimestamp(item, turn));
+      if (item._compactionComplete === false) runningTurnId = turn.id || null;
+      else records.set(key, at || records.get(key) || 0);
+      lastAt = Math.max(lastAt, at);
+    }
+  }
+  for (const at of records.values()) lastAt = Math.max(lastAt, mapConversationTimestamp(at));
+  const running = state.contextCompactionThreadId === threadId || Boolean(runningTurnId);
+  return {
+    status: running ? "running" : records.size ? "completed" : "idle",
+    turnId: runningTurnId,
+    count: records.size,
+    lastAt,
+    updatedAt: lastAt,
+    label: running
+      ? "正在压缩上下文"
+      : records.size ? `已记录 ${records.size} 次上下文压缩` : "未记录上下文压缩",
+  };
+}
+
+function mapConversationActivityStatus(item, turn) {
+  const status = turnStatusType(item) || turnStatusType(turn);
+  if (["inProgress", "running"].includes(status)) return "running";
+  if (["failed", "error", "errored"].includes(status)) return "failed";
+  if (["interrupted", "cancelled", "canceled"].includes(status)) return "stopped";
+  if (["waiting", "queued"].includes(status)) return "waiting";
+  return "completed";
+}
+
+function mapConversationActivities(thread) {
+  const activities = [];
+  const types = new Set([
+    "mcpToolCall",
+    "commandExecution",
+    "fileChange",
+    "collabAgentToolCall",
+    "subAgentActivity",
+    "hookRun",
+  ]);
+  for (const turn of thread?.turns || []) {
+    for (const item of turn.items || []) {
+      if (!types.has(item?.type)) continue;
+      const type = item.type === "mcpToolCall"
+        ? "mcp"
+        : item.type === "commandExecution"
+          ? "command"
+          : item.type === "fileChange"
+            ? "fileChange"
+            : ["collabAgentToolCall", "subAgentActivity"].includes(item.type)
+              ? "subagent"
+              : item.type === "hookRun" ? "hook" : "other";
+      const fileCount = type === "fileChange" && Array.isArray(item.changes)
+        ? item.changes.length
+        : 0;
+      const updatedAt = mapConversationTimestamp(
+        messageTimestamp(item, turn) || item.completedAtMs || item.startedAtMs || item._eventAt,
+      );
+      activities.push({
+        id: protocolEntityId(item) || `${turn.id}-${type}-${activities.length}`,
+        type,
+        status: mapConversationActivityStatus(item, turn),
+        title: {
+          mcp: "MCP 工具",
+          command: "命令执行",
+          fileChange: "文件修改",
+          subagent: "子代理协作",
+          hook: "Hook",
+          other: "工具活动",
+        }[type],
+        turnId: turn.id,
+        fileCount,
+        updatedAt,
+      });
+    }
+  }
+  return activities
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, 24);
+}
+
+function mapConversationLoading(threadState, binding) {
+  if (state.runtime !== "codex") {
+    return { status: "error", complete: false, label: "主界面当前不是 Codex 模式", updatedAt: Date.now() };
+  }
+  if (!state.bridgeReady) {
+    return { status: "disconnected", complete: false, label: "主界面对话连接尚未就绪", updatedAt: Date.now() };
+  }
+  if (!binding.threadId) {
+    return { status: "ready", complete: true, label: "当前工程未绑定对话", updatedAt: Date.now() };
+  }
+  if (!threadState.active && threadState.hydration?.status === "loading") {
+    return {
+      status: "loading",
+      complete: false,
+      label: threadState.hydration.loaded ? "正在更新绑定对话" : "正在读取绑定对话历史",
+      updatedAt: threadState.hydration.updatedAt || Date.now(),
+    };
+  }
+  if (threadState.active && state.threadSelectionPending) {
+    return { status: "loading", complete: false, label: "正在恢复绑定对话", updatedAt: Date.now() };
+  }
+  if (!threadState.thread) {
+    return { status: "partial", complete: false, label: "正在同步绑定对话", updatedAt: Date.now() };
+  }
+  if (!threadState.active && threadState.hydration?.status === "error") {
+    return {
+      status: "error",
+      complete: false,
+      label: threadState.hydration.loaded
+        ? `已显示缓存内容；历史更新失败：${threadState.hydration.error}`
+        : `绑定对话读取失败：${threadState.hydration.error}`,
+      updatedAt: threadState.hydration.updatedAt || Date.now(),
+    };
+  }
+  return {
+    status: threadState.complete ? "ready" : "partial",
+    complete: threadState.complete,
+    label: threadState.complete
+      ? threadState.earlierAvailable ? "绑定对话已就绪；还有更早记录" : "绑定对话已就绪"
+      : "已显示缓存内容，历史仍在加载",
+    updatedAt: Date.now(),
+  };
 }
 
 function mapConversationAttachment(entry) {
@@ -21099,56 +22380,107 @@ function mapConversationAttachment(entry) {
   };
 }
 
-function mapConversationAvailability(binding) {
-  const active = state.runtime === "codex"
-    && state.activeThread?.id === binding.threadId
-    && state.currentProject?.path === binding.projectPath;
-  const mainComposerBlocked = Boolean(
-    elements.promptInput.value.trim()
-    || state.attachments.length
-    || state.selectedCodexSkills.length
-    || state.selectedCodexApps.length
-    || state.imageGenerationMode
+function mapConversationAvailability(binding, providedThreadState = null) {
+  const threadState = providedThreadState || mapConversationThreadState(binding.threadId, binding.projectPath);
+  const targetTurnId = threadState.activeTurnId;
+  const targetThreadId = binding.threadId;
+  const targetQueued = threadState.task?.status === "queued";
+  const targetIsRunning = ["running", "waiting", "stopping"].includes(threadState.status)
+    || Boolean(targetTurnId);
+  const targetNeedsTurnIdentity = targetIsRunning && !targetTurnId;
+  const targetOperationInFlight = mapConversationThreadOperationInFlight(
+    targetThreadId,
+    binding.projectPath,
   );
+  const targetIsActiveInMain = state.activeThread?.id === targetThreadId
+    && state.currentProject?.path === binding.projectPath;
+  const mainTurnRequestTarget = state.pendingTurnRequest?.params?.threadId || null;
+  const mainSteerRequestTarget = state.pendingSteerRequest?.params?.threadId || null;
+  const mainTurnOperationPending = mainTurnRequestTarget === targetThreadId
+    || mainSteerRequestTarget === targetThreadId
+    || (state.steerRequestPending && mainSteerRequestTarget === targetThreadId);
+  const mainPreparationPending = state.turnPreparationPending && (
+    targetIsActiveInMain
+    || mainTurnRequestTarget === targetThreadId
+    || mainSteerRequestTarget === targetThreadId
+  );
+  const mainInterruptPending = state.interruptRequestPending
+    && targetIsActiveInMain
+    && [state.activeTurnId, state.codexActiveTurnId].includes(targetTurnId);
+  const compactionPending = state.contextCompactionThreadId === targetThreadId;
+  const providerUnavailable = state.providerConfigurationRequired;
   let status = "ready";
   let label = "可以从地图编辑器发送到同一对话";
-  if (state.runtime !== "codex") [status, label] = ["unavailable", "主界面当前不是 Codex 模式"];
+  if (!targetThreadId) [status, label] = ["unavailable", "当前工程尚未绑定对话"];
+  else if (state.runtime !== "codex") [status, label] = ["unavailable", "主界面当前不是 Codex 模式"];
   else if (!state.bridgeReady) [status, label] = ["disconnected", "主界面对话连接尚未就绪"];
-  else if (!active) [status, label] = ["waiting", "请先切换到这个绑定对话"];
-  else if (state.threadSelectionPending) [status, label] = ["switching", "正在切换对话"];
-  else if (mainComposerBlocked) [status, label] = ["waiting", "主界面输入框有未发送内容或处于生图模式"];
-  else if (state.pendingTurnRequest || state.pendingSteerRequest || state.turnPreparationPending) {
-    [status, label] = ["waiting", "上一条消息仍在确认投递"];
-  } else if (state.activeTurnId) {
+  else if (!threadState.thread) [status, label] = ["waiting", "正在同步绑定对话"];
+  else if (binding.conversationSwitchPending) [status, label] = ["switching", "正在切换绑定对话"];
+  else if (targetOperationInFlight) [status, label] = ["waiting", "绑定对话操作正在确认"];
+  else if (targetQueued) [status, label] = ["waiting", "绑定对话正在排队"];
+  else if (targetNeedsTurnIdentity) [status, label] = ["waiting", "正在确认绑定对话的运行回合"];
+  else if (threadState.status === "stopping") [status, label] = ["waiting", "绑定对话正在终止"];
+  else if (compactionPending) [status, label] = ["waiting", "绑定对话正在压缩上下文"];
+  else if (mainTurnOperationPending || mainPreparationPending) {
+    [status, label] = ["waiting", "绑定对话已有一条消息正在确认投递"];
+  } else if (mainInterruptPending) {
+    [status, label] = ["waiting", "绑定对话正在终止"];
+  } else if (providerUnavailable) {
+    [status, label] = ["waiting", "请先配置 API 供应商"];
+  } else if (targetTurnId) {
     [status, label] = ["running", conversationBusyLabel() || "Codex 正在处理；可追加指令"];
   }
   const blocked = Boolean(
-    !active
+    !targetThreadId
     || !state.bridgeReady
-    || state.threadSelectionPending
-    || mainComposerBlocked
-    || state.pendingTurnRequest
-    || state.pendingSteerRequest
-    || state.steerRequestPending
-    || state.turnPreparationPending
-    || state.uploading
-    || state.imageGenerating
-    || state.interruptRequestPending
-    || state.contextCompactionThreadId === binding.threadId
-    || state.providerConfigurationRequired
+    || !threadState.thread
+    || binding.conversationSwitchPending
+    || targetOperationInFlight
+    || targetQueued
+    || targetNeedsTurnIdentity
+    || threadState.status === "stopping"
+    || compactionPending
+    || mainTurnOperationPending
+    || mainPreparationPending
+    || mainInterruptPending
+    || providerUnavailable
   );
   return {
     status,
     label,
     canSend: !blocked,
-    canInterrupt: active && Boolean(state.activeTurnId) && !state.interruptRequestPending,
-    activeTurnId: active ? state.activeTurnId : null,
-    mainComposerBlocked,
-    imageIsolationEnabled: active ? imageIsolationEnabledForActiveConversation() : false,
+    canInterrupt: Boolean(
+      targetThreadId
+      && state.runtime === "codex"
+      && state.bridgeReady
+      && targetTurnId
+      && ["running", "waiting", "stopping"].includes(threadState.status)
+      && !targetOperationInFlight
+      && !mainInterruptPending
+      && !compactionPending
+    ),
+    activeTurnId: targetTurnId,
+    mainComposerBlocked: Boolean(
+      elements.promptInput.value.trim()
+      || state.attachments.length
+      || state.selectedCodexSkills.length
+      || state.selectedCodexApps.length
+      || state.imageGenerationMode
+    ),
+    imageIsolationEnabled: targetIsActiveInMain ? imageIsolationEnabledForActiveConversation() : false,
   };
 }
 
 function mapConversationImageDelivery(binding) {
+  if (!binding.threadId) {
+    return {
+      mode: "none",
+      fullCount: 0,
+      referenceCount: 0,
+      label: "当前工程尚未绑定对话",
+      updatedAt: 0,
+    };
+  }
   const remembered = state.mapConversationImageDeliveries.get(binding.threadId);
   if (remembered) return remembered;
   const isolationEnabled = state.activeThread?.id === binding.threadId
@@ -21446,6 +22778,9 @@ function closeGameWorkModeChannel() {
   state.gameWorkModeLeases.clear();
   state.imageContextLedger.clear();
   state.mapConversationOperations.clear();
+  state.mapConversationDirectOperations.clear();
+  state.mapConversationThreadLocks.clear();
+  state.mapConversationPendingMessages.clear();
   state.mapConversationImageDeliveries.clear();
   state.gameWorkModeChannel?.close();
   state.gameWorkModeChannel = null;
@@ -22643,6 +23978,13 @@ function handleCodexNotification(notification) {
           scopedNotificationThreadId,
         ) || state.activeThread;
       }
+      settleMapConversationPendingMessages(
+        scopedNotificationThreadId,
+        conversationThreadById(scopedNotificationThreadId, notificationProject),
+      );
+      // The map editor subscribes to the same bounded projection even when
+      // its bound Thread is not the Thread currently open in this window.
+      scheduleMapConversationSnapshots();
     }
   }
   if (method === "turn/started") {
@@ -22807,6 +24149,9 @@ function handleCodexNotification(notification) {
     state.threadRecentRefreshTimers.delete(params.threadId);
     state.threadRecentRefreshVersions.delete(params.threadId);
     state.threadRecentRefreshInFlight.delete(params.threadId);
+    for (const [key, hydration] of state.mapConversationHydrations) {
+      if (hydration.threadId === params.threadId) state.mapConversationHydrations.delete(key);
+    }
     clearThreadItemPages(params.threadId, {
       cancelHydration: state.activeThread?.id === params.threadId,
     });
@@ -34994,7 +36339,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.65");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.66-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -35589,6 +36934,7 @@ function toggleToolboxFavorite(toolId) {
 
 function renderToolbox() {
   if (!elements.toolboxToolGrid) return;
+  renderGameProjects();
   const category = state.toolboxCategory;
   const query = elements.toolboxSearch.value.trim().toLocaleLowerCase(interfaceLocale());
   const recent = new Set(state.toolboxRecent);
@@ -35639,6 +36985,294 @@ function renderToolbox() {
   elements.toolboxOpenBrowserButton.disabled = !state.currentProject;
   if (imageStudioButton && elements.imageStudioButton) imageStudioButton.disabled = elements.imageStudioButton.disabled;
   refreshIcons();
+}
+
+async function loadGameProjects({ silent = false } = {}) {
+  if (state.gameProjectsLoading) return state.gameProjects;
+  state.gameProjectsLoading = true;
+  renderGameProjects();
+  try {
+    const response = await fetchWithTimeout("/api/game-projects", { cache: "no-store" }, 15_000);
+    const data = await readApiJson(response, "无法读取游戏工程");
+    state.gameProjects = Array.isArray(data.projects) ? data.projects : [];
+    if (elements.gameProjectState) {
+      elements.gameProjectState.textContent = state.gameProjects.length
+        ? `${state.gameProjects.length} 个工程`
+        : "还没有登记游戏工程";
+      elements.gameProjectState.dataset.status = "";
+    }
+    return state.gameProjects;
+  } catch (error) {
+    state.gameProjects = [];
+    if (elements.gameProjectState) {
+      elements.gameProjectState.textContent = error.message;
+      elements.gameProjectState.dataset.status = "error";
+    }
+    if (!silent) toast(error.message, "error");
+    return [];
+  } finally {
+    state.gameProjectsLoading = false;
+    renderGameProjects();
+  }
+}
+
+function renderGameProjects() {
+  if (!elements.gameProjectList) return;
+  elements.gameProjectRefreshButton.disabled = state.gameProjectsLoading || state.gameProjectCreating;
+  elements.gameProjectNewButton.disabled = state.gameProjectCreating || !state.projectRoots.length;
+  const fragment = document.createDocumentFragment();
+  if (state.gameProjectsLoading && !state.gameProjects.length) {
+    const loading = document.createElement("p");
+    loading.className = "toolbox-game-project-empty";
+    loading.textContent = "正在读取游戏工程";
+    fragment.append(loading);
+  } else if (!state.gameProjects.length) {
+    const empty = document.createElement("p");
+    empty.className = "toolbox-game-project-empty";
+    empty.textContent = "还没有游戏工程；点击“新建工程”开始";
+    fragment.append(empty);
+  }
+  for (const project of state.gameProjects) {
+    const row = document.createElement("article");
+    row.className = "toolbox-game-project-row";
+    row.dataset.projectId = project.projectId || "";
+    const icon = document.createElement("span");
+    icon.className = "toolbox-game-project-icon";
+    icon.innerHTML = '<i data-lucide="gamepad-2"></i>';
+    const copy = document.createElement("div");
+    copy.className = "toolbox-game-project-copy";
+    const name = document.createElement("strong");
+    const pathLabel = document.createElement("span");
+    name.textContent = project.name || pathBasename(project.projectPath || "游戏工程");
+    pathLabel.textContent = project.projectPath || "未记录路径";
+    pathLabel.title = pathLabel.textContent;
+    copy.append(name, pathLabel);
+    const meta = document.createElement("small");
+    const status = project.available === false
+      ? "目录不可用"
+      : project.projectPath === state.currentProject?.path
+        ? "当前工程"
+        : project.writable === false ? "只读" : "可用";
+    const recent = project.recentResource || project.gameProjectRecentResource;
+    meta.textContent = [
+      status,
+      project.binding ? "已绑定修改对话" : "未绑定修改对话",
+      recent ? `最近：${recent}` : "尚无最近资源",
+    ].join(" · ");
+    const actions = document.createElement("div");
+    actions.className = "toolbox-game-project-actions-row";
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "secondary-button toolbox-game-project-open";
+    open.innerHTML = '<i data-lucide="log-in"></i><span></span>';
+    open.querySelector("span").textContent = status === "当前工程" ? "已进入" : "进入";
+    open.title = status === "当前工程" ? "当前游戏工程" : `进入 ${project.name || "游戏工程"}`;
+    open.disabled = project.available === false || state.gameProjectCreating;
+    open.addEventListener("click", () => void openRegisteredGameProject(project));
+    actions.append(open);
+    row.append(icon, copy, meta, actions);
+    fragment.append(row);
+  }
+  elements.gameProjectList.replaceChildren(fragment);
+  if (!state.gameProjectsLoading && elements.gameProjectState?.dataset.status !== "error") {
+    elements.gameProjectState.textContent = state.gameProjects.length
+      ? `${state.gameProjects.length} 个工程`
+      : "还没有登记游戏工程";
+  }
+  refreshIcons();
+}
+
+function gameProjectForPath(projectPath = state.currentProject?.path) {
+  if (typeof projectPath !== "string" || !projectPath) return null;
+  const registered = state.gameProjects.find((project) => project.projectPath === projectPath) || null;
+  const listed = state.projects.find((project) => project.path === projectPath && project.gameProjectId) || null;
+  const current = state.currentProject?.path === projectPath && state.currentProject.gameProjectId
+    ? state.currentProject
+    : null;
+  const projectId = registered?.projectId || listed?.gameProjectId || current?.gameProjectId || null;
+  if (!projectId) return null;
+  return {
+    ...(registered || {}),
+    ...(listed || {}),
+    ...(current || {}),
+    projectId,
+    gameProjectId: current?.gameProjectId || listed?.gameProjectId || projectId,
+  };
+}
+
+async function openRegisteredGameProject(project) {
+  if (!project?.projectId || project.available === false) {
+    toast("这个游戏工程目录当前不可用", "error");
+    return;
+  }
+  let target = state.projects.find((entry) => entry.path === project.projectPath);
+  if (!target) {
+    await loadProjects();
+    target = state.projects.find((entry) => entry.path === project.projectPath);
+  }
+  if (!target) {
+    toast("游戏工程不在当前账号的项目存储位置内", "error");
+    return;
+  }
+  const selected = { ...target, gameProjectId: project.projectId, gameProjectName: project.name };
+  const switched = await selectProject(selected);
+  if (!switched) return;
+  if (state.currentProject?.path === selected.path) state.currentProject = selected;
+  renderProjectContext();
+  void touchGameProject(project.projectId, {
+    editor: project.recentEditor || "game-workspace",
+  });
+  await openMapWorkspace(project.projectFile || null, project.projectId);
+  setToolboxView("resources");
+}
+
+async function touchGameProject(projectId, { relativePath = undefined, editor = undefined, snapshot = false } = {}) {
+  if (!projectId) return null;
+  const body = snapshot
+    ? {
+      ...(relativePath !== undefined ? { recentResource: relativePath } : {}),
+      ...(editor !== undefined ? { recentEditor: editor } : {}),
+    }
+    : {
+      ...(relativePath !== undefined ? { relativePath } : {}),
+      ...(editor !== undefined ? { editor } : {}),
+    };
+  try {
+    const response = await fetchWithTimeout(`/api/game-projects/${encodeURIComponent(projectId)}/${snapshot ? "snapshot" : "open"}`, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Codex-Desktop-Action": snapshot ? "game-project-snapshot" : "game-project-open",
+      },
+      body: JSON.stringify(body),
+    }, 15_000);
+    const data = await readApiJson(response, "无法保存游戏工程工作区");
+    const updated = data.project;
+    if (updated?.projectId) {
+      state.gameProjects = state.gameProjects.map((entry) => (
+        entry.projectId === updated.projectId ? { ...entry, ...updated } : entry
+      ));
+      renderGameProjects();
+    }
+    return updated || null;
+  } catch (error) {
+    console.warn("Unable to save game project workspace:", error);
+    return null;
+  }
+}
+
+function openGameProjectNewDialog() {
+  if (!state.projectRoots.length) {
+    toast("当前账号没有可用的项目存储位置", "error");
+    return;
+  }
+  elements.gameProjectNewForm.reset();
+  elements.gameProjectNewName.value = "我的游戏";
+  elements.gameProjectNewDirectory.value = "my-game";
+  elements.gameProjectNewProjectFile.value = "my-game.tiled-project";
+  elements.gameProjectNewInitialMap.value = "maps/main.tmj";
+  elements.gameProjectNewPreset.value = "building";
+  elements.gameProjectNewInitialLayer.value = "Ground";
+  elements.gameProjectNewError.textContent = "";
+  renderGameProjectRootOptions();
+  updateGameProjectNewForm();
+  elements.gameProjectNewDialog.showModal();
+  requestAnimationFrame(() => elements.gameProjectNewName.focus());
+}
+
+function closeGameProjectNewDialog() {
+  if (elements.gameProjectNewDialog.open) elements.gameProjectNewDialog.close();
+  elements.gameProjectNewError.textContent = "";
+}
+
+function renderGameProjectRootOptions() {
+  elements.gameProjectNewRoot.replaceChildren();
+  for (const root of state.projectRoots) {
+    elements.gameProjectNewRoot.append(new Option(`${root.label || "存储位置"} · ${root.path}`, root.id));
+  }
+  const preferred = state.projectRoots.find((root) => root.isDefault) || state.projectRoots[0];
+  if (preferred) elements.gameProjectNewRoot.value = preferred.id;
+}
+
+function selectedGameProjectRootPath() {
+  return state.projectRoots.find((root) => root.id === elements.gameProjectNewRoot.value)?.path
+    || state.projectRoots.find((root) => root.isDefault)?.path
+    || state.projectRoot
+    || "";
+}
+
+function gameProjectDirectoryPreview(value) {
+  const normalized = String(value || "").trim().normalize("NFKC").replace(/[^\p{Letter}\p{Number}._-]+/gu, "-");
+  return normalized.replace(/^-+|-+$/gu, "").slice(0, 128) || "game-project";
+}
+
+function updateGameProjectNewForm() {
+  const preset = elements.gameProjectNewPreset.value === "background" ? "background" : "building";
+  const defaultLayer = preset === "background" ? "Background" : "Ground";
+  const currentLayer = elements.gameProjectNewInitialLayer.value.trim();
+  if (!currentLayer || currentLayer === (preset === "background" ? "Ground" : "Background")) {
+    elements.gameProjectNewInitialLayer.value = defaultLayer;
+  }
+  const directory = gameProjectDirectoryPreview(elements.gameProjectNewDirectory.value || elements.gameProjectNewName.value);
+  const root = selectedGameProjectRootPath().replace(/\/$/u, "");
+  elements.gameProjectNewPathPreview.textContent = `${root}/${directory}`;
+  elements.gameProjectNewFilePreview.textContent = `${elements.gameProjectNewProjectFile.value.trim() || `${directory}.tiled-project`} · ${elements.gameProjectNewInitialMap.value.trim() || "maps/main.tmj"}`;
+  const infinite = elements.gameProjectNewInfinite.checked;
+  elements.gameProjectNewSizeGrid.hidden = infinite;
+  for (const input of [elements.gameProjectNewWidth, elements.gameProjectNewHeight]) input.disabled = infinite;
+  elements.gameProjectNewBackgroundColor.disabled = !elements.gameProjectNewBackgroundEnabled.checked;
+}
+
+async function submitGameProjectNewForm(event) {
+  event.preventDefault();
+  if (!elements.gameProjectNewForm.reportValidity() || state.gameProjectCreating) return;
+  state.gameProjectCreating = true;
+  elements.gameProjectNewError.textContent = "";
+  renderGameProjects();
+  const body = {
+    action: "create",
+    name: elements.gameProjectNewName.value.trim(),
+    directoryName: elements.gameProjectNewDirectory.value.trim(),
+    rootId: elements.gameProjectNewRoot.value,
+    projectFile: elements.gameProjectNewProjectFile.value.trim(),
+    initialMap: elements.gameProjectNewInitialMap.value.trim(),
+    preset: elements.gameProjectNewPreset.value,
+    orientation: elements.gameProjectNewOrientation.value,
+    infinite: elements.gameProjectNewInfinite.checked,
+    width: Number(elements.gameProjectNewWidth.value),
+    height: Number(elements.gameProjectNewHeight.value),
+    tilewidth: Number(elements.gameProjectNewTileWidth.value),
+    tileheight: Number(elements.gameProjectNewTileHeight.value),
+    initialLayerName: elements.gameProjectNewInitialLayer.value.trim(),
+    renderorder: elements.gameProjectNewRenderOrder.value,
+    initializeGit: elements.gameProjectNewInitializeGit.checked,
+    ...(elements.gameProjectNewBackgroundEnabled.checked
+      ? { backgroundcolor: elements.gameProjectNewBackgroundColor.value }
+      : {}),
+  };
+  try {
+    const response = await fetchWithTimeout("/api/game-projects", {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Codex-Desktop-Action": "game-project-create",
+      },
+      body: JSON.stringify(body),
+    }, 90_000);
+    const data = await readApiJson(response, "无法创建游戏工程");
+    closeGameProjectNewDialog();
+    await Promise.all([loadProjects(), loadGameProjects({ silent: true })]);
+    const created = data.project;
+    if (created?.projectId) await openRegisteredGameProject(created);
+    else toast("游戏工程已创建，但返回信息无效", "error");
+  } catch (error) {
+    elements.gameProjectNewError.textContent = error.message;
+  } finally {
+    state.gameProjectCreating = false;
+    renderGameProjects();
+  }
 }
 
 function setToolboxView(view) {
@@ -35728,9 +37362,14 @@ function updateProjectPathPreview() {
   setDataContent(elements.projectPathPreview, `${selectedProjectRootPath().replace(/\/$/, "")}/${name}`);
 }
 
-async function openMapWorkspace(projectFile = null) {
+async function openMapWorkspace(projectFile = null, gameProjectId = null) {
   const project = state.currentProject;
-  if (state.mapWorkspaceProjectPath !== project?.path) state.mapWorkspaceSelectedEntry = null;
+  const registered = gameProjectForPath(project?.path);
+  const resolvedGameProjectId = gameProjectId || project?.gameProjectId || registered?.projectId || null;
+  if (
+    state.mapWorkspaceProjectPath !== project?.path
+    || state.mapWorkspaceGameProjectId !== resolvedGameProjectId
+  ) state.mapWorkspaceSelectedEntry = null;
   closeMobilePanels();
   setDataContent(elements.mapWorkspaceProjectName, project?.name || "未选择工程");
   setDataContent(
@@ -35754,8 +37393,9 @@ async function openMapWorkspace(projectFile = null) {
   renderMapWorkspaceTabs();
   resetMapWorkspaceView();
   if (!elements.mapWorkspaceDialog.open) elements.mapWorkspaceDialog.showModal();
+  state.mapWorkspaceGameProjectId = resolvedGameProjectId;
   const loads = [loadMapAiToolsSetting({ silent: true })];
-  if (project) loads.push(loadMapWorkspaceProject(projectFile));
+  if (project) loads.push(loadMapWorkspaceProject(projectFile, resolvedGameProjectId));
   await Promise.allSettled(loads);
 }
 
@@ -35772,9 +37412,23 @@ async function openMapWorkspaceEditor() {
     return;
   }
 
-  const recent = state.mapEditorRecentTabs
-    .filter((entry) => entry.projectPath === project.path)
-    .sort((left, right) => (right.lastOpenedAt || 0) - (left.lastOpenedAt || 0))[0];
+  const registeredRecent = gameProjectForPath(project.path)?.recentResource
+    || gameProjectForPath(project.path)?.gameProjectRecentResource;
+  let recentRegisteredPath = registeredRecent && /\.tmj$/iu.test(registeredRecent)
+    ? registeredRecent
+    : null;
+  if (recentRegisteredPath && state.mapWorkspaceClient?.session) {
+    try {
+      await state.mapWorkspaceClient.readResourceVersion(recentRegisteredPath, "map");
+    } catch {
+      recentRegisteredPath = null;
+    }
+  }
+  const recent = recentRegisteredPath
+    ? { relativePath: recentRegisteredPath }
+    : state.mapEditorRecentTabs
+      .filter((entry) => entry.projectPath === project.path)
+      .sort((left, right) => (right.lastOpenedAt || 0) - (left.lastOpenedAt || 0))[0];
   if (recent?.relativePath) {
     await openMapEditorEntry({
       kind: "map",
@@ -35813,6 +37467,9 @@ function openCharacterEditor() {
     project: project.path,
     ...(state.account?.id ? { account: state.account.id } : {}),
   });
+  const gameProjectId = state.mapWorkspaceProjectSession?.gameProjectId
+    || gameProjectForPath(project.path)?.projectId;
+  if (gameProjectId) fragment.set("gameProjectId", gameProjectId);
   const projectFile = state.mapWorkspaceProjectSession?.projectFile;
   if (projectFile) fragment.set("projectFile", projectFile);
   const selected = state.mapWorkspaceSelectedEntry || state.resourcePreviewEntry;
@@ -35846,6 +37503,7 @@ function closeMapWorkspace() {
 function resetMapWorkspaceView() {
   state.mapWorkspaceProjectSession = null;
   state.mapWorkspaceProjectPath = null;
+  state.mapWorkspaceGameProjectId = null;
   state.mapWorkspaceDirectories = new Map();
   state.mapWorkspaceExpanded = new Set();
   state.mapWorkspaceSearchResult = null;
@@ -35867,9 +37525,12 @@ function resetMapWorkspaceView() {
   renderMapWorkspaceMaps();
 }
 
-async function loadMapWorkspaceProject(projectFile = null) {
+async function loadMapWorkspaceProject(projectFile = null, gameProjectId = null) {
   const project = state.currentProject;
   if (!project) return;
+  const registered = gameProjectForPath(project.path);
+  const resolvedGameProjectId = gameProjectId || project.gameProjectId || registered?.projectId || null;
+  state.mapWorkspaceGameProjectId = resolvedGameProjectId;
   const loadId = ++state.mapWorkspaceLoadId;
   state.mapWorkspaceLoading = true;
   state.mapWorkspaceProjectSession = null;
@@ -35886,7 +37547,11 @@ async function loadMapWorkspaceProject(projectFile = null) {
   const client = state.mapWorkspaceClient || new MapProjectWorkspaceClient();
   state.mapWorkspaceClient = client;
   try {
-    const session = await client.open({ project: project.path, projectFile });
+    const session = await client.open({
+      project: project.path,
+      projectFile,
+      gameProjectId: resolvedGameProjectId,
+    });
     if (
       loadId !== state.mapWorkspaceLoadId
       || state.currentProject?.path !== project.path
@@ -35925,7 +37590,10 @@ async function loadMapWorkspaceProject(projectFile = null) {
 
 async function refreshMapWorkspace() {
   if (state.mapWorkspaceLoading || state.mapWorkspaceSearchLoading) return;
-  await loadMapWorkspaceProject(state.mapWorkspaceProjectSession?.projectFile || null);
+  await loadMapWorkspaceProject(
+    state.mapWorkspaceProjectSession?.projectFile || null,
+    state.mapWorkspaceProjectSession?.gameProjectId || state.mapWorkspaceGameProjectId || null,
+  );
 }
 
 async function loadMapWorkspaceDirectory(directory, { append = false, loadId = state.mapWorkspaceLoadId, reset = false } = {}) {
@@ -37700,6 +39368,8 @@ async function openTilesetEditorEntry(entry, { editorWindow: suppliedEditorWindo
   const workspaceClient = state.mapWorkspaceClient;
   const workspaceSessionId = state.mapWorkspaceProjectSession?.id || null;
   const workspaceProjectFile = state.mapWorkspaceProjectSession?.projectFile || null;
+  const gameProjectId = state.mapWorkspaceProjectSession?.gameProjectId
+    || gameProjectForPath(project.path)?.projectId;
   let openedSessionId = null;
   state.mapEditorOpeningPath = entry.path;
   renderMapWorkspaceMaps();
@@ -37746,8 +39416,10 @@ async function openTilesetEditorEntry(entry, { editorWindow: suppliedEditorWindo
       editor: editorInstanceId,
       project: project.path,
       ...(workspaceProjectFile ? { projectFile: workspaceProjectFile } : {}),
+      ...(gameProjectId ? { gameProjectId } : {}),
       ...(state.account?.id ? { account: state.account.id } : {}),
     });
+    void touchGameProject(gameProjectId, { relativePath: entry.path, editor: "tileset" });
     editorWindow.location.replace(`/tileset-editor.html#${fragment}`);
     openedSessionId = null;
     closeMapWorkspace();
@@ -37797,6 +39469,8 @@ async function openWorldEditorEntry(entry, { editorWindow: suppliedEditorWindow 
   const workspaceClient = state.mapWorkspaceClient;
   const workspaceSessionId = state.mapWorkspaceProjectSession?.id || null;
   const workspaceProjectFile = state.mapWorkspaceProjectSession?.projectFile || null;
+  const gameProjectId = state.mapWorkspaceProjectSession?.gameProjectId
+    || gameProjectForPath(project.path)?.projectId;
   let openedSessionId = null;
   state.mapEditorOpeningPath = entry.path;
   renderMapWorkspaceMaps();
@@ -37843,8 +39517,10 @@ async function openWorldEditorEntry(entry, { editorWindow: suppliedEditorWindow 
       editor: editorInstanceId,
       project: project.path,
       ...(workspaceProjectFile ? { projectFile: workspaceProjectFile } : {}),
+      ...(gameProjectId ? { gameProjectId } : {}),
       ...(state.account?.id ? { account: state.account.id } : {}),
     });
+    void touchGameProject(gameProjectId, { relativePath: entry.path, editor: "world" });
     editorWindow.location.replace(`/world-editor.html#${fragment}`);
     openedSessionId = null;
     closeMapWorkspace();
@@ -37911,23 +39587,39 @@ async function openMapEditorEntry(entry, {
     toast("浏览器阻止了地图编辑器窗口", "error");
     return;
   }
+  const candidateThreadId = currentCodexMapThread(project);
   const editorInstanceId = typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
     : `map-editor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const workspaceClient = source === "workspace" ? state.mapWorkspaceClient : null;
   const workspaceSessionId = source === "workspace" ? state.mapWorkspaceProjectSession?.id || null : null;
   const workspaceProjectFile = source === "workspace" ? state.mapWorkspaceProjectSession?.projectFile || null : null;
+  const gameProjectId = source === "workspace"
+    ? state.mapWorkspaceProjectSession?.gameProjectId || gameProjectForPath(project.path)?.projectId
+    : gameProjectForPath(project.path)?.projectId;
   let openedSessionId = null;
   state.mapEditorOpeningPath = relativePath;
   elements.resourceMapEditorButton.disabled = true;
   renderMapWorkspaceMaps();
   try {
     if (!state.mapAiToolsLoaded) await loadMapAiToolsSetting({ silent: true });
+    const mapConversationBinding = await ensureMapConversationBinding(project, candidateThreadId);
     const requestBody = source === "workspace"
       ? workspaceClient?.mapOpenPayload(relativePath, editorInstanceId)
       : projectSessionId
-        ? { projectSessionId, project: project.path, path: relativePath, editorInstanceId }
-        : { project: project.path, path: entry.path, editorInstanceId };
+        ? {
+          projectSessionId,
+          project: project.path,
+          path: relativePath,
+          editorInstanceId,
+          ...(gameProjectId ? { gameProjectId } : {}),
+        }
+        : {
+          project: project.path,
+          path: entry.path,
+          editorInstanceId,
+          ...(gameProjectId ? { gameProjectId } : {}),
+        };
     if (!requestBody) throw new Error("地图项目工作区连接已经关闭");
     const response = await fetchWithTimeout("/api/maps/sessions", {
       method: "POST",
@@ -37960,7 +39652,7 @@ async function openMapEditorEntry(entry, {
     ) {
       throw new Error("地图项目工作区在打开过程中发生变化，请重新打开");
     }
-    const threadId = currentCodexMapThread(project);
+    const threadId = mapConversationBinding?.threadId || null;
     for (const binding of state.mapEditorGameBindings.values()) {
       if (binding.projectPath === project.path) binding.focused = false;
     }
@@ -37974,12 +39666,15 @@ async function openMapEditorEntry(entry, {
       sessionId: openedSessionId,
       threadId,
       projectPath: project.path,
+      gameProjectId,
       projectFile: editorProjectFile,
       relativePath,
       editorWindow,
       dirty: false,
       focused: true,
       lastActiveAt: Date.now(),
+      conversationBindingGeneration: 0,
+      conversationSwitchPending: false,
     });
     rememberMapEditorTab(project.path, relativePath);
     broadcastMapEditorTabSnapshot();
@@ -37997,11 +39692,13 @@ async function openMapEditorEntry(entry, {
       ...(editorProjectFile
         ? { projectFile: editorProjectFile }
         : {}),
+      ...(gameProjectId ? { gameProjectId } : {}),
       ...(state.account?.id ? { account: state.account.id } : {}),
       ...(threadId ? { thread: threadId } : {}),
       ...(threadId && state.mapAiToolsEnabled ? { connect: "1" } : {}),
     });
     editorWindow.location.replace(`/map-editor.html#${fragment}`);
+    void touchGameProject(gameProjectId, { relativePath, editor: "map" });
     openedSessionId = null;
     if (source === "workspace") closeMapWorkspace();
     toast(`已打开 ${relativePath}`);
@@ -38026,7 +39723,16 @@ async function openMapEditorEntry(entry, {
 }
 
 function currentCodexMapThread(project = state.currentProject) {
-  if (state.runtime !== "codex" || !project || !state.activeThread?.id) return null;
+  if (state.runtime !== "codex" || !project) return null;
+  const persisted = mapConversationBindingForProject(project.path);
+  if (persisted) return persisted.threadId || null;
+  const existing = [...state.mapEditorGameBindings.values()].find((binding) => (
+    binding.projectPath === project.path
+    && binding.editorWindow
+    && !binding.editorWindow.closed
+  ));
+  if (existing) return existing.threadId || null;
+  if (!state.activeThread?.id) return null;
   const threadProject = conversationProjectForThread(
     state.activeThread.id,
     state.activeThread.cwd || project.path,
@@ -38294,6 +40000,7 @@ async function toggleResourceFullscreen() {
 function openResourceExplorer() {
   if (!state.currentProject) return;
   closeMobilePanels();
+  state.resourceProjectPath = state.currentProject.path;
   state.resourceTreeDirectories.clear();
   state.resourceTreeExpanded.clear();
   state.resourceTreeLoading.clear();
@@ -38307,6 +40014,8 @@ function openResourceExplorer() {
   renderResourceSelectionState();
   elements.resourceCurrentDirectory.textContent = state.currentProject.name || "工程";
   elements.resourceCurrentDirectory.title = state.currentProject.path;
+  elements.resourceLocationInput.value = state.currentProject.path;
+  renderResourceLocationControls();
   setResourceLargeMode(state.resourceLargeMode, { persist: false });
   elements.resourceDialog.showModal();
   requestAnimationFrame(normalizeResourceSplitSizes);
@@ -38386,8 +40095,33 @@ function setupResourceResizeControls() {
   }
 }
 
+function renderResourceLocationControls() {
+  const unrestricted = state.multiUserMode?.enabled !== true
+    && (state.resourceUnrestricted === true || state.multiUserMode?.enabled === false);
+  elements.resourceLocationForm.hidden = !unrestricted;
+  elements.resourceLocationInput.disabled = !unrestricted;
+  elements.resourceLocationButton.disabled = !unrestricted;
+  elements.resourceLocationInput.title = unrestricted
+    ? "输入服务器绝对路径"
+    : "多用户模式仅允许访问已授权工程";
+}
+
+async function submitResourceLocation(event) {
+  event.preventDefault();
+  if (!state.currentProject || state.multiUserMode?.enabled === true) return;
+  const value = String(elements.resourceLocationInput.value || "").trim().replaceAll("\\", "/");
+  if (!value || !value.startsWith("/") || value.length > 4096 || /[\u0000\r\n]/.test(value)) {
+    toast("请输入有效的服务器绝对路径", "error");
+    elements.resourceLocationInput.focus();
+    return;
+  }
+  if (!confirmDiscardResourceChanges()) return;
+  await loadResourceDirectory(value);
+}
+
 async function loadResourceDirectory(directoryPath) {
   if (!state.currentProject) return;
+  if (!state.resourceProjectPath) state.resourceProjectPath = state.currentProject.path;
   elements.resourceList.innerHTML = '<div class="list-loading">正在读取目录</div>';
   elements.resourceNewFolderButton.disabled = true;
   elements.resourceNewFileButton.disabled = true;
@@ -38395,15 +40129,17 @@ async function loadResourceDirectory(directoryPath) {
   elements.resourceDownloadDirectoryButton.disabled = true;
   try {
     const url = new URL("/api/files/list", location.origin);
-    url.searchParams.set("project", state.currentProject.path);
+    url.searchParams.set("project", state.resourceProjectPath);
     if (directoryPath) url.searchParams.set("path", directoryPath);
     const response = await fetch(url, { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "无法读取目录");
     state.resourceDirectory = data.directoryPath;
+    state.resourceProjectPath = data.projectPath || state.resourceProjectPath;
     state.resourceParentPath = data.parentPath;
     state.resourceEntries = data.entries || [];
     state.resourceWritable = data.writable === true;
+    state.resourceUnrestricted = data.unrestricted === true;
     state.resourceExternalChanged = false;
     elements.resourceExternalNotice.hidden = true;
     renderResourceBreadcrumbs(data.directoryPath);
@@ -38417,16 +40153,20 @@ async function loadResourceDirectory(directoryPath) {
       data.directoryPath,
       state.resourceEntries.filter((entry) => entry.type === "directory"),
     );
+    state.resourceTreeExpanded.add(data.directoryPath);
     expandResourceTreeAncestors(data.directoryPath);
     clearResourcePreview();
     renderResourceTree();
     renderResourceSortControls();
     renderResourceEntries(state.resourceEntries);
+    elements.resourceLocationInput.value = data.directoryPath;
+    renderResourceLocationControls();
     void startResourceWatcher(data.directoryPath);
     void loadResourceGitStatus();
     return data;
   } catch (error) {
     state.resourceWritable = false;
+    state.resourceUnrestricted = false;
     elements.resourceDownloadDirectoryButton.disabled = true;
     elements.resourceList.innerHTML = '<div class="list-empty">无法读取目录</div>';
     toast(error.message, "error");
@@ -38435,7 +40175,7 @@ async function loadResourceDirectory(directoryPath) {
 }
 
 function expandResourceTreeAncestors(directoryPath) {
-  const root = String(state.currentProject?.path || "").replace(/\/+$/, "");
+  const root = String(state.resourceProjectPath || state.currentProject?.path || "").replace(/\/+$/, "");
   const target = String(directoryPath || "");
   if (!root || (target !== root && !target.startsWith(`${root}/`))) return;
   state.resourceTreeExpanded.add(root);
@@ -38457,7 +40197,7 @@ async function loadResourceTreeChildren(directoryPath) {
   renderResourceTree();
   try {
     const url = new URL("/api/files/list", location.origin);
-    url.searchParams.set("project", state.currentProject.path);
+    url.searchParams.set("project", state.resourceProjectPath || state.currentProject.path);
     url.searchParams.set("path", directoryPath);
     const response = await fetch(url, { cache: "no-store" });
     const data = await response.json();
@@ -38475,7 +40215,12 @@ async function loadResourceTreeChildren(directoryPath) {
 }
 
 function renderResourceTree() {
-  const root = String(state.currentProject?.path || "").replace(/\/+$/, "");
+  const projectRoot = String(state.resourceProjectPath || state.currentProject?.path || "").replace(/\/+$/, "");
+  const currentDirectory = String(state.resourceDirectory || "").replace(/\/+$/, "") || "/";
+  const projectRelative = projectRoot && currentDirectory !== projectRoot
+    ? currentDirectory.startsWith(`${projectRoot}/`)
+    : true;
+  const root = projectRelative ? projectRoot : currentDirectory;
   elements.resourceTree.replaceChildren();
   if (!root) return;
   let rendered = 0;
@@ -38521,7 +40266,11 @@ function renderResourceTree() {
       for (const child of children) appendDirectory(child.path, child.name, depth + 1);
     }
   };
-  appendDirectory(root, state.currentProject?.name || "工程", 0);
+  appendDirectory(
+    root,
+    root === projectRoot ? state.currentProject?.name || "工程" : pathBasename(root) || "/",
+    0,
+  );
   refreshIcons();
 }
 
@@ -38553,6 +40302,14 @@ function sortedResourceEntries(entries) {
   });
 }
 
+function resourcePathIsWithin(root, candidate) {
+  const normalizedRoot = String(root || "").replace(/\/+$/, "") || "/";
+  const normalizedCandidate = String(candidate || "").replace(/\/+$/, "") || "/";
+  if (normalizedRoot === "/") return normalizedCandidate.startsWith("/");
+  return normalizedCandidate === normalizedRoot
+    || normalizedCandidate.startsWith(`${normalizedRoot}/`);
+}
+
 function renderResourceSelectionState() {
   const count = state.resourceSelectedPaths.size;
   elements.resourceSelectionState.textContent = count ? `已选 ${count}` : "未选择";
@@ -38561,8 +40318,13 @@ function renderResourceSelectionState() {
 }
 
 async function loadResourceGitStatus() {
-  const projectPath = state.currentProject?.path;
+  const projectPath = state.resourceProjectPath || state.currentProject?.path;
   if (!projectPath || state.resourceGitLoading) return;
+  if (state.resourceDirectory && !resourcePathIsWithin(projectPath, state.resourceDirectory)) {
+    state.resourceGitFiles.clear();
+    renderResourceEntries(state.resourceEntries);
+    return;
+  }
   state.resourceGitLoading = true;
   try {
     const url = new URL("/api/git/status", location.origin);
@@ -38570,11 +40332,11 @@ async function loadResourceGitStatus() {
     const response = await fetch(url, { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Git 状态不可用");
-    if (state.currentProject?.path !== projectPath) return;
+    if ((state.resourceProjectPath || state.currentProject?.path) !== projectPath) return;
     state.resourceGitFiles = new Map((data.files || []).map((file) => [file.path, file]));
     renderResourceEntries(state.resourceEntries);
   } catch {
-    if (state.currentProject?.path === projectPath) state.resourceGitFiles.clear();
+    if ((state.resourceProjectPath || state.currentProject?.path) === projectPath) state.resourceGitFiles.clear();
   } finally {
     state.resourceGitLoading = false;
   }
@@ -38593,14 +40355,24 @@ function resourceGitLabel(entry) {
 }
 
 function renderResourceBreadcrumbs(directoryPath) {
-  const projectPath = String(state.currentProject?.path || "").replace(/\/+$/, "");
-  const relativePath = directoryPath === projectPath ? "" : directoryPath.slice(projectPath.length + 1);
-  const segments = relativePath ? relativePath.split("/").filter(Boolean) : [];
+  const projectPath = String(state.resourceProjectPath || state.currentProject?.path || "").replace(/\/+$/, "");
+  const normalizedDirectory = String(directoryPath || "").replace(/\/+$/, "") || "/";
+  const relative = projectPath && normalizedDirectory !== projectPath
+    ? normalizedDirectory.startsWith(`${projectPath}/`)
+      ? normalizedDirectory.slice(projectPath.length + 1)
+      : null
+    : "";
+  const segments = relative === null
+    ? normalizedDirectory.split("/").filter(Boolean)
+    : relative ? relative.split("/").filter(Boolean) : [];
   elements.resourcePath.replaceChildren();
-  const paths = [{ label: state.currentProject?.name || "工程", path: projectPath }];
-  let current = projectPath;
+  const external = relative === null;
+  const paths = external
+    ? [{ label: "/", path: "/" }]
+    : [{ label: state.currentProject?.name || "工程", path: projectPath }];
+  let current = external ? "/" : projectPath;
   for (const segment of segments) {
-    current = `${current}/${segment}`;
+    current = current === "/" ? `/${segment}` : `${current}/${segment}`;
     paths.push({ label: segment, path: current });
   }
   paths.forEach((entry, index) => {
@@ -38622,10 +40394,10 @@ function renderResourceBreadcrumbs(directoryPath) {
   });
   const currentEntry = paths[paths.length - 1];
   elements.resourceCurrentDirectory.textContent = currentEntry?.label || state.currentProject?.name || "工程";
-  elements.resourceCurrentDirectory.title = directoryPath;
-  elements.resourcePath.title = directoryPath;
+  elements.resourceCurrentDirectory.title = normalizedDirectory;
+  elements.resourcePath.title = normalizedDirectory;
   requestAnimationFrame(() => {
-    if (elements.resourcePath.title === directoryPath) {
+    if (elements.resourcePath.title === normalizedDirectory) {
       elements.resourcePath.scrollLeft = elements.resourcePath.scrollWidth;
     }
   });
@@ -38655,7 +40427,7 @@ async function startResourceWatcher(directoryPath) {
   try {
     await rpc("fs/watch", {
       watchId,
-      project: state.currentProject.path,
+      project: state.resourceProjectPath || state.currentProject.path,
       path: directoryPath,
     }, { timeoutMs: 20_000 });
   } catch (error) {
@@ -38703,6 +40475,7 @@ async function openProjectResourceFile(relativePath, line = null) {
   elements.resourceSearch.value = "";
   if (!elements.resourceDialog.open) elements.resourceDialog.showModal();
   else if (!confirmDiscardResourceChanges()) return;
+  state.resourceProjectPath = project.path;
   const segments = relativePath.split("/");
   const directory = segments.length > 1
     ? `${project.path.replace(/\/+$/, "")}/${segments.slice(0, -1).join("/")}`
@@ -38744,7 +40517,8 @@ async function searchProjectResources(query) {
   elements.resourceList.innerHTML = '<div class="list-loading">正在搜索</div>';
   try {
     const url = new URL("/api/files/search", location.origin);
-    url.searchParams.set("project", state.currentProject.path);
+    url.searchParams.set("project", state.resourceProjectPath || state.currentProject.path);
+    url.searchParams.set("path", state.resourceDirectory || state.resourceProjectPath || state.currentProject.path);
     url.searchParams.set("query", query);
     const response = await fetch(url, { cache: "no-store" });
     const data = await response.json();
@@ -38815,6 +40589,7 @@ function renderResourceEntries(entries, searchResults = false) {
     row.addEventListener("dblclick", (event) => {
       if (
         entry.type !== "file"
+        || !resourcePathIsWithin(state.resourceProjectPath || state.currentProject?.path, entry.path)
         || !/\.html?$/i.test(entry.name)
         || event.target.closest("button, input, label")
       ) return;
@@ -38903,27 +40678,27 @@ function renderResourceActionFields() {
   } else if (action === "rename") {
     elements.resourceActionNote.textContent = "重命名前会校验文件版本；外部已经修改时操作会被拒绝。";
   } else {
-    elements.resourceActionNote.textContent = "目标文件夹使用工程相对路径；不会覆盖已有同名项目。";
+    elements.resourceActionNote.textContent = "目标文件夹可使用工程相对路径或服务器绝对路径；不会覆盖已有同名项目。";
   }
 }
 
 function resourceDirectoryRelativePath(directoryPath) {
-  const root = String(state.currentProject?.path || "").replace(/\/+$/, "");
+  const root = String(state.resourceProjectPath || state.currentProject?.path || "").replace(/\/+$/, "");
   const directory = String(directoryPath || "");
   if (!root || directory === root) return ".";
-  return directory.startsWith(`${root}/`) ? directory.slice(root.length + 1) || "." : ".";
+  return resourcePathIsWithin(root, directory) ? directory.slice(root.length + 1) || "." : directory;
 }
 
 function resolveResourceDestinationInput(value) {
-  const root = String(state.currentProject?.path || "").replace(/\/+$/, "");
+  const root = String(state.resourceProjectPath || state.currentProject?.path || "").replace(/\/+$/, "");
   const normalized = String(value || "").trim().replaceAll("\\", "/").replace(/^\.\/+/, "");
   if (!root) throw new Error("当前工程不可用");
   if (!normalized || normalized === ".") return root;
+  if (normalized.startsWith("/")) return normalized;
   if (
-    normalized.startsWith("/")
-    || normalized.split("/").some((segment) => !segment || segment === "." || segment === "..")
+    normalized.split("/").some((segment) => !segment || segment === "." || segment === "..")
   ) {
-    throw new Error("目标文件夹必须是工程内的有效相对路径");
+    throw new Error("目标文件夹必须是有效的相对路径或绝对路径");
   }
   return `${root}/${normalized}`;
 }
@@ -38939,7 +40714,7 @@ async function submitResourceAction(event) {
   elements.resourceActionSubmitButton.disabled = true;
   try {
     const body = {
-      project: state.currentProject.path,
+      project: state.resourceProjectPath || state.currentProject.path,
       action,
     };
     if (action === "createDirectory" || action === "createFile") {
@@ -39000,7 +40775,7 @@ async function uploadResourceFiles() {
         continue;
       }
       const url = new URL("/api/files/upload", location.origin);
-      url.searchParams.set("project", state.currentProject.path);
+      url.searchParams.set("project", state.resourceProjectPath || state.currentProject.path);
       url.searchParams.set("path", state.resourceDirectory);
       url.searchParams.set("name", file.name);
       try {
@@ -39183,21 +40958,28 @@ async function previewResourceFile(entry) {
   const isImage = entry.type === "file"
     && /\.(?:avif|gif|jpe?g|png|webp)$/iu.test(entry.name || "")
     && Boolean(entry.relativePath);
+  const isProjectEntry = resourcePathIsWithin(
+    state.resourceProjectPath || state.currentProject?.path,
+    entry.path,
+  );
   setDataContent(elements.resourcePreviewName, entry.relativePath || entry.name);
   elements.resourceDownloadButton.hidden = entry.type !== "file";
   elements.resourceCopyPathButton.hidden = entry.type !== "file";
-  elements.resourcePreviewBrowserButton.hidden = !/\.html?$/i.test(entry.name);
-  elements.resourceMapEditorButton.hidden = !/\.tmj$/i.test(entry.name);
-  elements.resourceImageStudioButton.hidden = !isImage;
-  elements.resourceVisualReviewButton.hidden = !isImage;
+  elements.resourcePreviewBrowserButton.hidden = !isProjectEntry || !/\.html?$/i.test(entry.name);
+  elements.resourceMapEditorButton.hidden = !isProjectEntry || !/\.tmj$/i.test(entry.name);
+  elements.resourceImageStudioButton.hidden = !isProjectEntry || !isImage;
+  elements.resourceVisualReviewButton.hidden = !isProjectEntry || !isImage;
   if (isImage) {
-    elements.resourcePreviewImage.src = `/api/files/image?path=${encodeURIComponent(entry.path)}`;
+    const imageUrl = new URL("/api/files/image", location.origin);
+    imageUrl.searchParams.set("project", state.resourceProjectPath || state.currentProject.path);
+    imageUrl.searchParams.set("path", entry.path);
+    elements.resourcePreviewImage.src = imageUrl.href;
     elements.resourcePreviewImage.hidden = false;
     return;
   }
   try {
     const url = new URL("/api/files/read", location.origin);
-    url.searchParams.set("project", state.currentProject.path);
+    url.searchParams.set("project", state.resourceProjectPath || state.currentProject.path);
     url.searchParams.set("path", entry.path);
     const response = await fetch(url, { cache: "no-store" });
     const data = await response.json();
@@ -39368,7 +41150,7 @@ function downloadResourceFile() {
   const entry = state.resourcePreviewEntry;
   if (!state.currentProject || !entry || entry.type !== "file") return;
   const url = new URL("/api/files/download", location.origin);
-  url.searchParams.set("project", state.currentProject.path);
+  url.searchParams.set("project", state.resourceProjectPath || state.currentProject.path);
   url.searchParams.set("path", entry.path);
   const link = document.createElement("a");
   link.href = url.href;
@@ -39382,7 +41164,7 @@ function downloadResourceFile() {
 function downloadResourceDirectory() {
   if (!state.currentProject || !state.resourceDirectory) return;
   const url = new URL("/api/files/archive", location.origin);
-  url.searchParams.set("project", state.currentProject.path);
+  url.searchParams.set("project", state.resourceProjectPath || state.currentProject.path);
   url.searchParams.set("path", state.resourceDirectory);
   const link = document.createElement("a");
   link.href = url.href;
@@ -39401,7 +41183,7 @@ async function downloadSelectedResources() {
     const response = await fetch("/api/files/archive", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ project: state.currentProject.path, paths }),
+      body: JSON.stringify({ project: state.resourceProjectPath || state.currentProject.path, paths }),
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -39428,7 +41210,7 @@ async function copyResourcePath() {
   const pathValue = state.resourcePreviewEntry?.relativePath;
   if (!pathValue) return;
   await copyText(pathValue);
-  toast("已复制工程相对路径");
+  toast(pathValue.startsWith("/") ? "已复制服务器路径" : "已复制工程相对路径");
 }
 
 function renderResourceTextPreview(content) {
@@ -39461,7 +41243,7 @@ async function loadMoreResourcePreview() {
   refreshIcons();
   try {
     const url = new URL("/api/files/read-chunk", location.origin);
-    url.searchParams.set("project", state.currentProject.path);
+    url.searchParams.set("project", state.resourceProjectPath || state.currentProject.path);
     url.searchParams.set("path", entry.path);
     url.searchParams.set("offset", String(offset));
     const response = await fetch(url, { cache: "no-store" });
@@ -39501,7 +41283,7 @@ async function saveResourceFile() {
   try {
     state.resourceIgnoreWatchUntil = Date.now() + 1_500;
     const url = new URL("/api/files/write", location.origin);
-    url.searchParams.set("project", state.currentProject.path);
+    url.searchParams.set("project", state.resourceProjectPath || state.currentProject.path);
     url.searchParams.set("path", entry.path);
     const response = await fetch(url, {
       method: "PUT",
