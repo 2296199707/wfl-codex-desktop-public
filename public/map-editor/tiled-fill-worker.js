@@ -1,4 +1,4 @@
-import { findTiledFillRegion } from "./tiled-fill.js?v=0.44.66-beta";
+import { findTiledFillRegion } from "./tiled-fill.js?v=0.44.67-beta";
 
 self.addEventListener("message", (event) => {
   const request = event.data;

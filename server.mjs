@@ -686,6 +686,7 @@ const MULTI_USER_ROOT = path.resolve(process.env.CODEX_DESKTOP_MULTI_USER_ROOT |
 const multiUserStore = await new MultiUserStore(STATE_DIR, {
   legacyAuth: AUTH,
   legacyProjectRoot: PROJECT_ROOT,
+  legacyProjectRoots: PROJECT_ROOTS,
   legacyDefaultProject: DEFAULT_PROJECT,
   legacyStateDirectory: RESCUE_MODE ? RESCUE_SESSION_STATE_DIR : STATE_DIR,
   legacyHome: process.env.HOME || "/root",

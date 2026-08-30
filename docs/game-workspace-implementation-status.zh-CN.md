@@ -3,9 +3,9 @@
 - 记录时间：2026-08-30
 - 当前分支：`codex/recovery-056-minimal`
 - 当前基线提交：`b46a6a3 release: v0.44.65`
-- 本轮目标版本：`v0.44.66-beta`
+- 本轮目标版本：`v0.44.67-beta`
 - 本文是本项目当前游戏工作区改造的唯一交接记录。记录已经完成的实现、验证结果、未完成工作和固定决策，避免上下文压缩后重复审查、重复设计或把计划误报为完成。
-- 本轮继续完成了工程工作区 UI、最近资源恢复和 `gameProjectId` 的主站/子编辑器贯通；实现与有界回归已完成，当前等待提交和本地候选部署，没有触碰冻结的 4321 救援窗口。
+- 本轮继续完成了工程工作区 UI、最近资源恢复和 `gameProjectId` 的主站/子编辑器贯通，并修复多项目存储根在旧单用户 owner 上未继承的问题；实现与有界回归已完成，当前等待提交和本地候选部署，没有触碰冻结的 4321 救援窗口。
 
 ## 先读这里
 
@@ -75,6 +75,8 @@
 - 已提供 `GET/POST/DELETE /api/game-projects` 及工程打开、快照接口；新建工程会生成 `.tiled-project`、初始 `.tmj` 和固定目录骨架，目标目录来自用户选择的项目存储根，不写死 `/srv/aigame` 或其他路径。
 - `/api/projects` 会为已登记工程补充 `gameProjectId`、名称、最近资源、最近编辑器和 revision；资源工程仍保留原有项目列表语义。
 - 工具箱已增加多工程列表和新建工程向导。工程以稳定 `projectId` 标识，可同时保留多个工程；进入工程会切换主站工程、打开游戏资源工作区，并后台记录最近编辑器，避免额外阻塞进入动作。
+- 普通工程和游戏工程共用 `projectRoots` 存储根；本机数据盘使用专用根 `/www/wfl-projects`，不会把 `/www` 下的 Playwright 或构建目录误当作工程。
+- 多用户存储中的旧单用户 owner 会在启动时迁移到当前全局 `projectRoots`；因此新增数据盘根后，已有账号和新建游戏工程都能看到同一组选项。
 - 地图工作区会把 `gameProjectId` 传给 `MapProjectWorkspaceClient.open()`；地图、World、瓦片集和角色编辑器的入口、URL fragment、内部工作区会话均继续携带同一 ID。服务端会校验 ID 与路径/项目会话一致，旧的无 ID URL 仍保持兼容。
 - 工程最近地图会优先恢复；如果最近路径已经不存在或不再被当前工程授权，会回退到本地最近地图标签或工程搜索，不会因陈旧快照阻塞编辑器。
 - 快照请求严格使用 `recentResource`、`recentEditor` 字段；普通打开请求只使用 `relativePath`、`editor`，不再向 `/snapshot` 发送错误的 `snapshot` 字段。
@@ -105,6 +107,7 @@
 
 - 语法检查：`node --check server.mjs`、`node --check public/app.js`、`node --check public/map-project-session.js`、`node --check public/map-editor/map-editor.js`、`node --check public/map-editor/world-editor.js`、`node --check public/map-editor/tileset-editor.js`、`node --check public/character-editor/character-editor.js`，全部通过。
 - 定向测试：`node --test test/game-project-workspace-store.test.mjs test/game-project-workspace-create.test.mjs test/map-project-sessions.test.mjs test/map-project-session-client.test.mjs test/map-conversation-binding-store.test.mjs test/map-ai-focus-context.test.mjs test/map-workspace-ui.test.mjs test/tileset-editor-ui.test.mjs`，48 项通过。
+- 存储根迁移回归：`node --test test/multi-user-store.test.mjs test/game-project-workspace-store.test.mjs test/game-project-workspace-create.test.mjs`，16 项通过。
 - 服务端工程 API：`node --test --test-name-pattern='game project' test/server.test.mjs`，1 项通过。
 - 未执行：完整仓库测试、完整浏览器套件、推送和 4321 救援窗口操作；本轮提交与本地部署待发布流程完成后补充结果。
 

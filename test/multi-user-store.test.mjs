@@ -12,8 +12,13 @@ test("multi-user mode migrates the legacy owner without storing session or invit
   const directory = await fs.mkdtemp("/tmp/wfl-multi-user-store-");
   const usersRoot = path.join(directory, "managed-users");
   const legacyProjectRoot = path.join(directory, "legacy-projects");
+  const additionalProjectRoot = path.join(directory, "data-projects");
   const legacyStateDirectory = path.join(directory, "legacy-state");
-  await Promise.all([fs.mkdir(legacyProjectRoot), fs.mkdir(legacyStateDirectory)]);
+  await Promise.all([
+    fs.mkdir(legacyProjectRoot),
+    fs.mkdir(additionalProjectRoot),
+    fs.mkdir(legacyStateDirectory),
+  ]);
   const legacyAuth = createAuthRecord("owner", "owner-password-1234");
   const store = await new MultiUserStore(path.join(directory, "accounts"), {
     legacyAuth,
@@ -80,17 +85,26 @@ test("multi-user mode migrates the legacy owner without storing session or invit
   const restarted = await new MultiUserStore(path.join(directory, "accounts"), {
     legacyAuth,
     legacyProjectRoot,
+    legacyProjectRoots: [legacyProjectRoot, additionalProjectRoot],
     legacyStateDirectory,
     legacyHome: directory,
     usersRoot,
     defaultQuotaBytes: 5 * GIB,
   }).initialize();
   assert.equal((await restarted.authenticate(enabled.token)).id, enabled.user.id);
+  assert.deepEqual(restarted.getUser(enabled.user.id).projectRoots, [
+    legacyProjectRoot,
+    additionalProjectRoot,
+  ]);
+  const migratedOwner = JSON.parse(await fs.readFile(path.join(directory, "accounts", "users.json")))
+    .users.find((user) => user.id === enabled.user.id);
+  assert.deepEqual(migratedOwner.projectRoots, [legacyProjectRoot, additionalProjectRoot]);
 
   const migratedDefaultProject = path.join(legacyProjectRoot, "workspace");
   const migrated = await new MultiUserStore(path.join(directory, "accounts"), {
     legacyAuth,
     legacyProjectRoot,
+    legacyProjectRoots: [legacyProjectRoot, additionalProjectRoot],
     legacyDefaultProject: migratedDefaultProject,
     legacyStateDirectory,
     legacyHome: directory,
