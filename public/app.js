@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.68-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.68-beta";
+} from "./thread-state.js?v=0.44.69-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.69-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.68-beta";
+} from "./image-context-policy.js?v=0.44.69-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.68-beta";
+} from "./image-attachment-context.js?v=0.44.69-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.68-beta";
+} from "./game-work-mode.js?v=0.44.69-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.68-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.69-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.68-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.69-beta";
 import {
   createConversationState,
   listConversationThreads,
@@ -62,11 +62,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.68-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.68-beta";
+} from "./conversation-state.js?v=0.44.69-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.69-beta";
 
-const UI_VERSION = "0.44.68-beta";
-const UI_VERSION_LABEL = "0.44.68-beta";
+const UI_VERSION = "0.44.69-beta";
+const UI_VERSION_LABEL = "0.44.69-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -839,6 +839,7 @@ const state = {
   mapEditorGameBindings: new Map(),
   mapConversationBindings: new Map(),
   mapConversationBindingRequests: new Map(),
+  mapWorkspaceBindingAction: null,
   mapConversationRevision: 0,
   mapConversationSnapshotTimer: null,
   mapConversationOperations: new Map(),
@@ -1665,6 +1666,9 @@ const elements = Object.fromEntries(
     "mapWorkspaceProjectName",
     "mapWorkspaceProjectMeta",
     "mapWorkspaceActionState",
+    "gameWorkspaceBindConversationButton",
+    "gameWorkspaceUnbindConversationButton",
+    "gameWorkspaceBindingState",
     "gameProjectList",
     "gameProjectState",
     "gameProjectRefreshButton",
@@ -6612,7 +6616,7 @@ function bindEvents() {
     event.preventDefault();
     closeGameProjectNewDialog();
   });
-  elements.toolboxBackButton.addEventListener("click", () => setToolboxView("overview"));
+  elements.toolboxBackButton.addEventListener("click", openGameWorkspaceHome);
   elements.mapWorkspaceCloseButton.addEventListener("click", closeMapWorkspace);
   elements.mapWorkspaceOpenEditorButton.addEventListener("click", () => void openMapWorkspaceEditor());
   elements.mapWorkspaceOpenCharacterButton.addEventListener("click", openCharacterEditor);
@@ -6620,6 +6624,8 @@ function bindEvents() {
   elements.mapWorkspaceNewWorldButton.addEventListener("click", openWorldNewDialog);
   elements.mapWorkspaceNewTilesetButton.addEventListener("click", openTilesetNewDialog);
   elements.mapWorkspaceRefreshButton.addEventListener("click", () => void refreshMapWorkspace());
+  elements.gameWorkspaceBindConversationButton.addEventListener("click", () => void bindCurrentGameWorkspaceConversation());
+  elements.gameWorkspaceUnbindConversationButton.addEventListener("click", () => void unbindCurrentGameWorkspaceConversation());
   elements.mapWorkspaceSearch.addEventListener("input", scheduleMapWorkspaceSearch);
   elements.mapWorkspaceKindFilter.addEventListener("change", updateMapWorkspaceKindFilter);
   elements.mapNewCloseButton.addEventListener("click", closeMapNewDialog);
@@ -7239,6 +7245,7 @@ async function loadAccount({ summary = false } = {}) {
       state.mapEditorGameBindings.clear();
       state.mapConversationBindings.clear();
       state.mapConversationBindingRequests.clear();
+      state.mapWorkspaceBindingAction = null;
       state.worldEditorWindows.clear();
       state.tilesetEditorWindows.clear();
       state.mapConversationOperations.clear();
@@ -11459,7 +11466,10 @@ async function selectProject(project) {
     loadResourceDirectory(project.path);
   }
   if (elements.browserDialog.open) loadBrowserPreviewEntries();
-  if (elements.mapWorkspaceDialog.open) void loadMapWorkspaceProject();
+  if (elements.mapWorkspaceDialog.open) {
+    void loadMapConversationBinding(project.path, { force: true });
+    void loadMapWorkspaceProject();
+  }
   renderActiveThread();
   renderThreads();
   elements.threadList.innerHTML = '<div class="list-loading">正在读取当前工程对话</div>';
@@ -11548,6 +11558,7 @@ function renderProjectContext() {
   }
   refreshImageStudioControl();
   renderImageContextIsolationSetting();
+  renderGameWorkspaceBinding();
   refreshIcons();
 }
 
@@ -21082,6 +21093,174 @@ function initializeGameWorkModeChannel() {
   }
 }
 
+function currentGameWorkspaceConversation(projectPath = state.currentProject?.path) {
+  if (state.runtime !== "codex" || typeof projectPath !== "string" || !projectPath) return null;
+  const thread = state.activeThread;
+  if (!thread?.id) return null;
+  const threadProject = conversationProjectForThread(thread.id, thread.cwd || null);
+  return threadProject === projectPath ? thread : null;
+}
+
+function gameWorkspaceConversationLabel(threadId, projectPath) {
+  const shortId = typeof threadId === "string" && threadId
+    ? threadId.slice(0, 12)
+    : "未知";
+  const thread = conversationThreadById(threadId, projectPath);
+  return thread
+    ? conversationDisplayTitle(thread, `对话 ${shortId}`)
+    : `对话 ${shortId}`;
+}
+
+function renderGameWorkspaceBinding() {
+  const bindButton = elements.gameWorkspaceBindConversationButton;
+  const unbindButton = elements.gameWorkspaceUnbindConversationButton;
+  const bindingState = elements.gameWorkspaceBindingState;
+  if (!bindButton || !unbindButton || !bindingState) return;
+
+  const projectPath = state.currentProject?.path || "";
+  const binding = projectPath ? mapConversationBindingForProject(projectPath) : null;
+  const bindingKnown = Boolean(projectPath && state.mapConversationBindings.has(projectPath));
+  const requestPending = Boolean(projectPath && state.mapConversationBindingRequests.has(projectPath));
+  const action = state.mapWorkspaceBindingAction?.projectPath === projectPath
+    ? state.mapWorkspaceBindingAction
+    : null;
+  const currentThread = currentGameWorkspaceConversation(projectPath);
+  const boundThreadId = binding?.threadId || null;
+
+  let stateText = "尚未读取对话绑定";
+  let stateStatus = "busy";
+  if (!projectPath) {
+    stateText = "选择工程后可绑定修改对话";
+    stateStatus = "";
+  } else if (action) {
+    stateText = action.type === "bind" ? "正在绑定当前对话" : "正在解除对话绑定";
+  } else if (requestPending || !bindingKnown) {
+    stateText = "正在读取工程对话绑定";
+  } else if (boundThreadId) {
+    const label = gameWorkspaceConversationLabel(boundThreadId, projectPath);
+    stateText = boundThreadId === currentThread?.id
+      ? `已绑定当前对话 · ${label}`
+      : `已绑定其他对话 · ${label}`;
+    stateStatus = boundThreadId === currentThread?.id ? "ready" : "warning";
+  } else {
+    stateText = "未绑定修改对话";
+    stateStatus = "ready";
+  }
+  bindingState.textContent = stateText;
+  bindingState.dataset.status = stateStatus;
+  bindingState.title = boundThreadId
+    ? `Thread ${boundThreadId}`
+    : stateText;
+
+  let bindReason = "";
+  if (!projectPath) bindReason = "请先选择游戏工程";
+  else if (action) bindReason = "绑定操作进行中";
+  else if (requestPending || !bindingKnown) bindReason = "正在读取工程对话绑定";
+  else if (state.runtime !== "codex") bindReason = "只有 Codex 对话支持工程修改绑定";
+  else if (!currentThread) bindReason = "当前对话必须属于此工程";
+  else if (boundThreadId === currentThread.id) bindReason = "当前对话已经绑定此工程";
+  else if (boundThreadId) bindReason = "此工程已绑定其他对话，请先解除绑定";
+
+  bindButton.disabled = Boolean(bindReason);
+  bindButton.title = bindReason || "绑定当前 Codex 对话到此工程";
+  bindButton.setAttribute("aria-describedby", "gameWorkspaceBindingState");
+  unbindButton.hidden = !boundThreadId;
+  unbindButton.disabled = Boolean(action || requestPending || !bindingKnown);
+  unbindButton.title = boundThreadId
+    ? `解除 ${gameWorkspaceConversationLabel(boundThreadId, projectPath)} 的工程修改绑定`
+    : "当前工程没有修改对话绑定";
+  unbindButton.setAttribute("aria-describedby", "gameWorkspaceBindingState");
+}
+
+async function bindCurrentGameWorkspaceConversation() {
+  const projectPath = state.currentProject?.path || "";
+  const thread = currentGameWorkspaceConversation(projectPath);
+  if (state.mapWorkspaceBindingAction) return;
+  if (!projectPath) {
+    toast("请先选择游戏工程", "error");
+    return;
+  }
+  if (!thread) {
+    toast("当前对话必须属于此工程，才能绑定为修改对话", "error");
+    renderGameWorkspaceBinding();
+    return;
+  }
+  const action = { type: "bind", projectPath };
+  state.mapWorkspaceBindingAction = action;
+  renderGameWorkspaceBinding();
+  try {
+    const current = await loadMapConversationBinding(projectPath, { force: true });
+    if (state.currentProject?.path !== projectPath || currentGameWorkspaceConversation(projectPath)?.id !== thread.id) {
+      throw new Error("当前工程或对话已经切换，请重新绑定");
+    }
+    if (current?.threadId && current.threadId !== thread.id) {
+      throw new Error("此工程已绑定其他对话，请先解除绑定");
+    }
+    const binding = await saveMapConversationBinding(
+      projectPath,
+      thread.id,
+      Number.isSafeInteger(current?.revision) ? current.revision : 0,
+    );
+    if (state.currentProject?.path === projectPath) {
+      toast(`已绑定当前对话：${conversationDisplayTitle(thread, "未命名对话")}`);
+    }
+    return binding;
+  } catch (error) {
+    if (state.currentProject?.path === projectPath) toast(error.message, "error");
+    return null;
+  } finally {
+    if (state.mapWorkspaceBindingAction === action) {
+      state.mapWorkspaceBindingAction = null;
+      renderGameWorkspaceBinding();
+    }
+  }
+}
+
+async function unbindCurrentGameWorkspaceConversation() {
+  const projectPath = state.currentProject?.path || "";
+  if (state.mapWorkspaceBindingAction) return;
+  if (!projectPath) {
+    toast("请先选择游戏工程", "error");
+    return;
+  }
+  const action = { type: "unbind", projectPath };
+  state.mapWorkspaceBindingAction = action;
+  renderGameWorkspaceBinding();
+  let current;
+  try {
+    current = await loadMapConversationBinding(projectPath, { force: true });
+  } catch (error) {
+    if (state.currentProject?.path === projectPath) toast(error.message, "error");
+    if (state.mapWorkspaceBindingAction === action) {
+      state.mapWorkspaceBindingAction = null;
+      renderGameWorkspaceBinding();
+    }
+    return;
+  }
+  if (!current?.threadId) {
+    state.mapWorkspaceBindingAction = null;
+    renderGameWorkspaceBinding();
+    return;
+  }
+  const label = gameWorkspaceConversationLabel(current.threadId, projectPath);
+  if (!window.confirm(`解除工程与“${label}”的修改绑定？对话和工程文件不会被删除。`)) {
+    state.mapWorkspaceBindingAction = null;
+    renderGameWorkspaceBinding();
+    return;
+  }
+  try {
+    await saveMapConversationBinding(projectPath, null, current.revision);
+    if (state.currentProject?.path === projectPath) toast("工程修改对话绑定已解除");
+  } catch (error) {
+    if (state.currentProject?.path === projectPath) toast(error.message, "error");
+  } finally {
+    if (state.mapWorkspaceBindingAction === action) {
+      state.mapWorkspaceBindingAction = null;
+      renderGameWorkspaceBinding();
+    }
+  }
+}
+
 function mapConversationBindingForProject(projectPath) {
   if (typeof projectPath !== "string" || !projectPath) return null;
   return state.mapConversationBindings.get(projectPath) || null;
@@ -21231,6 +21410,7 @@ function handleMapConversationBindingUpdate(payload = {}) {
     && incoming.threadId !== current.threadId
   ) return false;
   state.mapConversationBindings.set(projectPath, incoming);
+  renderGameWorkspaceBinding();
   const nextThreadId = incoming.threadId;
   const previousThreadId = payload.previousThreadId || current?.threadId || null;
   let changed = false;
@@ -36519,7 +36699,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.68-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.69-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -37246,10 +37426,13 @@ function renderGameProjects() {
       : project.projectPath === state.currentProject?.path
         ? "当前工程"
         : project.writable === false ? "只读" : "可用";
+    const binding = state.mapConversationBindings.has(project.projectPath)
+      ? state.mapConversationBindings.get(project.projectPath)
+      : project.binding;
     const recent = project.recentResource || project.gameProjectRecentResource;
     meta.textContent = [
       status,
-      project.binding ? "已绑定修改对话" : "未绑定修改对话",
+      binding?.threadId ? "已绑定修改对话" : "未绑定修改对话",
       recent ? `最近：${recent}` : "尚无最近资源",
     ].join(" · ");
     const actions = document.createElement("div");
@@ -37476,6 +37659,17 @@ function setToolboxView(view) {
   else renderToolbox();
 }
 
+function openGameWorkspaceHome() {
+  elements.toolboxSearch.value = "";
+  state.toolboxCategory = "all";
+  try {
+    localStorage.setItem(TOOLBOX_CATEGORY_KEY, "all");
+  } catch {
+    // The visible workspace remains usable when local storage is unavailable.
+  }
+  setToolboxView("overview");
+}
+
 function openToolboxResourceExplorer() {
   closeMapWorkspace();
   openResourceExplorer();
@@ -37588,7 +37782,11 @@ async function openMapWorkspace(projectFile = null, gameProjectId = null) {
   if (!elements.mapWorkspaceDialog.open) elements.mapWorkspaceDialog.showModal();
   state.mapWorkspaceGameProjectId = resolvedGameProjectId;
   const loads = [loadMapAiToolsSetting({ silent: true })];
-  if (project) loads.push(loadMapWorkspaceProject(projectFile, resolvedGameProjectId));
+  if (project) {
+    loads.push(loadMapConversationBinding(project.path, { force: true }));
+    loads.push(loadMapWorkspaceProject(projectFile, resolvedGameProjectId));
+  }
+  renderGameWorkspaceBinding();
   await Promise.allSettled(loads);
 }
 
@@ -37916,6 +38114,7 @@ async function searchMapWorkspace(query, { append = false } = {}) {
 }
 
 function renderMapWorkspaceMaps() {
+  renderGameWorkspaceBinding();
   renderMapWorkspaceTabs();
   const fragment = document.createDocumentFragment();
   let entryCount = 0;

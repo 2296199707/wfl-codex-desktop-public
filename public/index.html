@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>WFL Codex Web Workspace</title>
-    <link rel="stylesheet" href="/styles.css?v=0.44.68-beta" />
+    <link rel="stylesheet" href="/styles.css?v=0.44.69-beta" />
   </head>
   <body>
     <div class="desktop" id="desktop">
@@ -28,9 +28,9 @@
             </button>
           </div>
         </div>
-        <button class="version-button" id="versionButton" type="button" title="检查升级" aria-label="当前测试版本 0.44.68-beta，检查升级" data-mobile-label="0.44.68β">
+        <button class="version-button" id="versionButton" type="button" title="检查升级" aria-label="当前测试版本 0.44.69-beta，检查升级" data-mobile-label="0.44.69β">
           <i data-lucide="refresh-cw"></i>
-          <span id="versionLabel">v0.44.68-beta</span>
+          <span id="versionLabel">v0.44.69-beta</span>
         </button>
         <div class="connection-pill" id="connectionPill" data-status="starting" role="status" aria-live="polite" aria-label="正在连接">
           <span id="connectionText">正在连接</span>
@@ -1046,7 +1046,7 @@
           <div class="version-overview" id="versionOverview" data-admin="true">
             <div>
               <span id="currentVersionLabel">当前网页</span>
-              <strong id="currentVersionValue">v0.44.68-beta</strong>
+              <strong id="currentVersionValue">v0.44.69-beta</strong>
             </div>
             <div id="versionDateTile" hidden>
               <span>本版发布</span>
@@ -3686,7 +3686,16 @@
               <strong id="mapWorkspaceProjectName">未选择工程</strong>
               <span id="mapWorkspaceProjectMeta">正在连接项目目录</span>
             </div>
-            <span class="map-workspace-action-state" id="mapWorkspaceActionState" role="status" aria-live="polite">尚未连接工程资源</span>
+            <div class="toolbox-project-context-controls">
+              <div class="toolbox-project-context-actions" role="group" aria-label="游戏工程操作">
+                <button class="secondary-button toolbox-project-context-button" id="gameWorkspaceBindConversationButton" type="button" title="绑定当前 Codex 对话到此工程" aria-label="绑定当前对话" disabled><i data-lucide="link-2"></i><span>绑定当前对话</span></button>
+                <button class="secondary-button toolbox-project-context-button" id="gameWorkspaceUnbindConversationButton" type="button" title="解除此工程的修改对话绑定" aria-label="解除对话绑定" hidden><i data-lucide="unlink-2"></i><span>解除绑定</span></button>
+              </div>
+              <div class="toolbox-project-context-status">
+                <span class="toolbox-project-binding-state" id="gameWorkspaceBindingState" role="status" aria-live="polite">尚未读取对话绑定</span>
+                <span class="map-workspace-action-state" id="mapWorkspaceActionState" role="status" aria-live="polite">尚未连接工程资源</span>
+              </div>
+            </div>
           </section>
 
           <nav class="toolbox-category-tabs" id="toolboxCategoryTabs" aria-label="工具分类" role="tablist">
@@ -3793,12 +3802,12 @@
                   <p>集中浏览当前工程中的地图和设计资源。</p>
                 </div>
                 <div class="toolbox-detail-actions">
+                  <button class="primary-button toolbox-home-button" id="toolboxBackButton" type="button" title="打开游戏编辑器主页" aria-label="打开游戏编辑器主页"><i data-lucide="house"></i><span>游戏编辑器主页</span></button>
                   <div class="toolbox-create-actions" role="group" aria-label="新建游戏资源">
                     <button class="secondary-button toolbox-create-button" id="mapWorkspaceNewButton" type="button" title="新建地图" aria-label="新建地图" disabled><i data-lucide="file-plus-2"></i><span>地图</span></button>
                     <button class="secondary-button toolbox-create-button" id="mapWorkspaceNewWorldButton" type="button" title="新建 World" aria-label="新建 World" disabled><i data-lucide="globe-2"></i><span>World</span></button>
                     <button class="secondary-button toolbox-create-button" id="mapWorkspaceNewTilesetButton" type="button" title="新建瓦片集" aria-label="新建瓦片集" disabled><i data-lucide="grid-3x3"></i><span>瓦片集</span></button>
                   </div>
-                  <button class="secondary-button" id="toolboxBackButton" type="button"><i data-lucide="arrow-left"></i><span>返回工具中心</span></button>
                   <button class="icon-button" id="mapWorkspaceRefreshButton" type="button" title="刷新项目资源" aria-label="刷新项目资源"><i data-lucide="refresh-cw"></i></button>
                 </div>
               </header>
@@ -4743,8 +4752,8 @@
     <div class="mobile-action-label" id="mobileActionLabel" role="status" aria-live="polite" hidden></div>
     <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
-    <script src="/i18n.js?v=0.44.68-beta"></script>
-    <script src="/vendor/lucide/lucide.min.js?v=0.44.68-beta"></script>
-    <script src="/boot.js?v=0.44.68-beta" data-version="0.44.68-beta" data-asset-version="0.44.68-beta"></script>
+    <script src="/i18n.js?v=0.44.69-beta"></script>
+    <script src="/vendor/lucide/lucide.min.js?v=0.44.69-beta"></script>
+    <script src="/boot.js?v=0.44.69-beta" data-version="0.44.69-beta" data-asset-version="0.44.69-beta"></script>
   </body>
 </html>

@@ -93,6 +93,27 @@ test("main chrome exposes one responsive map workspace panel", () => {
   assert.match(css, /\.map-workspace-panel\s*\{[\s\S]*?width:\s*min\(760px/u);
 });
 
+test("game resource view exposes an explicit home entry and current conversation binding", () => {
+  assert.match(html, /id="toolboxBackButton"[^>]*aria-label="打开游戏编辑器主页"/u);
+  assert.match(html, /id="gameWorkspaceBindConversationButton"[^>]*aria-label="绑定当前对话"/u);
+  assert.match(html, /id="gameWorkspaceUnbindConversationButton"[^>]*aria-label="解除对话绑定"/u);
+  assert.match(html, /id="gameWorkspaceBindingState"[^>]*aria-live="polite"/u);
+  assert.match(app, /function openGameWorkspaceHome/u);
+  assert.match(app, /elements\.toolboxBackButton\.addEventListener\("click", openGameWorkspaceHome\)/u);
+  const binding = app.slice(
+    app.indexOf("function currentGameWorkspaceConversation"),
+    app.indexOf("function mapConversationBindingForProject"),
+  );
+  assert.match(binding, /conversationProjectForThread\(thread\.id/u);
+  assert.match(binding, /async function bindCurrentGameWorkspaceConversation/u);
+  assert.match(binding, /async function unbindCurrentGameWorkspaceConversation/u);
+  assert.match(binding, /saveMapConversationBinding\(/u);
+  assert.match(binding, /current\?\.revision/u);
+  assert.match(app, /loadMapConversationBinding\(project\.path, \{ force: true \}\)/u);
+  assert.match(css, /\.toolbox-project-context-controls/u);
+  assert.match(css, /\.toolbox-project-binding-state/u);
+});
+
 test("toolbox groups primary actions, filters resources, and carries selected character assets", () => {
   assert.match(html, /class="toolbox-category-tabs"[^>]*role="tablist"/u);
   assert.match(html, /class="toolbox-create-actions"[^>]*role="group"/u);

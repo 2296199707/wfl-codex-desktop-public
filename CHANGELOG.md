@@ -3,6 +3,12 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.69-beta] - 2026-08-30
+
+- 修复游戏资源工作区缺少明确的游戏编辑器主页入口的问题。
+- 增加工程与当前 Codex 对话的绑定和解除绑定入口，并校验当前对话所属工程。
+- 复用服务端 revision 冲突保护，展示工程绑定状态并适配手机窄屏布局。
+
 ## [0.44.68-beta] - 2026-08-30
 
 - 增加管理员可配置的多项目存储根目录，支持数据盘挂载后刷新启用。

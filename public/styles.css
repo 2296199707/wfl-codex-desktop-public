@@ -7463,6 +7463,34 @@ dialog::backdrop {
   gap: 2px;
 }
 
+.toolbox-project-context-controls {
+  display: grid;
+  min-width: 0;
+  justify-items: end;
+  gap: 4px;
+}
+
+.toolbox-project-context-actions,
+.toolbox-project-context-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.toolbox-project-context-button {
+  min-height: 27px;
+  padding: 0 8px;
+  font-size: 9px;
+}
+
+.toolbox-project-context-button svg {
+  width: 13px;
+  height: 13px;
+}
+
 .toolbox-project-context strong {
   font-size: 11px;
 }
@@ -7476,6 +7504,24 @@ dialog::backdrop {
   color: var(--ink-muted);
   font: 600 9px/1.3 var(--font-ui);
   text-align: right;
+}
+
+.toolbox-project-binding-state {
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font: 600 9px/1.3 var(--font-ui);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbox-project-binding-state[data-status="warning"] {
+  color: var(--amber);
+}
+
+.toolbox-project-binding-state[data-status="error"] {
+  color: var(--red);
 }
 
 .toolbox-game-projects {
@@ -7845,8 +7891,19 @@ dialog::backdrop {
   font-size: 10px;
 }
 
+.toolbox-detail-actions .primary-button.toolbox-home-button {
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 10px;
+}
+
 .toolbox-detail-actions .secondary-button svg {
   width: 13px;
+}
+
+.toolbox-detail-actions .toolbox-home-button svg {
+  width: 13px;
+  height: 13px;
 }
 
 .toolbox-resource-detail .map-workspace-tabs-section {
@@ -7947,9 +8004,24 @@ dialog::backdrop {
     grid-template-columns: 30px minmax(0, 1fr);
   }
 
+  .toolbox-project-context-controls {
+    grid-column: 2;
+    justify-items: stretch;
+  }
+
+  .toolbox-project-context-actions,
+  .toolbox-project-context-status {
+    justify-content: flex-start;
+  }
+
   .toolbox-project-context .map-workspace-action-state {
     grid-column: 2;
     max-width: none;
+    text-align: left;
+  }
+
+  .toolbox-project-binding-state {
+    max-width: 100%;
     text-align: left;
   }
 
