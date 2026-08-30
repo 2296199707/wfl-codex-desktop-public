@@ -3,6 +3,11 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.70-beta] - 2026-08-30
+
+- 修复游戏编辑器主页协作侧栏必须等待地图画布和地图 AI 初始化完成后才连接对话的问题。
+- 地图会话建立后提前请求主站对话快照；地图 AI 配置改为后台初始化，不阻塞编辑器和侧栏就绪。
+
 ## [0.44.69-beta] - 2026-08-30
 
 - 修复游戏资源工作区缺少明确的游戏编辑器主页入口的问题。

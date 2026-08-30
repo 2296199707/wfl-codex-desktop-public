@@ -54,9 +54,10 @@ test("editor mode is bound to its opening host, Codex thread, project, and map w
     editorScript.indexOf("function mapSessionCredentials"),
     editorScript.indexOf("async function fetchMapSession"),
   );
-  for (const fragmentField of ["host", "project", "thread"]) {
+  for (const fragmentField of ["host", "project"]) {
     assert.match(credentials, new RegExp(`fragment\\.get\\("${fragmentField}"\\)`, "u"));
   }
+  assert.doesNotMatch(credentials, /fragment\.get\("thread"\)/u);
   assert.match(editorScript, /new BroadcastChannel\(gameWorkModeChannelName\(state\.credentials\.hostWindowId\)\)/u);
   assert.match(editorScript, /GAME_WORK_MODE_HEARTBEAT_MS/u);
   assert.match(editorScript, /window\.addEventListener\("pagehide"[\s\S]*?shutdownGameWorkMode\(\)/u);

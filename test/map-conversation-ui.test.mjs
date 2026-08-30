@@ -104,6 +104,25 @@ test("map editor treats the host snapshot as the only conversation binding autho
   assert.match(editor, /lease\.threadId === mapConversationThreadId\(\)/u);
 });
 
+test("map editor starts the conversation sidebar before optional map AI initialization", () => {
+  const bootstrap = editor.slice(
+    editor.indexOf("async function bootstrap"),
+    editor.indexOf("function bindControls"),
+  );
+  assert.ok(
+    bootstrap.indexOf("state.session = await fetchMapSession()")
+      < bootstrap.indexOf("initializeGameWorkMode();"),
+    "conversation channel must start after the map session and before map loading work",
+  );
+  assert.ok(
+    bootstrap.indexOf("initializeGameWorkMode();")
+      < bootstrap.indexOf("await ensureMapProjectWorkspace()"),
+    "conversation channel must not wait for the project resource workspace",
+  );
+  assert.doesNotMatch(bootstrap, /await initializeMapAiIntegration\(\)/u);
+  assert.match(bootstrap, /setReady\(\);[\s\S]*?void initializeMapAiIntegration\(\)\.catch\(/u);
+});
+
 test("a non-active bound thread hydrates through read/list without changing the main selection", () => {
   assert.match(app, /mapConversationHydrations: new Map\(\)/u);
   assert.match(app, /ensureMapConversationThreadHydrated\(binding\)/u);
