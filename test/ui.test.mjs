@@ -2331,7 +2331,7 @@ test("the composer stays closed while the server is confirming a possibly active
   const composer = app.match(/const composerReady = Boolean\([\s\S]*?\n  \);/)?.[0] || "";
   assert.match(busy, /codexTaskStatusIsUncertain\(\)/);
   assert.match(composer, /!codexTaskStatusIsUncertain\(\)/);
-  assert.match(app, /status === "uncertain"/);
+  assert.match(app, /state\.taskStatusSnapshot\?\.status === "uncertain"/);
 });
 
 test("the resource explorer edits existing text files with guarded conflict-aware saves", () => {

@@ -44335,7 +44335,7 @@ function conversationBusy() {
 function codexTaskStatusIsUncertain() {
   return state.runtime === "codex"
     && state.taskStatusSnapshot?.threadId === state.activeThread?.id
-    && state.taskStatusSnapshot.status === "uncertain";
+    && state.taskStatusSnapshot?.status === "uncertain";
 }
 
 function codexTaskAuthorityAllowsSend() {
