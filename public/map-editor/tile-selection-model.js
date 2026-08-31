@@ -1,4 +1,4 @@
-import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.74-beta";
+import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.75-beta";
 
 const SELECTION_MODES = new Set(["replace", "add", "subtract", "intersect"]);
 

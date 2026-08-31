@@ -3,6 +3,13 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.75-beta] - 2026-08-31
+
+### Fixed
+
+- Prevented mobile startup from dereferencing an unavailable task-status snapshot while account data is still loading.
+- Bumped immutable browser asset URLs so a normal refresh downloads the corrected startup bundle instead of reusing cached `v0.44.74-beta` JavaScript.
+
 ## [0.44.74-beta] - 2026-08-31
 
 - 修复移动端主界面加载期间的可恢复 JavaScript 异常被永久显示为“运行异常”的问题。
