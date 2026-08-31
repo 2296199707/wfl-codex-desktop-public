@@ -2031,8 +2031,11 @@ test("the browser boot loader retries failed module startup without a stuck shel
   assert.match(boot, /window\.addEventListener\("unhandledrejection"/);
   assert.match(boot, /if \(!applicationLoaded\) showRecovery\("运行异常"\)/);
   assert.match(boot, /window\.addEventListener\("codex-desktop:fatal-error"/);
-  assert.match(app, /initialize\(\)\.catch/);
+  assert.match(boot, /window\.addEventListener\("codex-desktop:application-ready"/);
+  assert.match(boot, /if \(fatalErrorReported\) return/);
+  assert.match(app, /initialize\(\)[\s\S]*?\.catch/);
   assert.match(app, /new CustomEvent\("codex-desktop:fatal-error"/);
+  assert.match(app, /new CustomEvent\("codex-desktop:application-ready"/);
   assert.match(boot, /href="\/rescue\/"/);
   assert.match(boot, /bootRecoveryReload/);
   assert.match(app, /await verifyReleaseAssets\(release\.version\)/);

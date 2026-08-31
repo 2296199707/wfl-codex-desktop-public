@@ -3,6 +3,12 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.74-beta] - 2026-08-31
+
+- 修复移动端主界面加载期间的可恢复 JavaScript 异常被永久显示为“运行异常”的问题。
+- 主界面完成初始化后显式清除启动阶段误报，真正的初始化失败仍保留备用窗口入口。
+- 在浏览器控制台记录启动阶段的原始异常，便于后续诊断而不再只显示泛化提示。
+
 ## [0.44.73-beta] - 2026-08-31
 
 - 修复发送前置检查失败时错误保留 Thread 写租约，避免后续消息被误判为并发冲突。

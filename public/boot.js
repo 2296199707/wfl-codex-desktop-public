@@ -6,6 +6,7 @@
   let attempt = 0;
   let applicationLoaded = false;
   let runtimeFailed = false;
+  let fatalErrorReported = false;
 
   const recoveryBar = document.createElement("aside");
   recoveryBar.id = "bootRecoveryBar";
@@ -71,19 +72,28 @@
   // must not turn a healthy, connected application into a permanent fatal
   // banner. Module-evaluation faults are handled by import() below; errors
   // are considered fatal here only while the application is still loading.
-  window.addEventListener("error", () => {
+  window.addEventListener("error", (event) => {
+    console.warn("WFL startup observed a recoverable window error:", event.error || event.message);
     if (!applicationLoaded) showRecovery("运行异常");
   });
-  window.addEventListener("unhandledrejection", () => {
+  window.addEventListener("unhandledrejection", (event) => {
+    console.warn("WFL startup observed a recoverable rejected promise:", event.reason);
     if (!applicationLoaded) showRecovery("运行异常");
   });
   window.addEventListener("codex-desktop:fatal-error", () => {
+    fatalErrorReported = true;
     runtimeFailed = true;
     showRecovery("运行异常");
   });
+  window.addEventListener("codex-desktop:application-ready", () => {
+    applicationLoaded = true;
+    if (fatalErrorReported) return;
+    runtimeFailed = false;
+    recoveryBar.hidden = true;
+  });
 
   const loadApplication = async () => {
-    const url = new URL("/app.js?v=0.44.73-beta", location.origin);
+    const url = new URL("/app.js?v=0.44.74-beta", location.origin);
     url.searchParams.set("v", assetVersion);
     if (attempt) url.searchParams.set("recovery", `${Date.now()}-${attempt}`);
     try {
