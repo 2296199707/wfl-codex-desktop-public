@@ -2,14 +2,15 @@
   "format": 1,
   "id": "secure-ssh-access",
   "name": "临时 SSH 授权",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "WFL Codex Web Workspace",
-  "summary": "创建可撤销的临时 SSH 公钥；仅密码服务器自动使用内存会话，密码不会保存。",
+  "summary": "创建可撤销的临时 SSH 授权，并让管理员当前 AI 在授权有效期内执行远程运维命令；密码不会保存。",
   "icon": "key-round",
   "capability": "temporary-ssh-access",
   "permissions": [
     "network:ssh",
     "credential:one-time",
-    "temporary-key:write"
+    "temporary-key:write",
+    "command:remote"
   ]
 }

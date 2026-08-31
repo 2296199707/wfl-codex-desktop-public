@@ -239,7 +239,10 @@ import {
   MapSaveSessionStore,
 } from "./lib/map-save-sessions.mjs";
 import { PersistentSshServerStore } from "./lib/persistent-ssh-servers.mjs";
-import { PersistentSshToolService } from "./lib/persistent-ssh-tool-service.mjs";
+import {
+  PersistentSshToolService,
+  TemporarySshToolService,
+} from "./lib/persistent-ssh-tool-service.mjs";
 import { parseTiledDocument, tiledLayerEntries, collectTiledReferences } from "./public/map-editor/tiled-document.js";
 import { tileLayerCellsInRange } from "./public/map-editor/tiled-render-model.js";
 import {
@@ -1638,6 +1641,22 @@ function codexPersistentSshMcpOverride({ socketPath, scriptPath }) {
   ].join(" ");
 }
 
+function codexTemporarySshMcpOverride({ socketPath, scriptPath }) {
+  const command = JSON.stringify(process.execPath);
+  const args = [scriptPath, "--socket", socketPath].map((value) => JSON.stringify(String(value))).join(", ");
+  return [
+    "mcp_servers.wfl_temporary_ssh={",
+    `command = ${command},`,
+    `args = [${args}],`,
+    "enabled = true,",
+    "required = false,",
+    "startup_timeout_sec = 10,",
+    "tool_timeout_sec = 130,",
+    'default_tools_approval_mode = "auto"',
+    "}",
+  ].join(" ");
+}
+
 function codexMobilePreviewMcpOverride({ socketPath, scriptPath }) {
   const command = JSON.stringify(process.execPath);
   const args = [scriptPath, "--socket", socketPath].map((value) => JSON.stringify(String(value))).join(", ");
@@ -1687,6 +1706,7 @@ class CodexBridge extends EventEmitter {
   mapAiTool = null,
   mapAiManagedTool = null,
     persistentSshTool = null,
+    temporarySshTool = null,
     mobilePreviewTool = null,
   } = {}) {
     super();
@@ -1707,6 +1727,7 @@ class CodexBridge extends EventEmitter {
     this.mapAiTool = mapAiTool;
     this.mapAiManagedTool = mapAiManagedTool;
     this.persistentSshTool = persistentSshTool;
+    this.temporarySshTool = temporarySshTool;
     this.mobilePreviewTool = mobilePreviewTool;
     // The rescue app-server owns the only task process in its slot. Keep it
     // in a detached process group so a forced stop also reaches command
@@ -1763,9 +1784,13 @@ class CodexBridge extends EventEmitter {
         "-c",
         codexMapAiManagedMcpOverride(this.mapAiManagedTool),
       ] : []),
-      ...(this.persistentSshTool ? [
+    ...(this.persistentSshTool ? [
         "-c",
         codexPersistentSshMcpOverride(this.persistentSshTool),
+      ] : []),
+      ...(this.temporarySshTool ? [
+        "-c",
+        codexTemporarySshMcpOverride(this.temporarySshTool),
       ] : []),
       ...(this.mobilePreviewTool ? [
         "-c",
@@ -2087,6 +2112,7 @@ class UserRuntime {
     this.mapAiTool = null;
     this.mapAiManagedTool = null;
     this.persistentSshTool = null;
+    this.temporarySshTool = null;
     this.mobilePreviewTool = null;
     this.mobilePreviewBrowser = null;
     this.worktreeStore = null;
@@ -2424,6 +2450,16 @@ class UserRuntime {
           execute: (input) => this.persistentSshToolExecute(input),
         });
         await this.persistentSshTool.start();
+        this.temporarySshTool = new TemporarySshToolService({
+          directory: path.join(RELEASE_RUNTIME_DIR, "temporary-ssh-tools"),
+          userId: this.user.id,
+          uid: this.legacy ? null : this.user.uid,
+          gid: this.legacy ? null : this.user.gid,
+          capabilities: () => this.temporarySshToolCapabilities(),
+          list: () => this.temporarySshToolList(),
+          execute: (input) => this.temporarySshToolExecute(input),
+        });
+        await this.temporarySshTool.start();
         if (mobileAppPreview) {
           this.mobilePreviewBrowser = new MobilePreviewBrowserSession({
             targetForRecord: (record) => `http://127.0.0.1:${GATEWAY_PORT}${record.url}`,
@@ -2450,11 +2486,13 @@ class UserRuntime {
           this.mobilePreviewTool?.close(),
           this.mobilePreviewBrowser?.close(),
           this.persistentSshTool?.close(),
+          this.temporarySshTool?.close(),
           this.mapAiManagedTool?.close(),
           this.mapAiTool?.close(),
           this.imageProviderTool?.close(),
         ]);
         this.persistentSshTool = null;
+        this.temporarySshTool = null;
         this.aiProviderTestTool = null;
         this.mobilePreviewTool = null;
         this.mobilePreviewBrowser = null;
@@ -2489,6 +2527,10 @@ class UserRuntime {
       persistentSshTool: this.persistentSshTool ? {
         socketPath: this.persistentSshTool.socketPath,
         scriptPath: path.join(APP_DIR, "scripts", "persistent-ssh-mcp.mjs"),
+      } : null,
+      temporarySshTool: this.temporarySshTool ? {
+        socketPath: this.temporarySshTool.socketPath,
+        scriptPath: path.join(APP_DIR, "scripts", "temporary-ssh-mcp.mjs"),
       } : null,
       mobilePreviewTool: this.mobilePreviewTool ? {
         socketPath: this.mobilePreviewTool.socketPath,
@@ -7408,6 +7450,45 @@ class UserRuntime {
     );
   }
 
+  temporarySshAuthorized() {
+    return !RESCUE_MODE
+      && temporarySshAccess.primary === true
+      && pluginStore.isAuthorized("secure-ssh-access", this.user)
+      && ["owner", "admin"].includes(this.user.role);
+  }
+
+  temporarySshToolCapabilities() {
+    const enabled = this.temporarySshAuthorized();
+    return {
+      enabled,
+      activeCount: enabled ? temporarySshAccess.snapshot().length : 0,
+    };
+  }
+
+  temporarySshToolList() {
+    if (!this.temporarySshAuthorized()) {
+      throw httpError(403, "当前账号未启用临时 SSH 接管能力");
+    }
+    return temporarySshAccess.snapshot().map((record) => ({
+      id: record.id,
+      target: `${record.username}@${record.host}:${record.port}`,
+      authMode: record.authMode,
+      expiresAt: record.expiresAt,
+    }));
+  }
+
+  temporarySshToolExecute(input) {
+    if (!this.temporarySshAuthorized()) {
+      throw httpError(403, "当前账号未启用临时 SSH 接管能力");
+    }
+    const accessId = input?.accessId || input?.serverId;
+    return temporarySshAccess.execute(
+      accessId,
+      input?.command,
+      { timeoutMs: input?.timeoutMs },
+    );
+  }
+
   disconnectClients(reason = "Authentication changed") {
     for (const client of this.clients) client.close(1008, reason);
     this.clients.clear();
@@ -7465,6 +7546,7 @@ class UserRuntime {
     void this.mobilePreviewBrowser?.close();
     this.mobilePreviewBrowser = null;
     void this.persistentSshTool?.close();
+    void this.temporarySshTool?.close();
     void this.persistentSshServers?.close();
     void this.mapAiTool?.close();
     this.mapAiTool = null;
@@ -39702,6 +39784,7 @@ function shutdown() {
     codexMcpOAuthBrowser?.closeAll(),
     codexAppInstallBrowser?.closeAll(),
     mobileAppPreviewValidator?.close(),
+    temporarySshAccess.close(),
     closeImageExecutionSystem(),
     closeMapRenderSystem(),
     ...runtimes.map((runtime) => Promise.all([

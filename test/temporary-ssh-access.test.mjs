@@ -153,6 +153,60 @@ test("temporary SSH access persists no password and revokes both remote and loca
   }
 });
 
+test("temporary SSH access executes through the server and stops a command when revoked", async () => {
+  const runtimeDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-ssh-command-"));
+  let child = null;
+  let removed = 0;
+  const connector = {
+    async install() {
+      return {
+        hostKeyFingerprint: "SHA256:abcdefghijklmnopqrstuvwxyzABCDEFG123456",
+        hostKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestHostKey",
+      };
+    },
+    async remove() {
+      removed += 1;
+      return { removed: true };
+    },
+  };
+  const service = await new TemporarySshAccessService(runtimeDirectory, {
+    connector,
+    keyGenerator: fakeKeyGenerator,
+    spawnCommand: (command, args, options) => {
+      assert.equal(command, "ssh");
+      assert.equal(args.at(-1), "uname -a");
+      assert.doesNotMatch(JSON.stringify(args), /temporary-password/);
+      assert.equal(options.env.SSH_PASSWORD, undefined);
+      child = new FakeSshProcess();
+      return child;
+    },
+  }).initialize();
+
+  try {
+    const record = await service.authorize({
+      host: "192.0.2.10",
+      port: 22022,
+      username: "root",
+      password: "temporary-password",
+    });
+    const execution = service.execute(record.id, "uname -a");
+    await waitFor(() => child !== null);
+    assert.equal(service.activeCommandCount, 1);
+
+    await service.revoke(record.id);
+    const result = await execution;
+    assert.equal(child.killSignal, "SIGTERM");
+    assert.equal(result.exitCode, null);
+    assert.equal(result.signal, "SIGTERM");
+    assert.equal(removed, 1);
+    assert.equal(service.activeCommandCount, 0);
+    await assert.rejects(service.execute(record.id, "id"), (error) => error.statusCode === 404);
+  } finally {
+    await service.close();
+    await fs.rm(runtimeDirectory, { recursive: true, force: true });
+  }
+});
+
 test("temporary SSH access accepts only the bounded duration choices", async () => {
   const runtimeDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-ssh-duration-"));
   const service = await new TemporarySshAccessService(runtimeDirectory, {
@@ -479,6 +533,33 @@ class FakeSftp {
 
   end() {
     this.ended = true;
+  }
+}
+
+class FakeSshProcess extends EventEmitter {
+  constructor() {
+    super();
+    this.stdout = new EventEmitter();
+    this.stderr = new EventEmitter();
+    this.stdout.setEncoding = () => {};
+    this.stderr.setEncoding = () => {};
+    this.killed = false;
+    this.killSignal = null;
+  }
+
+  kill(signal) {
+    this.killed = true;
+    this.killSignal = signal;
+    this.emit("close", null, signal);
+    return true;
+  }
+}
+
+async function waitFor(predicate) {
+  const deadline = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for SSH process");
+    await new Promise((resolve) => setImmediate(resolve));
   }
 }
 

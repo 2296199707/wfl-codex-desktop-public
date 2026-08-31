@@ -3,6 +3,12 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.72-beta] - 2026-08-31
+
+- 为 WFL `secure-ssh-access` 插件接入管理员专用的临时 SSH AI 工具，支持列出活动授权和执行远程命令。
+- 工具通过每用户私有 MCP Socket 接入，持续校验插件授权、管理员身份、授权有效期，并在撤销或过期时终止活动命令。
+- 增加命令超时、输出大小和输入格式边界，密码、私钥及凭据路径不进入 MCP 参数、结果或日志；补充服务、MCP 和插件存储回归测试及设计记录。
+
 ## [0.44.71-beta] - 2026-08-31
 
 - 继续收敛多对话并行发送、追加、恢复和停止的 Thread 状态，避免迟到响应串线或恢复后重复创建 Turn。
