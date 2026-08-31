@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.70-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.70-beta";
+} from "./thread-state.js?v=0.44.71-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.71-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.70-beta";
+} from "./image-context-policy.js?v=0.44.71-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.70-beta";
+} from "./image-attachment-context.js?v=0.44.71-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.70-beta";
+} from "./game-work-mode.js?v=0.44.71-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.70-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.71-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.70-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.71-beta";
 import {
   createConversationState,
   listConversationThreads,
@@ -62,11 +62,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.70-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.70-beta";
+} from "./conversation-state.js?v=0.44.71-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.71-beta";
 
-const UI_VERSION = "0.44.70-beta";
-const UI_VERSION_LABEL = "0.44.70-beta";
+const UI_VERSION = "0.44.71-beta";
+const UI_VERSION_LABEL = "0.44.71-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -332,6 +332,18 @@ function beginCodexThreadResume(threadId) {
 
 function syncCodexActiveThreadRecoveryProjection() {
   state.activeThreadNeedsResume = codexThreadNeedsResume();
+  if (state.runtime === "codex" && state.activeThread?.id) {
+    const threadId = state.activeThread.id;
+    const operation = codexThreadOperation(threadId);
+    if (!operation.activeTurnKnown) {
+      const turnId = deriveCodexThreadTurn(threadId);
+      if (turnId) {
+        operation.activeTurnId = turnId;
+        operation.codexActiveTurnId = turnId;
+      }
+      operation.activeTurnKnown = true;
+    }
+  }
   return state.activeThreadNeedsResume;
 }
 
@@ -685,6 +697,7 @@ const state = {
   threadSelectionPending: false,
   threadSelectionVersion: 0,
   codexThreadRecoveryStates: new Map(),
+  codexThreadOperations: new Map(),
   threadResumePromises: new Map(),
   runtimeSwitchPending: false,
   threadHistoryCursor: null,
@@ -1007,6 +1020,259 @@ const state = {
     notifyQuestion: localStorage.getItem("codexDesktop.notifyQuestion") === "true",
   },
 };
+
+// Codex keeps several send fields on the current conversation for historical
+// UI reasons. Store their real values by Thread so a background request cannot
+// block or overwrite the conversation currently shown in the window.
+const CODEX_THREAD_OPERATION_FIELDS = [
+  "pendingTurnRequest",
+  "pendingSteerRequest",
+  "turnPreparationPending",
+  "turnStartRequestPending",
+  "steerRequestPending",
+  "interruptRequestPending",
+  "activeTurnId",
+  "codexActiveTurnId",
+  "pendingUserMessage",
+  "promptSubmissionGuard",
+  "queuedPromptAfterReconnect",
+];
+
+function createCodexThreadOperation() {
+  return {
+    pendingTurnRequest: null,
+    pendingSteerRequest: null,
+    turnPreparationPending: false,
+    turnStartRequestPending: false,
+    steerRequestPending: false,
+    interruptRequestPending: false,
+    activeTurnId: null,
+    codexActiveTurnId: null,
+    activeTurnKnown: false,
+    interruptTurnId: null,
+    pendingUserMessage: null,
+    promptSubmissionGuard: false,
+    queuedPromptAfterReconnect: false,
+    queuedPromptContext: null,
+    restoredTurnRequest: null,
+    restoredSteerRequest: null,
+  };
+}
+
+const codexLegacyOperation = createCodexThreadOperation();
+const codexDraftOperation = createCodexThreadOperation();
+
+function codexThreadOperation(threadId, { create = true } = {}) {
+  if (typeof threadId !== "string" || !threadId) return codexDraftOperation;
+  let operation = state.codexThreadOperations.get(threadId);
+  if (!operation && create) {
+    operation = createCodexThreadOperation();
+    state.codexThreadOperations.set(threadId, operation);
+  }
+  return operation || null;
+}
+
+function codexOperationForRequest(request) {
+  if (!request) return null;
+  const direct = codexThreadOperation(request.params?.threadId, { create: false });
+  if (
+    direct
+    && (direct.pendingTurnRequest === request || direct.pendingSteerRequest === request)
+  ) return direct;
+  for (const operation of state.codexThreadOperations.values()) {
+    if (operation.pendingTurnRequest === request || operation.pendingSteerRequest === request) {
+      return operation;
+    }
+  }
+  return direct;
+}
+
+function codexThreadOperationForRequest(request, { create = true } = {}) {
+  if (!request) return null;
+  const threadId = request.params?.threadId || request.threadId || null;
+  return codexThreadOperation(threadId, { create });
+}
+
+function codexThreadTurnId(threadId) {
+  const operation = codexThreadOperation(threadId, { create: false });
+  return operation?.activeTurnId || operation?.codexActiveTurnId || null;
+}
+
+function setCodexThreadBusy(threadId, busy, label = busy ? "正在处理" : "就绪") {
+  if (state.activeThread?.id === threadId) setTurnBusy(busy, label);
+}
+
+function restoreCodexThreadDraft(threadId) {
+  if (!threadId || state.activeThread?.id !== threadId) return false;
+  const operation = codexThreadOperation(threadId, { create: false });
+  const request = operation?.restoredTurnRequest
+    || operation?.restoredSteerRequest
+    || operation?.queuedPromptContext;
+  if (!request) return false;
+  if (operation.restoredTurnRequest || operation.restoredSteerRequest) {
+    operation.restoredTurnRequest = null;
+    operation.restoredSteerRequest = null;
+  }
+  if (!elements.promptInput.value.trim()) {
+    elements.promptInput.value = request.text || "";
+  } else if (request.text) {
+    elements.promptInput.value = [request.text, elements.promptInput.value.trim()]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (!state.attachments.length) state.attachments = [...(request.attachments || [])];
+  restoreSelectedCodexSkills(request.skills || []);
+  restoreSelectedCodexApps(request.apps || []);
+  resizePrompt();
+  renderAttachmentList();
+  return true;
+}
+
+function codexThreadPendingTurnRequest(threadId) {
+  return codexThreadOperation(threadId, { create: false })?.pendingTurnRequest || null;
+}
+
+function codexThreadPendingSteerRequest(threadId) {
+  return codexThreadOperation(threadId, { create: false })?.pendingSteerRequest || null;
+}
+
+function pendingSteerRequestMatchesError(request, threadId, params = {}) {
+  if (!request || !threadId || request.params?.threadId !== threadId) return false;
+  const expectedTurnId = request.params?.expectedTurnId;
+  const errorTurnId = params.turnId || params.turn?.id || null;
+  if (errorTurnId && expectedTurnId && errorTurnId !== expectedTurnId) return false;
+  const expectedClientId = request.params?.clientUserMessageId;
+  const errorClientId = params.clientUserMessageId || params.turn?.clientUserMessageId || null;
+  if (errorClientId && expectedClientId && errorClientId !== expectedClientId) return false;
+  return true;
+}
+
+function settlePendingSteerRequestFromError(threadId, params = {}) {
+  if (!threadId || params.willRetry === true) return false;
+  const request = codexThreadPendingSteerRequest(threadId);
+  if (!pendingSteerRequestMatchesError(request, threadId, params)) return false;
+  const operation = codexThreadOperation(threadId, { create: false });
+  if (operation?.pendingSteerRequest !== request) return false;
+  // The terminal notification is authoritative even if the corresponding RPC
+  // result is delayed. Release the per-Thread send lock immediately; the late
+  // RPC completion will fail its identity check and be ignored.
+  operation.steerRequestPending = false;
+  restorePendingSteerRequest(request);
+  return true;
+}
+
+function codexThreadHasPendingSend(threadId) {
+  const operation = codexThreadOperation(threadId, { create: false });
+  return Boolean(
+    operation
+    && (
+      operation.pendingTurnRequest
+      || operation.pendingSteerRequest
+      || operation.turnPreparationPending
+      || operation.turnStartRequestPending
+      || operation.steerRequestPending
+    ),
+  );
+}
+
+function codexPromptContextCanContinue(context) {
+  if (!context || state.runtime !== "codex") return false;
+  const accountId = state.account?.id || "legacy";
+  return accountId === (context.accountId || "legacy")
+    && typeof context.projectPath === "string"
+    && Boolean(context.projectPath);
+}
+
+function queueCodexPromptAfterReconnect(operation, context) {
+  if (!operation || !context) return;
+  operation.queuedPromptAfterReconnect = true;
+  operation.queuedPromptContext = {
+    ...context,
+    attachments: [...(context.attachments || [])],
+    skills: [...(context.skills || [])],
+    apps: [...(context.apps || [])],
+  };
+}
+
+function clearCodexDraftOperationAfterThreadStart() {
+  // The guard itself is released by sendPrompt(). Clear only the draft-owned
+  // payload so a later blank conversation cannot inherit the old send.
+  codexDraftOperation.pendingTurnRequest = null;
+  codexDraftOperation.pendingSteerRequest = null;
+  codexDraftOperation.turnPreparationPending = false;
+  codexDraftOperation.turnStartRequestPending = false;
+  codexDraftOperation.steerRequestPending = false;
+  codexDraftOperation.interruptRequestPending = false;
+  codexDraftOperation.activeTurnId = null;
+  codexDraftOperation.codexActiveTurnId = null;
+  codexDraftOperation.activeTurnKnown = false;
+  codexDraftOperation.interruptTurnId = null;
+  codexDraftOperation.pendingUserMessage = null;
+  codexDraftOperation.queuedPromptAfterReconnect = false;
+  codexDraftOperation.queuedPromptContext = null;
+  codexDraftOperation.restoredTurnRequest = null;
+  codexDraftOperation.restoredSteerRequest = null;
+}
+
+function rememberCodexThreadTurn(threadId, turnId) {
+  if (typeof threadId !== "string" || !threadId) return;
+  const operation = codexThreadOperation(threadId);
+  operation.activeTurnId = turnId || null;
+  operation.codexActiveTurnId = turnId || null;
+  operation.activeTurnKnown = true;
+}
+
+function clearCodexThreadTurn(threadId, turnId = null) {
+  if (typeof threadId !== "string" || !threadId) return;
+  const operation = codexThreadOperation(threadId, { create: false });
+  if (!operation) return;
+  if (turnId && operation.activeTurnId !== turnId && operation.codexActiveTurnId !== turnId) return;
+  operation.activeTurnId = null;
+  operation.codexActiveTurnId = null;
+  operation.activeTurnKnown = true;
+}
+
+function deriveCodexThreadTurn(threadId) {
+  const operation = codexThreadOperation(threadId, { create: false });
+  if (operation?.activeTurnKnown) return operation.activeTurnId || null;
+  const task = state.threadTaskStatuses.get(threadId);
+  if (task && ACTIVE_TASK_STATUSES.has(task.status) && task.turnId) return task.turnId;
+  const thread = state.activeThread?.id === threadId
+    ? state.activeThread
+    : conversationThreadById(threadId);
+  return (thread?.turns || []).find((turn) => turnStatusType(turn) === "inProgress")?.id || null;
+}
+
+function codexThreadTurnForSubmission(threadId, fallbackTurnId = null) {
+  if (typeof threadId !== "string" || !threadId) return null;
+  const operation = codexThreadOperation(threadId, { create: false });
+  if (operation?.activeTurnKnown) {
+    return operation.activeTurnId || operation.codexActiveTurnId || null;
+  }
+  return deriveCodexThreadTurn(threadId) || fallbackTurnId || null;
+}
+
+for (const field of CODEX_THREAD_OPERATION_FIELDS) {
+  const initialValue = state[field];
+  codexLegacyOperation[field] = initialValue;
+  Object.defineProperty(state, field, {
+    configurable: true,
+    enumerable: true,
+    get() {
+      if (state.runtime !== "codex") return codexLegacyOperation[field];
+      return codexThreadOperation(state.activeThread?.id)[field];
+    },
+    set(value) {
+      const operation = state.runtime === "codex"
+        ? codexThreadOperation(state.activeThread?.id)
+        : codexLegacyOperation;
+      operation[field] = value;
+      if (field === "activeTurnId" || field === "codexActiveTurnId") {
+        operation.activeTurnKnown = true;
+      }
+    },
+  });
+}
 
 const elements = Object.fromEntries(
   [
@@ -7293,6 +7559,9 @@ async function loadAccount({ summary = false } = {}) {
       state.threadRecentRefreshInFlight.clear();
       state.threadSubagents.clear();
       state.threadTaskStatuses.clear();
+      state.codexThreadOperations.clear();
+      Object.assign(codexDraftOperation, createCodexThreadOperation());
+      Object.assign(codexLegacyOperation, createCodexThreadOperation());
       state.threadTaskStatusesReady = false;
       state.activeThread = null;
       state.activeClaudeSession = null;
@@ -10468,7 +10737,8 @@ async function rpcWithSameRuntimeRetry(method, params, options = {}) {
       return await rpc(method, params, options);
     } catch (error) {
       if (!error.deliveryUnknown || attempt >= maxAttempts) throw error;
-      setTurnBusy(true, "等待连接确认");
+      if (typeof options.onDeliveryUnknown === "function") options.onDeliveryUnknown(error, attempt);
+      else setTurnBusy(true, "等待连接确认");
       await waitForCodexTransport(expectedEpoch);
     }
   }
@@ -19030,16 +19300,17 @@ async function selectThread(thread) {
     toast("图片正在生成，完成后再切换对话", "error");
     return;
   }
-  if (state.turnPreparationPending && thread.id !== state.activeThread?.id) {
+  if (!state.activeThread?.id && state.turnPreparationPending) {
     toast("任务正在准备，完成后再切换对话", "error");
     return;
   }
-  if (state.pendingTurnRequest && thread.id !== state.activeThread?.id) {
+  if (thread.id !== state.activeThread?.id && codexThreadPendingTurnRequest(thread.id)) {
     toast("当前消息仍在确认发送，请等待连接恢复", "error");
     return;
   }
   if (
-    (state.pendingSteerRequest || state.steerRequestPending)
+    (codexThreadPendingSteerRequest(thread.id)
+      || codexThreadOperation(thread.id, { create: false })?.steerRequestPending)
     && thread.id !== state.activeThread?.id
   ) {
     toast("追加指令仍在确认发送，请等待确认后再切换对话", "error");
@@ -19151,18 +19422,23 @@ async function resumeThreadRequest(
   } = {},
 ) {
   thread = threadWithManagedCodexWorktree(thread);
-  if (state.pendingTurnRequest && thread.id !== state.activeThread?.id) {
+  const targetOperation = codexThreadOperation(thread.id, { create: false });
+  const targetIsActive = thread.id === state.activeThread?.id;
+  if (
+    !targetIsActive
+    && targetOperation?.pendingTurnRequest
+  ) {
     toast("当前消息仍在确认发送，请等待连接恢复", "error");
     return false;
   }
   if (
-    (state.pendingSteerRequest || state.steerRequestPending)
-    && thread.id !== state.activeThread?.id
+    !targetIsActive
+    && (targetOperation?.pendingSteerRequest || targetOperation?.steerRequestPending)
   ) {
     toast("追加指令仍在确认发送，请等待确认后再切换对话", "error");
     return false;
   }
-  if (state.turnPreparationPending && thread.id !== state.activeThread?.id) {
+  if (!targetIsActive && targetOperation?.turnPreparationPending) {
     toast("任务正在准备，完成后再切换对话", "error");
     return false;
   }
@@ -19330,6 +19606,7 @@ async function resumeThreadRequest(
     rebuildThreadSubagents(resumedThread, { reset: true });
     state.threadSelectionPending = false;
     replaceActiveConversationThread(resumedThread);
+    restoreCodexThreadDraft(thread.id);
     renderProjectContext();
     state.threadHistoryCursor = historyCursor;
     state.selectedModel = selectedModel;
@@ -19551,9 +19828,12 @@ function uniqueTurnIds(values) {
   return [...new Set(values.filter((value) => typeof value === "string" && value))];
 }
 
-function localInProgressTurnIds() {
+function localInProgressTurnIds(threadId = state.activeThread?.id) {
+  const thread = threadId && state.activeThread?.id === threadId
+    ? state.activeThread
+    : conversationThreadById(threadId);
   return uniqueTurnIds(
-    (state.activeThread?.turns || [])
+    (thread?.turns || [])
       .filter((turn) => (
         turnStatusType(turn) === "inProgress"
         && !state.codexTerminalTurnIds.has(turn?.id)
@@ -19615,21 +19895,26 @@ function terminalEventCanSettleTurn(turn, params = {}) {
   return completedAt === null || startedAt === null || completedAt >= startedAt;
 }
 
-function authoritativeTrackedTurnIds() {
-  const task = state.taskStatusSnapshot;
-  const taskTurnId = task?.threadId === state.activeThread?.id
+function authoritativeTrackedTurnIds(threadId = state.activeThread?.id) {
+  const task = threadId === state.activeThread?.id
+    ? state.taskStatusSnapshot
+    : state.threadTaskStatuses.get(threadId);
+  const operationTurnId = codexThreadTurnId(threadId);
+  const taskTurnId = task?.threadId === threadId
     && ACTIVE_TASK_STATUSES.has(task.status)
     ? task.turnId
     : null;
-  return uniqueTurnIds([taskTurnId, state.activeTurnId, state.codexActiveTurnId]);
+  return uniqueTurnIds([taskTurnId, operationTurnId]);
 }
 
 function inferCurrentTurnId(params = {}, { terminal = false } = {}) {
-  const localTurnIds = localInProgressTurnIds();
+  const threadId = params?.threadId || params?.turn?.threadId || state.activeThread?.id || null;
+  const localTurnIds = localInProgressTurnIds(threadId);
+  const thread = threadId ? conversationThreadById(threadId) : null;
   const clientIds = notificationTurnClientIds(params);
   if (clientIds.length) {
     const matches = localTurnIds.filter((id) => {
-      const turn = state.activeThread?.turns?.find((candidate) => candidate?.id === id);
+      const turn = thread?.turns?.find((candidate) => candidate?.id === id);
       return turnMatchesNotificationIdentity(turn, clientIds);
     });
     return matches.length === 1 ? matches[0] : null;
@@ -19638,15 +19923,15 @@ function inferCurrentTurnId(params = {}, { terminal = false } = {}) {
   // Prefer the server task snapshot and the two client pointers over an
   // arbitrary locally in-progress Turn. This prevents a delayed old event
   // from winning merely because its Turn is the only one currently rendered.
-  const authoritative = authoritativeTrackedTurnIds();
+  const authoritative = authoritativeTrackedTurnIds(threadId);
   const localAuthoritative = authoritative.filter((id) => localTurnIds.includes(id));
   if (localAuthoritative.length === 1) {
-    const turn = state.activeThread?.turns?.find((candidate) => candidate?.id === localAuthoritative[0]);
+    const turn = thread?.turns?.find((candidate) => candidate?.id === localAuthoritative[0]);
     return !terminal || terminalEventCanSettleTurn(turn, params) ? localAuthoritative[0] : null;
   }
 
   if (localTurnIds.length === 1) {
-    const turn = state.activeThread?.turns?.find((candidate) => candidate?.id === localTurnIds[0]);
+    const turn = thread?.turns?.find((candidate) => candidate?.id === localTurnIds[0]);
     return !terminal || terminalEventCanSettleTurn(turn, params) ? localTurnIds[0] : null;
   }
 
@@ -19655,17 +19940,33 @@ function inferCurrentTurnId(params = {}, { terminal = false } = {}) {
   // usable so a sparse terminal event can release the pending send safely.
   const viableTracked = authoritative.filter((id) => {
     if (state.codexTerminalTurnIds.has(id)) return false;
-    const localTurn = state.activeThread?.turns?.find((turn) => turn?.id === id);
+    const localTurn = thread?.turns?.find((turn) => turn?.id === id);
     return !localTurn || turnStatusType(localTurn) === "inProgress";
   });
   return viableTracked.length === 1 ? viableTracked[0] : null;
+}
+
+function codexThreadIdForTurn(turnId) {
+  if (typeof turnId !== "string" || !turnId) return null;
+  for (const [threadId, operation] of state.codexThreadOperations) {
+    if (operation.activeTurnId === turnId || operation.codexActiveTurnId === turnId) {
+      return threadId;
+    }
+  }
+  for (const thread of state.threads) {
+    if (thread?.turns?.some((turn) => turn?.id === turnId)) return thread.id;
+  }
+  return null;
 }
 
 function resolveTurnNotificationContext(params = {}, { terminal = false } = {}) {
   const explicitThreadId = params?.threadId || params?.turn?.threadId || null;
   const explicitTurnId = turnNotificationId(params);
   const activeThreadId = state.activeThread?.id || null;
-  const pending = state.pendingTurnRequest;
+  const inferredThreadId = explicitThreadId || codexThreadIdForTurn(explicitTurnId);
+  const pending = inferredThreadId
+    ? codexThreadPendingTurnRequest(inferredThreadId)
+    : state.pendingTurnRequest;
   const expectedClientId = pending?.params?.clientUserMessageId || null;
   const observedClientIds = [
     params?.clientUserMessageId,
@@ -19682,12 +19983,13 @@ function resolveTurnNotificationContext(params = {}, { terminal = false } = {}) 
   // in this browser. Only infer its Turn when it is also the active thread.
   if (explicitThreadId) {
     if (explicitTurnId || explicitThreadId !== activeThreadId) {
+      const operationTurnId = explicitTurnId || codexThreadTurnId(explicitThreadId);
       return {
         threadId: explicitThreadId,
-        turnId: explicitTurnId,
+        turnId: operationTurnId,
         pendingMatch: pendingMatch && pending?.params?.threadId === explicitThreadId,
         inferredCurrent: false,
-        source: explicitTurnId ? "explicit" : "thread-only",
+        source: explicitTurnId ? "explicit" : operationTurnId ? "thread-pointer" : "thread-only",
       };
     }
     // The event is scoped to the visible Thread but omitted its Turn ID. Fall
@@ -19696,7 +19998,7 @@ function resolveTurnNotificationContext(params = {}, { terminal = false } = {}) 
 
   if (!activeThreadId) {
     return {
-      threadId: explicitThreadId || null,
+      threadId: inferredThreadId || null,
       turnId: explicitTurnId,
       pendingMatch: false,
       inferredCurrent: false,
@@ -19705,8 +20007,12 @@ function resolveTurnNotificationContext(params = {}, { terminal = false } = {}) 
   }
 
   if (explicitTurnId) {
-    const localTurn = state.activeThread.turns?.find((turn) => turn?.id === explicitTurnId);
+    const knownThreadId = inferredThreadId;
+    const knownThread = knownThreadId ? conversationThreadById(knownThreadId) : null;
+    const localTurn = knownThread?.turns?.find((turn) => turn?.id === explicitTurnId);
     const belongsToActive = (
+      knownThreadId === activeThreadId
+      ||
       state.activeTurnId === explicitTurnId
       || state.codexActiveTurnId === explicitTurnId
       || Boolean(localTurn)
@@ -19715,6 +20021,15 @@ function resolveTurnNotificationContext(params = {}, { terminal = false } = {}) 
     if (!explicitThreadId && !belongsToActive) {
       // A Turn-only event from another loaded/runtime context must not be
       // attached to whichever conversation happens to be visible.
+      if (knownThreadId) {
+        return {
+          threadId: knownThreadId,
+          turnId: explicitTurnId,
+          pendingMatch: pendingMatch && pending?.params?.threadId === knownThreadId,
+          inferredCurrent: false,
+          source: "known-turn",
+        };
+      }
       return {
         threadId: null,
         turnId: explicitTurnId,
@@ -19724,11 +20039,11 @@ function resolveTurnNotificationContext(params = {}, { terminal = false } = {}) 
       };
     }
     return {
-      threadId: explicitThreadId || activeThreadId,
+      threadId: explicitThreadId || knownThreadId || activeThreadId,
       turnId: explicitTurnId,
-      pendingMatch: pendingMatch && pending?.params?.threadId === (explicitThreadId || activeThreadId),
+      pendingMatch: pendingMatch && pending?.params?.threadId === (explicitThreadId || knownThreadId || activeThreadId),
       inferredCurrent: !explicitThreadId,
-      source: explicitThreadId ? "explicit" : "active-turn",
+      source: explicitThreadId ? "explicit" : knownThreadId ? "known-turn" : "active-turn",
     };
   }
 
@@ -19737,9 +20052,9 @@ function resolveTurnNotificationContext(params = {}, { terminal = false } = {}) 
   // when several Turns remain active and no pointer disambiguates them.
   const turnId = inferCurrentTurnId(params, { terminal });
   const source = turnId
-    ? localInProgressTurnIds().length === 1 ? "unique-local-turn" : "tracked-turn"
+    ? localInProgressTurnIds(threadId).length === 1 ? "unique-local-turn" : "tracked-turn"
     : null;
-  const threadId = explicitThreadId || activeThreadId;
+  const threadId = explicitThreadId || inferredThreadId || activeThreadId;
   return {
     threadId,
     turnId,
@@ -19766,6 +20081,10 @@ function turnUserMessageClientIds(turn) {
 
 function pendingTurnRequestMatchesTurn(request, threadId, turn, params = {}) {
   if (!request || !threadId || request.params?.threadId !== threadId) return false;
+  const operation = codexThreadOperation(threadId, { create: false });
+  const targetThread = threadId === state.activeThread?.id
+    ? state.activeThread
+    : conversationThreadById(threadId);
   const expectedClientId = request.params?.clientUserMessageId;
   const observedClientIds = [
     params.clientUserMessageId,
@@ -19780,9 +20099,9 @@ function pendingTurnRequestMatchesTurn(request, threadId, turn, params = {}) {
     expectedClientId
     && eventTurnId
     && (
-      state.activeTurnId === eventTurnId
-      || state.codexActiveTurnId === eventTurnId
-      || state.activeThread?.turns?.some((candidate) => (
+      operation?.activeTurnId === eventTurnId
+      || operation?.codexActiveTurnId === eventTurnId
+      || targetThread?.turns?.some((candidate) => (
         candidate?.id === eventTurnId && turnStatusType(candidate) === "inProgress"
       ))
     )
@@ -19797,7 +20116,11 @@ function pendingTurnRequestMatchesTurn(request, threadId, turn, params = {}) {
       : []
   )).filter(Boolean);
   if (!userTexts.includes(expectedText)) return false;
-  if (eventTurnId && state.activeTurnId && state.activeTurnId !== eventTurnId) return false;
+  if (
+    eventTurnId
+    && codexThreadTurnId(threadId)
+    && codexThreadTurnId(threadId) !== eventTurnId
+  ) return false;
   // A history refresh can contain an older turn with the same text. Only use
   // text as the final fallback when the authoritative turn was created after
   // this request; otherwise keep the request uncertain for a later event with
@@ -19817,7 +20140,8 @@ function pendingTurnRequestMatchesTurn(request, threadId, turn, params = {}) {
 
 function commitPendingTurnRequest(request) {
   if (!request) return null;
-  const threadId = request.params?.threadId || state.activeThread?.id || null;
+  const threadId = request.params?.threadId || request.threadId || null;
+  const operation = codexThreadOperationForRequest(request, { create: false });
   const committedImageContext = bindConversationImageContext(
     request.imageContextTransaction,
     imageContextKey({
@@ -19830,29 +20154,37 @@ function commitPendingTurnRequest(request) {
   );
   commitConversationImageContext(state.imageContextLedger, committedImageContext);
   rememberMapConversationImageDelivery(threadId, request.imageDelivery);
-  if (state.pendingTurnRequest === request) state.pendingTurnRequest = null;
-  state.attachments = [];
-  renderAttachmentList();
-  setImageGenerationMode(false);
+  if (operation?.pendingTurnRequest === request) operation.pendingTurnRequest = null;
+  if (operation) operation.restoredTurnRequest = null;
+  if (state.activeThread?.id === threadId) {
+    state.attachments = [];
+    renderAttachmentList();
+    setImageGenerationMode(false);
+  }
   return threadId;
 }
 
 function settlePendingTurnRequestFromTurn(threadId, turn, params = {}) {
-  const request = state.pendingTurnRequest;
+  const request = codexThreadPendingTurnRequest(threadId);
   if (!pendingTurnRequestMatchesTurn(request, threadId, turn, params)) return false;
   commitPendingTurnRequest(request);
   if (turn?.id) {
-    state.pendingUserMessage = bindPendingUserMessage(state.pendingUserMessage, turn.id);
-    const mergedTurn = upsertTurn(turn);
-    state.activeTurnId = turnStatusType(mergedTurn) === "inProgress" ? mergedTurn.id : null;
-    state.codexActiveTurnId = state.activeTurnId;
+    const operation = codexThreadOperation(threadId);
+    operation.pendingUserMessage = bindPendingUserMessage(operation.pendingUserMessage, turn.id);
+    const mergedTurn = upsertTurnForThread(threadId, turn);
+    rememberCodexThreadTurn(
+      threadId,
+      turnStatusType(mergedTurn) === "inProgress" ? mergedTurn.id : null,
+    );
   }
-  renderActiveThread({ preserveOptimistic: true });
+  if (state.activeThread?.id === threadId) {
+    renderActiveThread({ preserveOptimistic: true });
+  }
   return true;
 }
 
 function reconcilePendingTurnRequestFromTurns(threadId, turns = []) {
-  const request = state.pendingTurnRequest;
+  const request = codexThreadPendingTurnRequest(threadId);
   if (!request) return false;
   const turn = turns.find((candidate) => (
     pendingTurnRequestMatchesTurn(request, threadId, candidate, {
@@ -19869,16 +20201,20 @@ function reconcileTurnNotification(threadId, params, { terminal = false, turnId 
   const context = resolveTurnNotificationContext(params, { terminal });
   const targetThreadId = threadId || context.threadId;
   const targetTurnId = turnId || context.turnId;
-  if (state.activeThread?.id !== targetThreadId) return null;
-  if (!targetTurnId) return null;
-  const current = state.activeThread.turns?.find((turn) => turn.id === targetTurnId) || null;
+  if (!targetThreadId || !targetTurnId) return null;
+  const targetThread = conversationThreadById(targetThreadId, params?.thread?.cwd) || {
+    id: targetThreadId,
+    cwd: conversationProjectForThread(targetThreadId, params?.thread?.cwd),
+    turns: [],
+  };
+  const current = targetThread.turns?.find((turn) => turn.id === targetTurnId) || null;
   const incoming = params?.turn && typeof params.turn === "object" ? params.turn : {};
   const status = terminal
     ? turnStatusType(incoming) !== "inProgress"
       ? incoming.status
       : params.status || params.turnStatus || "completed"
     : incoming.status || current?.status || "inProgress";
-  return upsertTurn({
+  return upsertTurnForThread(targetThreadId, {
     ...(current || {}),
     ...incoming,
     id: targetTurnId,
@@ -20215,20 +20551,12 @@ function newThread({ cacheCurrent = true, targetProject = null } = {}) {
     toast("图片正在生成，完成后再新建对话", "error");
     return;
   }
-  if (state.turnPreparationPending) {
+  if (!state.activeThread?.id && state.turnPreparationPending) {
     toast("任务正在准备，完成后再新建对话", "error");
     return;
   }
   if (state.queuedPromptAfterReconnect) {
     toast("消息正在等待连接恢复，请等待确认后再新建对话", "error");
-    return;
-  }
-  if (state.pendingTurnRequest) {
-    toast("当前消息仍在确认发送，请等待连接恢复", "error");
-    return;
-  }
-  if (state.pendingSteerRequest || state.steerRequestPending) {
-    toast("追加指令仍在确认发送，请等待确认后再新建对话", "error");
     return;
   }
   state.threadListProjectPath = state.currentProject?.path || null;
@@ -20588,16 +20916,58 @@ function activateCodexProject(project, options = {}) {
 }
 
 async function sendPrompt() {
-  if (state.promptSubmissionGuard) return;
-  state.promptSubmissionGuard = true;
-  setTurnBusy(true, "正在准备");
+  const codex = state.runtime === "codex";
+  const sendContext = codex ? captureCodexPromptContext() : null;
+  const guardOperation = codex ? codexThreadOperation(sendContext.threadId) : null;
+  if (codex ? guardOperation.promptSubmissionGuard : state.promptSubmissionGuard) return;
+  if (codex) guardOperation.promptSubmissionGuard = true;
+  else state.promptSubmissionGuard = true;
+  if (codex) setCodexThreadBusy(sendContext.threadId, true, "正在准备");
+  else setTurnBusy(true, "正在准备");
   try {
     if (!(await confirmCrossRuntimeProjectTask())) return;
-    await sendPromptOnce();
+    if (codex && !codexPromptContextStillCurrent(sendContext)) return;
+    await sendPromptOnce(sendContext);
   } finally {
-    state.promptSubmissionGuard = false;
-    setTurnBusy(conversationBusy(), conversationBusyLabel());
+    if (codex) {
+      guardOperation.promptSubmissionGuard = false;
+      setCodexThreadBusy(sendContext.threadId, conversationBusy(), conversationBusyLabel());
+    } else {
+      state.promptSubmissionGuard = false;
+      setTurnBusy(conversationBusy(), conversationBusyLabel());
+    }
   }
+}
+
+function captureCodexPromptContext() {
+  const threadId = state.activeThread?.id || null;
+  return {
+    threadId,
+    thread: state.activeThread || null,
+    projectPath: state.currentProject?.path || null,
+    project: state.currentProject || null,
+    accountId: state.account?.id || "legacy",
+    selectionVersion: state.threadSelectionVersion,
+    text: elements.promptInput.value.trim(),
+    attachments: [...state.attachments],
+    skills: [...state.selectedCodexSkills],
+    apps: [...state.selectedCodexApps],
+    imageGenerationMode: state.imageGenerationMode,
+    selectedWorktreeId: state.selectedCodexWorktreeId,
+    selectedWorkspaceMode: state.selectedCodexWorkspaceMode,
+    selectedModel: state.selectedModel,
+    selectedEffort: state.selectedEffort,
+    activeTurnId: threadId
+      ? state.activeTurnId || state.codexActiveTurnId || deriveCodexThreadTurn(threadId)
+      : null,
+  };
+}
+
+function codexPromptContextStillCurrent(context) {
+  if (!context || state.runtime !== "codex") return false;
+  return state.threadSelectionVersion === context.selectionVersion
+    && state.activeThread?.id === context.threadId
+    && state.currentProject?.path === context.projectPath;
 }
 
 function promptHasSubmissionContent() {
@@ -20680,11 +21050,25 @@ async function confirmCrossRuntimeProjectTask() {
   }
 }
 
-async function sendPromptOnce() {
+async function sendPromptOnce(context = null) {
   if (state.runtime === "claude") {
     await sendClaudePrompt();
     return;
   }
+  const promptContext = context || captureCodexPromptContext();
+  if (!codexPromptContextCanContinue(promptContext)) return;
+  const threadId = promptContext.threadId;
+  const targetOperation = codexThreadOperation(threadId);
+  const targetProject = promptContext.project || state.currentProject;
+  const targetThread = promptContext.thread
+    || (threadId ? conversationThreadById(threadId, promptContext.projectPath) : null);
+  const targetProjectPath = promptContext.projectPath || targetProject?.path || null;
+  let requestThreadId = threadId;
+  const targetIsVisible = () => (
+    state.runtime === "codex"
+    && state.activeThread?.id === (requestThreadId || threadId)
+    && state.currentProject?.path === targetProjectPath
+  );
   if (state.providerConfigurationRequired) {
     toast(
       canEditProviderProfiles()
@@ -20694,30 +21078,46 @@ async function sendPromptOnce() {
     );
     return;
   }
-  const text = elements.promptInput.value.trim();
-  let attachments = [...state.attachments];
-  const skills = [...state.selectedCodexSkills];
-  const apps = [...state.selectedCodexApps];
+  const text = promptContext.text;
+  let attachments = [...promptContext.attachments];
+  const skills = [...promptContext.skills];
+  const apps = [...promptContext.apps];
   if (
     !state.bridgeReady
     && state.connectionPhase === "reconnecting"
     && state.conversationReady
     && (text || attachments.length || skills.length || apps.length)
-    && !state.pendingTurnRequest
-    && !state.pendingSteerRequest
-    && !state.turnPreparationPending
+    && !targetOperation.pendingTurnRequest
+    && !targetOperation.pendingSteerRequest
+    && !targetOperation.turnPreparationPending
   ) {
-    state.queuedPromptAfterReconnect = true;
-    setTurnBusy(true, "等待连接恢复");
+    queueCodexPromptAfterReconnect(targetOperation, promptContext);
+    if (targetIsVisible()) {
+      elements.promptInput.value = "";
+      state.attachments = [];
+      state.selectedCodexSkills = [];
+      state.selectedCodexApps = [];
+      renderAttachmentList();
+      resizePrompt();
+    }
+    if (targetIsVisible()) setTurnBusy(true, "等待连接恢复");
     return;
   }
-  if (state.activeTurnId) {
-    await sendSteerPrompt(text, attachments, skills, apps);
+  if (targetOperation.queuedPromptContext) {
+    targetOperation.queuedPromptAfterReconnect = false;
+    targetOperation.queuedPromptContext = null;
+  }
+  const targetTurnId = codexThreadTurnForSubmission(
+    threadId,
+    Object.hasOwn(promptContext, "activeTurnId") ? promptContext.activeTurnId : null,
+  );
+  if (targetTurnId) {
+    await sendSteerPrompt(text, attachments, skills, apps, promptContext);
     return;
   }
-  const automaticImagePrompt = state.imageGenerationMode ? null : imagePromptFromConversation(text);
+  const automaticImagePrompt = promptContext.imageGenerationMode ? null : imagePromptFromConversation(text);
   const imagePrompt = automaticImagePrompt || text;
-  const imageRequested = Boolean(state.imageGenerationMode || automaticImagePrompt);
+  const imageRequested = Boolean(promptContext.imageGenerationMode || automaticImagePrompt);
   let imageBackend = imageRequested ? imageGenerationBackend() : null;
   if (imageRequested && !imageBackend) {
     // Provider state is account-scoped but loads outside the conversation
@@ -20730,18 +21130,22 @@ async function sendPromptOnce() {
       loadCapabilities(),
       loadProviderRouting({ silent: true }),
     ]);
+    if (!codexPromptContextCanContinue(promptContext)) return;
     imageBackend = imageGenerationBackend();
   }
   const generatingImage = Boolean(imageRequested && imageBackend);
+  const targetUiBusy = targetIsVisible() && (
+    state.uploading
+    || state.imageGenerating
+    || state.threadSelectionPending
+  );
   if (
     (!text && !attachments.length && !skills.length && !apps.length) ||
-    state.pendingTurnRequest ||
-    state.turnPreparationPending ||
-    state.uploading ||
-    state.imageGenerating ||
-    state.contextCompactionThreadId === state.activeThread?.id ||
-    state.threadSelectionPending ||
-    !state.currentProject ||
+    targetOperation.pendingTurnRequest ||
+    targetOperation.turnPreparationPending ||
+    state.contextCompactionThreadId === threadId ||
+    targetUiBusy ||
+    !targetProject ||
     !state.bridgeReady
   ) return;
   if (generatingImage && !imagePrompt) {
@@ -20761,12 +21165,33 @@ async function sendPromptOnce() {
     toast("请先移除一个附件再生成图片", "error");
     return;
   }
-  if (state.activeThread && codexThreadNeedsResume(state.activeThread.id)) {
-    const recovered = await prepareActiveThreadForSend();
-    if (!recovered) return;
+  if (threadId && codexThreadNeedsResume(threadId)) {
+    if (!targetIsVisible()) {
+      targetOperation.restoredTurnRequest = {
+        ...promptContext,
+        attachments,
+        skills,
+        apps,
+      };
+      return;
+    }
+    const recovered = await prepareActiveThreadForSend(state.activeThread);
+    if (!recovered || !codexPromptContextCanContinue(promptContext)) return;
   }
-  let selectedWorktree = !state.activeThread && state.selectedCodexWorktreeId
-    ? state.codexWorktrees.find((worktree) => worktree.id === state.selectedCodexWorktreeId)
+  if (!threadId && !targetIsVisible()) {
+    // A blank composer has no durable Thread yet. Do not let a delayed
+    // thread/start mutate the project or visible conversation after the user
+    // has switched away; restore the captured request when it is selected.
+    targetOperation.restoredTurnRequest = {
+      ...promptContext,
+      attachments,
+      skills,
+      apps,
+    };
+    return;
+  }
+  let selectedWorktree = !threadId && promptContext.selectedWorktreeId
+    ? state.codexWorktrees.find((worktree) => worktree.id === promptContext.selectedWorktreeId)
     : null;
   if (selectedWorktree?.threadId) {
     state.selectedCodexWorktreeId = null;
@@ -20785,9 +21210,9 @@ async function sendPromptOnce() {
       activateCodexProject(selectedProject, { selectedWorktreeId: selectedWorktree.id });
     }
   }
-  if (!state.activeThread && state.currentProject.worktree) {
+  if (!threadId && targetProject.worktree) {
     const selectedCurrentWorktree = selectedWorktree
-      && selectedWorktree.worktreeProjectPath === state.currentProject.path
+      && selectedWorktree.worktreeProjectPath === targetProjectPath
       && selectedWorktree.state === "ready"
       && !selectedWorktree.threadId;
     if (selectedCurrentWorktree && attachments.length) {
@@ -20816,23 +21241,23 @@ async function sendPromptOnce() {
       attachments: [],
     };
   } else if (
-    !state.activeThread
-    && state.selectedCodexWorkspaceMode === "worktree"
-    && !state.currentProject.worktree
+    !threadId
+    && promptContext.selectedWorkspaceMode === "worktree"
+    && !targetProject.worktree
   ) {
-    state.turnPreparationPending = true;
+    targetOperation.turnPreparationPending = true;
     state.codexWorktreeCreationPending = true;
-    setTurnBusy(true, "正在创建 Worktree");
+    if (targetIsVisible()) setTurnBusy(true, "正在创建 Worktree");
     try {
       preparedWorktree = await prepareCodexWorktreeForNewThread(attachments);
       if (attachments.length) attachments = preparedWorktree.attachments;
     } catch (error) {
-      toast(error.message, "error");
+      if (targetIsVisible()) toast(error.message, "error");
       return;
     } finally {
-      state.turnPreparationPending = false;
+      targetOperation.turnPreparationPending = false;
       state.codexWorktreeCreationPending = false;
-      setTurnBusy(false);
+      if (targetIsVisible()) setTurnBusy(false);
     }
   }
   const imageContextDraftId = createClientMessageId();
@@ -20840,14 +21265,14 @@ async function sendPromptOnce() {
     accountId: state.account?.id || "legacy",
     runtime: "codex",
     windowId: CLIENT_WINDOW_ID,
-    projectPath: state.currentProject.path,
-    threadId: state.activeThread?.id || `draft:${imageContextDraftId}`,
+    projectPath: targetProjectPath,
+    threadId: threadId || `draft:${imageContextDraftId}`,
   });
   const imageIsolationEnabled = imageIsolationEnabledForActiveConversation();
   const imageContext = prepareConversationImageContext(attachments, {
     ledger: state.imageContextLedger,
     contextKey: imageContextDraftKey,
-    projectPath: state.currentProject.path,
+    projectPath: targetProjectPath,
     isolationEnabled: imageIsolationEnabled,
   });
   const imageDelivery = summarizeMapConversationImageDelivery(
@@ -20871,26 +21296,32 @@ async function sendPromptOnce() {
     text,
   );
   elements.promptInput.value = "";
-  state.selectedCodexSkills = [];
-  state.selectedCodexApps = [];
-  renderAttachmentList();
-  resizePrompt();
-  state.pendingUserMessage = pending;
-  state.turnPreparationPending = true;
+  if (targetIsVisible()) {
+    state.selectedCodexSkills = [];
+    state.selectedCodexApps = [];
+    renderAttachmentList();
+    resizePrompt();
+  }
+  targetOperation.pendingUserMessage = pending;
+  targetOperation.turnPreparationPending = true;
   if (generatingImage) beginImageTaskStatus();
   else clearImageTaskStatus();
-  renderMessages(false, true);
-  if (generatingImage) scrollMessagesToBottom(true);
-  setTurnBusy(true, generatingImage ? "正在生成图片" : "正在启动");
+  if (targetIsVisible()) {
+    renderMessages(false, true);
+    if (generatingImage) scrollMessagesToBottom(true);
+    setTurnBusy(true, generatingImage ? "正在生成图片" : "正在启动");
+  }
 
   let directImage = null;
   if (imageBackend === "api") {
-    const projectPath = state.currentProject.path;
+    const projectPath = targetProjectPath;
     state.imageGenerating = true;
-    elements.promptInput.disabled = true;
-    elements.attachmentButton.disabled = true;
-    elements.imageAttachmentButton.disabled = true;
-    refreshImageGenerationControl();
+    if (targetIsVisible()) {
+      elements.promptInput.disabled = true;
+      elements.attachmentButton.disabled = true;
+      elements.imageAttachmentButton.disabled = true;
+      refreshImageGenerationControl();
+    }
     try {
       const generatedImage = await generateImageWithApi(imagePrompt, projectPath);
       // Keep the conversation-scope gate explicit even though provider
@@ -20908,24 +21339,38 @@ async function sendPromptOnce() {
       // reference for the confirmation prompt; the full localImage is added
       // only by the explicit Image Studio "加入对话" action.
       directImage = imageReference;
-      setImageGenerationMode(false);
+      if (targetIsVisible()) setImageGenerationMode(false);
     } catch (error) {
-      state.turnPreparationPending = false;
-      if (state.pendingUserMessage === pending) state.pendingUserMessage = null;
+      targetOperation.turnPreparationPending = false;
+      if (targetOperation.pendingUserMessage === pending) targetOperation.pendingUserMessage = null;
       finishImageTaskStatus("failed");
-      elements.promptInput.value = text;
-      restoreSelectedCodexSkills(skills);
-      restoreSelectedCodexApps(apps);
-      resizePrompt();
-      renderMessages();
-      setTurnBusy(false);
-      toast(error.message, "error");
+      if (targetIsVisible()) {
+        elements.promptInput.value = text;
+        restoreSelectedCodexSkills(skills);
+        restoreSelectedCodexApps(apps);
+        resizePrompt();
+        renderMessages();
+        setTurnBusy(false);
+        toast(error.message, "error");
+      } else {
+        targetOperation.restoredTurnRequest = {
+          text,
+          attachments,
+          skills,
+          apps,
+        };
+      }
       return;
     } finally {
       state.imageGenerating = false;
       state.apiImageTurnHandoffPending = true;
-      restoreApiImageTurnHandoffControls();
-      refreshImageGenerationControl();
+      if (targetIsVisible()) {
+        restoreApiImageTurnHandoffControls();
+        refreshImageGenerationControl();
+      } else {
+        restoreApiImageTurnHandoffControls();
+        refreshImageGenerationControl();
+      }
     }
   }
   const promptText = directImage
@@ -20960,29 +21405,56 @@ async function sendPromptOnce() {
       detail: imageBackend === "codex" ? "正在启动 Codex 原生生图" : "图片已生成，正在启动对话",
     });
   }
-  renderMessages(false, true);
-  setTurnBusy(true, "正在启动");
+  if (targetIsVisible()) {
+    renderMessages(false, true);
+    setTurnBusy(true, "正在启动");
+  }
 
+  let requestThread = threadId ? targetThread : null;
+  let requestOperation = targetOperation;
   try {
-    if (!state.activeThread) {
+    if (!requestThreadId) {
       const params = {
-        model: state.selectedModel,
-        effort: state.selectedEffort,
-        cwd: state.currentProject.path,
+        model: promptContext.selectedModel,
+        effort: promptContext.selectedEffort,
+        cwd: targetProjectPath,
         ephemeral: false,
         _wflClientThreadRequestId: pending.clientId,
       };
       if (preparedWorktree) params._wflWorktreeId = preparedWorktree.worktree.id;
       addPolicyParams(params);
-      const result = await rpcWithSameRuntimeRetry("thread/start", params);
+      const result = await rpcWithSameRuntimeRetry("thread/start", params, {
+        onDeliveryUnknown: () => {
+          setCodexThreadBusy(threadId, true, "等待连接确认");
+        },
+      });
       preparedWorktree = null;
-      replaceActiveConversationThread(result.thread);
-      renderProjectContext();
+      const draftOperation = codexThreadOperation(null);
+      const threadOperation = codexThreadOperation(result.thread.id);
+      if (draftOperation.pendingUserMessage && !threadOperation.pendingUserMessage) {
+        threadOperation.pendingUserMessage = draftOperation.pendingUserMessage;
+      }
+      clearCodexDraftOperationAfterThreadStart();
+      requestThreadId = result.thread.id;
+      requestThread = result.thread;
+      requestOperation = threadOperation;
+      if (!codexPromptContextCanContinue(promptContext)) {
+        throw new Error("当前账号或运行时已切换，无法继续发送这条消息");
+      }
+      if (targetIsVisible()) replaceActiveConversationThread(result.thread);
+      else {
+        if (result.thread.cwd) state.conversationThreadProjects.set(result.thread.id, result.thread.cwd);
+        state.conversationState = replaceConversationThread(
+          state.conversationState,
+          activeConversationScope(result.thread.cwd || targetProjectPath),
+          result.thread,
+        );
+      }
       if (result.thread.worktree?.id) {
         state.codexWorktrees = state.codexWorktrees.map((worktree) => (
           worktree.id === result.thread.worktree.id ? result.thread.worktree : worktree
         ));
-        renderSidebarWorktrees();
+        if (targetIsVisible()) renderSidebarWorktrees();
       }
       imageContextTransaction = bindConversationImageContext(
         imageContextTransaction,
@@ -20990,7 +21462,7 @@ async function sendPromptOnce() {
           accountId: state.account?.id || "legacy",
           runtime: "codex",
           windowId: CLIENT_WINDOW_ID,
-          projectPath: state.currentProject.path,
+          projectPath: targetProjectPath,
           threadId: result.thread.id,
         }),
       );
@@ -21000,27 +21472,34 @@ async function sendPromptOnce() {
       rememberThreadSubagentSnapshot(result.thread.id, [], { persist: false });
       bindImageTaskStatusToThread(result.thread.id);
       markCodexThreadNeedsResume(result.thread.id, false);
-      state.threadHistoryCursor = null;
-      state.selectedModel = resolveRememberedCodexModel(result.model || state.selectedModel);
-      state.selectedEffort = resolveRememberedCodexEffort(
-        state.selectedModel,
-        result.reasoningEffort || state.selectedEffort,
-      );
+      if (targetIsVisible()) {
+        state.threadHistoryCursor = null;
+        state.selectedModel = resolveRememberedCodexModel(result.model || promptContext.selectedModel);
+        state.selectedEffort = resolveRememberedCodexEffort(
+          state.selectedModel,
+          result.reasoningEffort || promptContext.selectedEffort,
+        );
+      }
       state.threads = [result.thread, ...state.threads.filter((thread) => thread.id !== result.thread.id)];
-      sendClientState(result.thread.id);
-      renderActiveThread({ preserveOptimistic: true, scrollToBottom: true });
-      renderThreads();
-      void syncActiveThreadGitMetadataFromServer(state.activeThread);
+      if (targetIsVisible()) {
+        sendClientState(result.thread.id);
+        renderProjectContext();
+        renderActiveThread({ preserveOptimistic: true, scrollToBottom: true });
+        renderThreads();
+        void syncActiveThreadGitMetadataFromServer(state.activeThread);
+      } else {
+        renderThreads();
+      }
     }
 
     const params = {
-      threadId: state.activeThread.id,
+      threadId: requestThreadId,
       clientUserMessageId: pending.clientId,
       _wflThreadLeaseOwnerId: THREAD_LEASE_OWNER_ID,
       input: buildTurnInput(promptText, attachments, skills, apps),
-      cwd: state.currentProject.path,
-      model: state.selectedModel,
-      effort: state.selectedEffort,
+      cwd: targetProjectPath,
+      model: promptContext.selectedModel,
+      effort: promptContext.selectedEffort,
     };
     params.collaborationMode = collaborationModeForRequest();
     if (state.config.approvals_reviewer) {
@@ -21030,46 +21509,74 @@ async function sendPromptOnce() {
     else if (state.config.approval_policy) params.approvalPolicy = state.config.approval_policy;
     if (
       !state.config.default_permissions
-      && state.activeThread.imported
+      && requestThread?.imported
       && state.config.sandbox_mode
     ) {
       params._wflMaterializationSandbox = state.config.sandbox_mode;
     }
-    state.pendingTurnRequest = {
+    requestOperation.pendingTurnRequest = {
       params,
       text,
       skills,
       apps,
       imageContextTransaction,
-      imageContextProjectPath: state.currentProject.path,
+      imageContextProjectPath: targetProjectPath,
       imageDelivery,
       createdAt: Date.now(),
     };
-    state.turnPreparationPending = false;
-    await submitPendingTurnRequest();
+    const pendingRequest = requestOperation.pendingTurnRequest;
+    requestOperation.turnPreparationPending = false;
+    await submitPendingTurnRequest(false, pendingRequest);
   } catch (error) {
-    state.turnPreparationPending = false;
+    if (requestOperation) requestOperation.turnPreparationPending = false;
     if (preparedWorktree && error.deliveryUnknown !== true) {
       const sourceProject = state.projects.find((entry) => entry.path === preparedWorktree.sourceProject.path);
       await discardUnboundCodexWorktree(preparedWorktree.worktree.id);
       if (sourceProject) activateCodexProject(sourceProject);
       await loadProjects();
     }
-    failPendingTurnRequest(error, text, skills, apps);
+    const failedRequest = requestOperation?.pendingTurnRequest || {
+      params: { threadId: requestThreadId },
+      threadId: requestThreadId,
+      text,
+      skills,
+      apps,
+      pending,
+    };
+    failPendingTurnRequest(error, text, skills, apps, { request: failedRequest });
   }
-  restoreApiImageTurnHandoffControls();
+  if (targetIsVisible()) restoreApiImageTurnHandoffControls();
 }
 
 function flushQueuedPromptAfterReconnect() {
   if (
-    !state.queuedPromptAfterReconnect
-    || !state.bridgeReady
+    !state.bridgeReady
     || !state.conversationReady
     || state.runtime !== "codex"
   ) return;
-  state.queuedPromptAfterReconnect = false;
-  setTurnBusy(conversationBusy(), conversationBusyLabel());
-  void sendPrompt();
+  const entries = [[null, codexDraftOperation], ...state.codexThreadOperations.entries()];
+  for (const [threadId, operation] of entries) {
+    const context = operation.queuedPromptContext;
+    if (!operation.queuedPromptAfterReconnect || !context) continue;
+    if (
+      operation.promptSubmissionGuard
+      || operation.pendingTurnRequest
+      || operation.pendingSteerRequest
+      || operation.turnPreparationPending
+    ) continue;
+    operation.queuedPromptAfterReconnect = false;
+    operation.queuedPromptContext = null;
+    operation.promptSubmissionGuard = true;
+    setCodexThreadBusy(threadId, true, "正在确认发送");
+    void sendPromptOnce(context)
+      .catch((error) => {
+        console.error("Unable to flush queued Codex prompt:", error);
+      })
+      .finally(() => {
+        operation.promptSubmissionGuard = false;
+        setCodexThreadBusy(threadId, conversationBusy(), conversationBusyLabel());
+      });
+  }
 }
 
 function threadLeaseOwnerId() {
@@ -23150,44 +23657,71 @@ function closeGameWorkModeChannel() {
 }
 
 async function retryPendingTurnRequest() {
-  if (
-    !state.pendingTurnRequest
-    || state.turnStartRequestPending
-    || !state.bridgeReady
-    || !codexRecoveryAllowsThread(state.pendingTurnRequest.params?.threadId)
-  ) return;
-  await submitPendingTurnRequest(true);
+  if (!state.bridgeReady) return;
+  const requests = [];
+  const seen = new Set();
+  const visible = state.pendingTurnRequest;
+  if (visible) {
+    requests.push(visible);
+    seen.add(visible);
+  }
+  for (const operation of state.codexThreadOperations.values()) {
+    const request = operation.pendingTurnRequest;
+    if (request && !seen.has(request)) {
+      requests.push(request);
+      seen.add(request);
+    }
+  }
+  await Promise.allSettled(requests.map((request) => submitPendingTurnRequest(true, request)));
 }
 
-async function sendSteerPrompt(text, attachments, skills = [], apps = []) {
+async function sendSteerPrompt(text, attachments, skills = [], apps = [], promptContext = null) {
+  const context = promptContext || captureCodexPromptContext();
+  const threadId = context.threadId || state.activeThread?.id || null;
+  const projectPath = context.projectPath || state.currentProject?.path || null;
+  const operation = codexThreadOperation(threadId);
+  const expectedTurnId = codexThreadTurnForSubmission(
+    threadId,
+    Object.hasOwn(context, "activeTurnId") ? context.activeTurnId : null,
+  );
+  const targetIsVisible = () => (
+    state.runtime === "codex"
+    && state.activeThread?.id === threadId
+    && state.currentProject?.path === projectPath
+  );
+  const taskStatus = targetIsVisible()
+    && state.taskStatusSnapshot?.threadId === threadId
+    ? state.taskStatusSnapshot
+    : null;
   if (
     (!text && !attachments.length && !skills.length && !apps.length)
     || state.runtime !== "codex"
-    || !state.activeThread
-    || !state.activeTurnId
-    || state.pendingSteerRequest
-    || state.steerRequestPending
-    || state.interruptRequestPending
-    || state.taskStatusSnapshot?.status === "stopping"
-    || state.uploading
-    || state.imageGenerating
-    || state.threadSelectionPending
-    || !state.currentProject
+    || !threadId
+    || !expectedTurnId
+    || !operation
+    || operation.pendingSteerRequest
+    || operation.steerRequestPending
+    || operation.interruptRequestPending
+    || taskStatus?.status === "stopping"
+    || (targetIsVisible() && (state.uploading || state.imageGenerating || state.threadSelectionPending))
+    || !projectPath
     || !state.bridgeReady
-    || !codexRecoveryAllowsThread(state.activeThread?.id)
+    || !codexRecoveryAllowsThread(threadId)
   ) return;
 
-  const imageIsolationEnabled = imageIsolationEnabledForActiveConversation();
+  const imageIsolationEnabled = targetIsVisible()
+    ? imageIsolationEnabledForActiveConversation()
+    : state.imageContextIsolationEnabled === true;
   const imageContext = prepareConversationImageContext(attachments, {
     ledger: state.imageContextLedger,
     contextKey: imageContextKey({
       accountId: state.account?.id || "legacy",
       runtime: "codex",
       windowId: CLIENT_WINDOW_ID,
-      projectPath: state.currentProject.path,
-      threadId: state.activeThread.id,
+      projectPath,
+      threadId,
     }),
-    projectPath: state.currentProject.path,
+    projectPath,
     isolationEnabled: imageIsolationEnabled,
   });
   const imageDelivery = summarizeMapConversationImageDelivery(
@@ -23205,17 +23739,19 @@ async function sendSteerPrompt(text, attachments, skills = [], apps = []) {
   const displayText = [text, ...skillLabels, ...appLabels, ...attachmentLabels].filter(Boolean).join("\n");
   const pending = {
     ...createPendingUserMessage(displayText, clientId, text),
-    threadId: state.activeThread.id,
-    turnId: state.activeTurnId,
+    threadId,
+    turnId: expectedTurnId,
   };
   const request = {
     params: {
-      threadId: state.activeThread.id,
-      expectedTurnId: state.activeTurnId,
+      threadId,
+      expectedTurnId,
       clientUserMessageId: clientId,
-      _wflProjectCwd: state.currentProject.path,
+      _wflProjectCwd: projectPath,
       input: buildTurnInput(text, attachments, skills, apps),
     },
+    threadId,
+    turnId: expectedTurnId,
     text,
     attachments,
     skills,
@@ -23226,71 +23762,95 @@ async function sendSteerPrompt(text, attachments, skills = [], apps = []) {
     createdAt: Date.now(),
   };
 
-  elements.promptInput.value = "";
-  resizePrompt();
-  state.attachments = [];
-  state.selectedCodexSkills = [];
-  state.selectedCodexApps = [];
-  renderAttachmentList();
-  setImageGenerationMode(false);
+  if (targetIsVisible()) {
+    elements.promptInput.value = "";
+    resizePrompt();
+    state.attachments = [];
+    state.selectedCodexSkills = [];
+    state.selectedCodexApps = [];
+    renderAttachmentList();
+    setImageGenerationMode(false);
+  }
   state.pendingSteerMessages.push(pending);
-  state.pendingSteerRequest = request;
-  renderMessages(false, true);
-  setTurnBusy(true, "正在追加指令");
-  await submitPendingSteerRequest();
+  operation.pendingSteerRequest = request;
+  if (targetIsVisible()) {
+    renderMessages(false, true);
+    setTurnBusy(true, "正在追加指令");
+  }
+  await submitPendingSteerRequest(false, request);
 }
 
 async function retryPendingSteerRequest() {
-  if (
-    !state.pendingSteerRequest
-    || state.steerRequestPending
-    || !state.bridgeReady
-    || !codexRecoveryAllowsThread(state.pendingSteerRequest.params?.threadId)
-  ) return;
-  await submitPendingSteerRequest(true);
+  if (!state.bridgeReady) return;
+  const requests = [];
+  const seen = new Set();
+  const visible = state.pendingSteerRequest;
+  if (visible) {
+    requests.push(visible);
+    seen.add(visible);
+  }
+  for (const operation of state.codexThreadOperations.values()) {
+    const request = operation.pendingSteerRequest;
+    if (request && !seen.has(request)) {
+      requests.push(request);
+      seen.add(request);
+    }
+  }
+  await Promise.allSettled(requests.map((request) => submitPendingSteerRequest(true, request)));
 }
 
-async function submitPendingSteerRequest(isRetry = false) {
-  const request = state.pendingSteerRequest;
+async function submitPendingSteerRequest(isRetry = false, requestedRequest = null) {
+  const request = requestedRequest || state.pendingSteerRequest;
+  const threadId = request?.params?.threadId || null;
+  const operation = codexThreadOperationForRequest(request, { create: false });
   if (
     !request
-    || state.steerRequestPending
+    || !operation
+    || operation.pendingSteerRequest !== request
+    || operation.steerRequestPending
     || !state.bridgeReady
-    || !codexRecoveryAllowsThread(request.params?.threadId)
+    || !codexRecoveryAllowsThread(threadId)
   ) return;
-  state.steerRequestPending = true;
-  setTurnBusy(true, isRetry ? "正在确认追加指令" : "正在追加指令");
+  operation.steerRequestPending = true;
+  setCodexThreadBusy(threadId, true, isRetry ? "正在确认追加指令" : "正在追加指令");
   try {
     const result = await rpc("turn/steer", request.params);
-    if (state.pendingSteerRequest !== request) return;
+    if (operation.pendingSteerRequest !== request) return;
     commitConversationImageContext(state.imageContextLedger, request.imageContextTransaction);
     rememberMapConversationImageDelivery(request.params.threadId, request.imageDelivery);
-    state.pendingSteerRequest = null;
-    if (result?.turn && state.activeThread?.id === request.params.threadId) upsertTurn(result.turn);
-    renderMessages(false, true);
-    toast("追加指令已送达");
+    operation.pendingSteerRequest = null;
+    if (result?.turn) upsertTurnForThread(threadId, result.turn);
+    if (state.activeThread?.id === threadId) {
+      renderMessages(false, true);
+      toast("追加指令已送达");
+    }
   } catch (error) {
-    if (state.pendingSteerRequest !== request) return;
+    if (operation.pendingSteerRequest !== request) return;
     if (error.deliveryUnknown) {
-      setTurnBusy(true, "等待确认追加指令");
-      toast("连接中断，追加指令将在恢复后安全确认", "error");
+      setCodexThreadBusy(threadId, true, "等待确认追加指令");
+      if (state.activeThread?.id === threadId) {
+        toast("连接中断，追加指令将在恢复后安全确认", "error");
+      }
       return;
     }
     restorePendingSteerRequest(request);
-    toast(error.message, "error");
+    if (state.activeThread?.id === threadId) toast(error.message, "error");
   } finally {
-    state.steerRequestPending = false;
-    setTurnBusy(conversationBusy(), conversationBusyLabel());
+    operation.steerRequestPending = false;
+    setCodexThreadBusy(threadId, conversationBusy(), conversationBusyLabel());
   }
 }
 
 function restorePendingSteerRequest(request) {
   if (!request) return;
-  if (state.pendingSteerRequest === request) state.pendingSteerRequest = null;
+  const threadId = request.params?.threadId || request.threadId || null;
+  const operation = codexThreadOperationForRequest(request, { create: false });
+  if (operation?.pendingSteerRequest === request) operation.pendingSteerRequest = null;
   state.pendingSteerMessages = state.pendingSteerMessages.filter(
     (pending) => pending.clientId !== request.pending.clientId,
   );
-  if (state.activeThread?.id === request.params.threadId) {
+  if (state.activeThread?.id === threadId) {
+    if (operation) operation.restoredSteerRequest = null;
     const currentText = elements.promptInput.value.trim();
     elements.promptInput.value = [request.text, currentText].filter(Boolean).join("\n");
     state.attachments = [...request.attachments, ...state.attachments]
@@ -23301,60 +23861,80 @@ function restorePendingSteerRequest(request) {
     resizePrompt();
     renderAttachmentList();
     renderMessages();
+  } else if (operation) {
+    // Keep a failed background append recoverable without putting its text into
+    // whichever conversation is currently visible.
+    operation.restoredSteerRequest = request;
   }
 }
 
-async function submitPendingTurnRequest(isRetry = false) {
-  const request = state.pendingTurnRequest;
+async function submitPendingTurnRequest(isRetry = false, requestedRequest = null) {
+  const request = requestedRequest || state.pendingTurnRequest;
+  const threadId = request?.params?.threadId || null;
+  const operation = codexThreadOperationForRequest(request, { create: false });
   if (
     !request
-    || state.turnStartRequestPending
+    || !operation
+    || operation.pendingTurnRequest !== request
+    || operation.turnStartRequestPending
     || !state.bridgeReady
-    || !codexRecoveryAllowsThread(request.params?.threadId)
+    || !codexRecoveryAllowsThread(threadId)
   ) return;
-  state.turnStartRequestPending = true;
-  invalidateThreadTaskAuthority(request.params.threadId);
-  setTurnBusy(true, isRetry ? "正在确认发送" : "正在启动");
+  operation.turnStartRequestPending = true;
+  invalidateThreadTaskAuthority(threadId);
+  setCodexThreadBusy(threadId, true, isRetry ? "正在确认发送" : "正在启动");
   try {
     const result = await rpc("turn/start", request.params);
-    if (state.pendingTurnRequest !== request) return;
+    if (operation.pendingTurnRequest !== request) return;
     if (result.reboundThread) {
       rebindActiveCodexWorktreeThread({
-        previousThreadId: request.params.threadId,
+        previousThreadId: threadId,
         thread: result.reboundThread,
       });
     }
     if (result.materializedThread) {
       materializeActiveImportedThread({
-        previousThreadId: request.params.threadId,
-        snapshotId: request.params.threadId,
+        previousThreadId: threadId,
+        snapshotId: threadId,
         thread: result.materializedThread,
       });
     }
+    const resultingThreadId = request.params.threadId || threadId;
     commitPendingTurnRequest(request);
-    state.pendingUserMessage = bindPendingUserMessage(state.pendingUserMessage, result.turn.id);
-    const mergedTurn = upsertTurn(result.turn);
-    state.activeTurnId = turnStatusType(mergedTurn) === "inProgress" ? mergedTurn.id : null;
-    state.codexActiveTurnId = state.activeTurnId;
-    if (state.imageTaskStatusSnapshot) {
-      if (state.activeTurnId) updateImageTaskStatus({ phase: "starting", handoff: true });
+    const resultOperation = codexThreadOperation(resultingThreadId, { create: false }) || operation;
+    resultOperation.pendingUserMessage = bindPendingUserMessage(
+      resultOperation.pendingUserMessage,
+      result.turn?.id,
+    );
+    const mergedTurn = upsertTurnForThread(resultingThreadId, result.turn);
+    rememberCodexThreadTurn(
+      resultingThreadId,
+      turnStatusType(mergedTurn) === "inProgress" ? mergedTurn.id : null,
+    );
+    if (state.imageTaskStatusSnapshot?.threadId === resultingThreadId) {
+      if (mergedTurn?.id && turnStatusType(mergedTurn) === "inProgress") updateImageTaskStatus({ phase: "starting", handoff: true });
       else clearImageTaskStatus();
     }
-    rememberActiveThread(state.activeThread);
-    renderActiveThread({ scrollToBottom: true });
+    if (state.activeThread?.id === resultingThreadId) {
+      rememberActiveThread(state.activeThread);
+      renderActiveThread({ scrollToBottom: true });
+    }
     void loadThreads();
   } catch (error) {
-    if (state.pendingTurnRequest !== request) return;
+    if (operation.pendingTurnRequest !== request) return;
     if (error.deliveryUnknown) {
-      setTurnBusy(true, "等待连接确认");
-      renderMessages(false, true);
-      toast("连接中断，本条消息将在恢复后安全确认", "error");
+      setCodexThreadBusy(threadId, true, "等待连接确认");
+      if (state.activeThread?.id === threadId) {
+        renderMessages(false, true);
+        toast("连接中断，本条消息将在恢复后安全确认", "error");
+      }
       return;
     }
-    failPendingTurnRequest(error, request.text, request.skills, request.apps);
+    failPendingTurnRequest(error, request.text, request.skills, request.apps, { request });
   } finally {
-    state.turnStartRequestPending = false;
+    operation.turnStartRequestPending = false;
     restoreApiImageTurnHandoffControls();
+    setCodexThreadBusy(threadId, conversationBusy(), conversationBusyLabel());
   }
 }
 
@@ -23368,6 +23948,8 @@ function rebindActiveCodexWorktreeThread({ previousThreadId, thread, silent = fa
   const previousActive = state.activeThread?.id === previousThreadId ? state.activeThread : null;
   const previousListed = state.threads.some((entry) => entry.id === previousThreadId);
   if (!previousActive && !previousListed) return false;
+  const previousOperation = codexThreadOperation(previousThreadId, { create: false });
+  const previousProjectPath = conversationProjectForThread(previousThreadId, thread.cwd);
   const rebound = {
     ...(previousActive || {}),
     ...thread,
@@ -23379,16 +23961,32 @@ function rebindActiveCodexWorktreeThread({ previousThreadId, thread, silent = fa
     entry.id === previousThreadId ? rebound : entry
   ));
   if (previousActive) replaceActiveConversationThread(rebound);
-  if (state.pendingTurnRequest?.params?.threadId === previousThreadId) {
-    state.pendingTurnRequest.params.threadId = thread.id;
-    state.pendingTurnRequest.params.cwd = rebound.cwd || state.pendingTurnRequest.params.cwd;
+  if (previousOperation?.pendingTurnRequest?.params?.threadId === previousThreadId) {
+    previousOperation.pendingTurnRequest.params.threadId = thread.id;
+    previousOperation.pendingTurnRequest.params.cwd = rebound.cwd || previousOperation.pendingTurnRequest.params.cwd;
   }
+  if (previousOperation) {
+    state.codexThreadOperations.delete(previousThreadId);
+    state.codexThreadOperations.set(thread.id, previousOperation);
+  }
+  state.conversationState = removeConversationThread(
+    state.conversationState,
+    activeConversationScope(previousProjectPath),
+    previousThreadId,
+  );
+  state.conversationState = replaceConversationThread(
+    state.conversationState,
+    activeConversationScope(rebound.cwd || previousProjectPath),
+    rebound,
+  );
   clearThreadItemPages(previousThreadId);
   state.loadedThreadIds.delete(previousThreadId);
   state.loadedThreadIds.add(thread.id);
   state.threadRuntimeStatuses.delete(previousThreadId);
   if (rebound.status) state.threadRuntimeStatuses.set(thread.id, rebound.status);
-  state.threadHistoryCursor = null;
+  if (previousActive) {
+    state.threadHistoryCursor = null;
+  }
   forgetCodexThreadRecovery(previousThreadId);
   markCodexThreadNeedsResume(thread.id, false);
   if (thread.worktree?.id) {
@@ -23414,10 +24012,12 @@ function rebindActiveCodexWorktreeThread({ previousThreadId, thread, silent = fa
   if (state.taskStatusSnapshot?.threadId === previousThreadId) {
     state.taskStatusSnapshot = { ...state.taskStatusSnapshot, threadId: thread.id };
   }
-  sendClientState(thread.id);
-  renderProjectContext();
-  renderActiveThread({ preserveOptimistic: true });
-  renderThreads();
+  if (previousActive) {
+    sendClientState(thread.id);
+    renderProjectContext();
+    renderActiveThread({ preserveOptimistic: true });
+    renderThreads();
+  }
   if (!silent) toast("原 Worktree 空对话已重新创建，正在发送当前消息", "info");
   return true;
 }
@@ -23525,8 +24125,10 @@ function materializeActiveImportedThread(payload = {}) {
 
   const previousActive = state.activeThread?.id === previousThreadId ? state.activeThread : null;
   const previousListed = state.threads.some((entry) => entry.id === previousThreadId);
-  const previousPending = state.pendingTurnRequest?.params?.threadId === previousThreadId;
+  const previousOperation = codexThreadOperation(previousThreadId, { create: false });
+  const previousPending = previousOperation?.pendingTurnRequest?.params?.threadId === previousThreadId;
   if (!previousActive && !previousListed && !previousPending) return;
+  const previousProjectPath = conversationProjectForThread(previousThreadId, thread.cwd);
   const nativeThread = {
     ...(previousActive || {}),
     ...thread,
@@ -23537,9 +24139,23 @@ function materializeActiveImportedThread(payload = {}) {
   };
   state.threads = state.threads.map((entry) => entry.id === previousThreadId ? nativeThread : entry);
   if (previousActive) replaceActiveConversationThread(nativeThread);
-  if (state.pendingTurnRequest?.params?.threadId === previousThreadId) {
-    state.pendingTurnRequest.params.threadId = thread.id;
+  if (previousOperation?.pendingTurnRequest?.params?.threadId === previousThreadId) {
+    previousOperation.pendingTurnRequest.params.threadId = thread.id;
   }
+  if (previousOperation) {
+    state.codexThreadOperations.delete(previousThreadId);
+    state.codexThreadOperations.set(thread.id, previousOperation);
+  }
+  state.conversationState = removeConversationThread(
+    state.conversationState,
+    activeConversationScope(previousProjectPath),
+    previousThreadId,
+  );
+  state.conversationState = replaceConversationThread(
+    state.conversationState,
+    activeConversationScope(nativeThread.cwd || previousProjectPath),
+    nativeThread,
+  );
   const previousSubagents = serializeThreadSubagents(previousThreadId);
   const goal = state.threadGoals.get(previousThreadId);
   if (goal) {
@@ -23565,11 +24181,13 @@ function materializeActiveImportedThread(payload = {}) {
   if (state.taskStatusSnapshot?.threadId === previousThreadId) {
     state.taskStatusSnapshot = { ...state.taskStatusSnapshot, threadId: thread.id };
   }
-  rememberActiveThread(state.activeThread);
+  if (previousActive) rememberActiveThread(state.activeThread);
   persistThreadListSessionCache();
-  renderActiveThread({ preserveOptimistic: true });
-  renderThreads();
-  sendClientState();
+  if (previousActive) {
+    renderActiveThread({ preserveOptimistic: true });
+    renderThreads();
+    sendClientState();
+  }
   void loadThreadGoal(thread.id, { silent: true });
   toast("迁移对话已转换为可分支的原生对话，原快照保留为只读副本");
 }
@@ -23579,18 +24197,41 @@ function failPendingTurnRequest(
   text,
   skills = [],
   apps = [],
-  { suppressToast = false } = {},
+  { suppressToast = false, request = null } = {},
 ) {
-  state.turnPreparationPending = false;
-  state.pendingTurnRequest = null;
-  elements.promptInput.value = text;
-  restoreSelectedCodexSkills(skills);
-  restoreSelectedCodexApps(apps);
-  resizePrompt();
-  state.pendingUserMessage = null;
-  finishImageTaskStatus("failed");
-  setTurnBusy(false);
-  renderMessages();
+  const targetRequest = request || state.pendingTurnRequest;
+  const threadId = targetRequest?.params?.threadId || targetRequest?.threadId || state.activeThread?.id || null;
+  const operation = targetRequest
+    ? codexThreadOperationForRequest(targetRequest, { create: false })
+    : codexThreadOperation(threadId, { create: false }) || (!state.activeThread?.id ? codexDraftOperation : null);
+  if (operation) {
+    operation.turnPreparationPending = false;
+    if (operation.pendingTurnRequest === targetRequest || !targetRequest) {
+      operation.pendingTurnRequest = null;
+    }
+    if (!targetRequest || operation.pendingUserMessage === targetRequest.pending) {
+      operation.pendingUserMessage = null;
+    }
+  }
+  const targetIsVisible = threadId
+    ? state.activeThread?.id === threadId
+    : !state.activeThread?.id;
+  if (!targetIsVisible && operation && targetRequest) {
+    operation.restoredTurnRequest = targetRequest;
+  }
+  if (targetIsVisible) {
+    if (operation) operation.restoredTurnRequest = null;
+    elements.promptInput.value = text;
+    restoreSelectedCodexSkills(skills);
+    restoreSelectedCodexApps(apps);
+    resizePrompt();
+    if (
+      state.imageTaskStatusSnapshot
+      && (!threadId || state.imageTaskStatusSnapshot.threadId === threadId)
+    ) finishImageTaskStatus("failed");
+    setTurnBusy(false);
+    renderMessages();
+  }
   if (error?.code === "ERR_USER_THREAD_LIMIT_REACHED") {
     showThreadLimitDialog(error);
   } else if (!suppressToast) {
@@ -24025,14 +24666,14 @@ async function interruptTurn() {
     }
     return;
   }
-  if (!state.activeThread || !state.activeTurnId || elements.stopTurnButton.disabled) return;
-  const threadId = state.activeThread.id;
-  const turnId = state.activeTurnId;
-  const targetIsActive = () => (
-    state.activeThread?.id === threadId
-    && (state.activeTurnId === turnId || state.codexActiveTurnId === turnId)
-  );
-  state.interruptRequestPending = true;
+  const threadId = state.activeThread?.id || null;
+  const operation = codexThreadOperation(threadId, { create: false });
+  const turnId = operation?.activeTurnId || operation?.codexActiveTurnId || null;
+  if (!threadId || !turnId || elements.stopTurnButton.disabled || operation.interruptRequestPending) return;
+  const targetIsVisible = () => state.activeThread?.id === threadId;
+  const targetPointerMatches = () => codexThreadTurnId(threadId) === turnId;
+  operation.interruptRequestPending = true;
+  operation.interruptTurnId = turnId;
   elements.stopTurnButton.disabled = true;
   elements.interruptButton.disabled = true;
   setTurnBusy(true, "正在终止");
@@ -24041,7 +24682,7 @@ async function interruptTurn() {
       threadId,
       turnId,
     });
-    if (result?.taskStatus && state.activeThread?.id === threadId) {
+    if (result?.taskStatus && targetIsVisible()) {
       renderTaskStatus(result.taskStatus);
     }
     const returnedTaskIsInactive = Boolean(
@@ -24054,26 +24695,25 @@ async function interruptTurn() {
       && result.settlementEvidence !== "notification-terminal"
       && returnedTaskIsInactive;
     if (cleanupConfirmed) {
-      state.interruptRequestPending = false;
-      if (targetIsActive()) {
-        state.activeTurnId = null;
-        state.codexActiveTurnId = null;
-      }
+      operation.interruptRequestPending = false;
+      operation.interruptTurnId = null;
+      if (targetPointerMatches()) clearCodexThreadTurn(threadId, turnId);
       toast("已向 Codex 核实任务已结束，遗留状态已清理");
     } else if (result.goalPauseConfirmed === false && result?.goalPausePending !== true) {
-      state.interruptRequestPending = false;
+      operation.interruptRequestPending = false;
+      operation.interruptTurnId = null;
       if (
         returnedTaskIsInactive
         && result?.confirmedInactive === true
         && result?.nativeVerified === true
-        && targetIsActive()
+        && targetPointerMatches()
       ) {
-        state.activeTurnId = null;
-        state.codexActiveTurnId = null;
+        clearCodexThreadTurn(threadId, turnId);
       }
       toast("终止请求已送达，但 Goal 尚未确认暂停，正在刷新实际状态", "warning");
     } else if (result?.stale || result?.goalPausePending === true) {
-      state.interruptRequestPending = false;
+      operation.interruptRequestPending = false;
+      operation.interruptTurnId = null;
       toast("终止请求已送达，正在核实实际任务和 Goal 状态");
     } else {
       // A transport ACK is not proof that the native Turn is terminal. Keep
@@ -24081,15 +24721,18 @@ async function interruptTurn() {
       // the Turn has ended.
       toast(result?.reconciled ? "已找到原生任务并发送终止请求" : "已发送终止请求");
     }
-    void loadTaskStatus({ force: true });
+    if (targetIsVisible()) void loadTaskStatus({ force: true });
     queueTaskCenterRefresh();
   } catch (error) {
-    state.interruptRequestPending = false;
+    operation.interruptRequestPending = false;
+    operation.interruptTurnId = null;
     toast(error.message, "error");
   } finally {
-    elements.stopTurnButton.disabled = state.interruptRequestPending;
-    elements.interruptButton.disabled = state.interruptRequestPending;
-    setTurnBusy(conversationBusy(), conversationBusyLabel());
+    if (targetIsVisible()) {
+      elements.stopTurnButton.disabled = operation.interruptRequestPending;
+      elements.interruptButton.disabled = operation.interruptRequestPending;
+      setTurnBusy(conversationBusy(), conversationBusyLabel());
+    }
     setTimeout(() => refreshRecentTurns(threadId), 250);
   }
 }
@@ -24304,7 +24947,9 @@ function handleCodexNotification(notification) {
   const lifecycleContext = turnLifecycleEvent
     ? resolveTurnNotificationContext(params, { terminal: method === "turn/completed" })
     : null;
-  const eventThreadId = lifecycleContext?.threadId || notificationThreadId;
+  const inferredNotificationThreadId = notificationThreadId
+    || codexThreadIdForTurn(turnNotificationId(params));
+  const eventThreadId = lifecycleContext?.threadId || inferredNotificationThreadId;
   const scopedNotificationThreadId = notificationThreadId || eventThreadId;
   const scopedNotification = scopedNotificationThreadId && !notificationThreadId
     ? {
@@ -24349,6 +24994,9 @@ function handleCodexNotification(notification) {
   }
   if (method === "turn/started") {
     if (lifecycleContext?.turnId && state.codexTerminalTurnIds.has(lifecycleContext.turnId)) return;
+    if (eventThreadId && lifecycleContext?.turnId) {
+      rememberCodexThreadTurn(eventThreadId, lifecycleContext.turnId);
+    }
     invalidateThreadTaskAuthority(eventThreadId);
   }
   if (method === "skills/changed") {
@@ -24453,7 +25101,11 @@ function handleCodexNotification(notification) {
   const terminalTurnId = method === "turn/completed"
     ? lifecycleContext?.turnId || params.turn?.id || params.turnId
     : method === "error" && !params.willRetry
-      ? params.turnId || (params.threadId === state.activeThread?.id ? state.codexActiveTurnId : null)
+      ? params.turnId || (
+        eventThreadId === state.activeThread?.id
+          ? state.codexActiveTurnId || state.activeTurnId
+          : codexThreadTurnId(eventThreadId)
+      )
       : null;
   if (method === "turn/started" || method === "turn/completed" || (method === "error" && !params.willRetry)) {
     if (method === "turn/completed" && eventThreadId === state.activeThread?.id) {
@@ -24464,6 +25116,19 @@ function handleCodexNotification(notification) {
     if (method !== "turn/started") void loadThreads();
   }
   if (method === "turn/completed") {
+    if (eventThreadId && eventThreadId !== state.activeThread?.id) {
+      const completedTurnId = lifecycleContext?.turnId || params.turn?.id || params.turnId || null;
+      if (completedTurnId) {
+        const completedOperation = codexThreadOperation(eventThreadId, { create: false });
+        if (completedOperation?.interruptTurnId === completedTurnId) {
+          completedOperation.interruptRequestPending = false;
+          completedOperation.interruptTurnId = null;
+        }
+        clearCodexThreadTurn(eventThreadId, completedTurnId);
+        finishPendingSteerForTurn(eventThreadId, completedTurnId);
+        clearStaleCodexTurnPointers(completedTurnId, eventThreadId);
+      }
+    }
     const thread = state.threads.find((entry) => entry.id === eventThreadId);
     const activeName = state.activeThread?.id === eventThreadId ? state.activeThread.name : null;
     const completedTurnId = lifecycleContext?.turnId || params.turn?.id || params.turnId || null;
@@ -24575,6 +25240,39 @@ function handleCodexNotification(notification) {
       state.activeThread = null;
       state.codexActiveTurnId = null;
     }
+    return;
+  }
+
+  if (
+    eventThreadId
+    && eventThreadId !== state.activeThread?.id
+    && method === "error"
+    && !params.willRetry
+  ) {
+    const pendingRequest = codexThreadPendingTurnRequest(eventThreadId);
+    const errorTurn = params.turn || (params.turnId ? { id: params.turnId } : null);
+    if (pendingRequest && pendingTurnRequestMatchesTurn(
+      pendingRequest,
+      eventThreadId,
+      errorTurn,
+      params,
+    )) {
+      failPendingTurnRequest(
+        new Error(codexFailureMessage(params.error)),
+        pendingRequest.text,
+        pendingRequest.skills,
+        pendingRequest.apps,
+        { request: pendingRequest, suppressToast: true },
+      );
+    }
+    settlePendingSteerRequestFromError(eventThreadId, params);
+    const errorTurnId = params.turnId || params.turn?.id || codexThreadTurnId(eventThreadId);
+    const errorOperation = codexThreadOperation(eventThreadId, { create: false });
+    if (errorOperation?.interruptTurnId === errorTurnId) {
+      errorOperation.interruptRequestPending = false;
+      errorOperation.interruptTurnId = null;
+    }
+    if (errorTurnId) clearCodexThreadTurn(eventThreadId, errorTurnId);
     return;
   }
 
@@ -24829,6 +25527,11 @@ function handleCodexNotification(notification) {
     if (wasActive) state.activeTurnId = null;
     if (codexWasActive) state.codexActiveTurnId = null;
     clearStaleCodexTurnPointers(completedTurnId);
+    const completedOperation = codexThreadOperation(eventThreadId, { create: false });
+    if (completedOperation?.interruptTurnId === completedTurnId) {
+      completedOperation.interruptRequestPending = false;
+      completedOperation.interruptTurnId = null;
+    }
     if (wasActive || codexWasActive) state.interruptRequestPending = false;
     const currentTurnAfterEvent = state.activeTurnId || state.codexActiveTurnId;
     if (!currentTurnAfterEvent || currentTurnAfterEvent === completedTurnId) {
@@ -24851,8 +25554,9 @@ function handleCodexNotification(notification) {
 
   if (method === "error") {
     const message = codexFailureMessage(params.error);
-    const pendingRequest = state.pendingTurnRequest;
-    const pendingErrorThreadId = params.threadId || state.activeThread?.id;
+    const pendingErrorThreadId = eventThreadId || params.threadId || state.activeThread?.id;
+    const pendingRequest = codexThreadPendingTurnRequest(pendingErrorThreadId);
+    const errorOperation = codexThreadOperation(pendingErrorThreadId, { create: false });
     if (pendingRequest && pendingErrorThreadId) {
       const errorTurn = params.turn || (params.turnId ? { id: params.turnId } : null);
       if (pendingTurnRequestMatchesTurn(pendingRequest, pendingErrorThreadId, errorTurn, params)) {
@@ -24862,6 +25566,7 @@ function handleCodexNotification(notification) {
         });
       }
     }
+    settlePendingSteerRequestFromError(pendingErrorThreadId, params);
     if (params.willRetry) {
       const retryCount = Number(params.retryCount);
       const retryLimit = Number(params.retryLimit);
@@ -24878,11 +25583,16 @@ function handleCodexNotification(notification) {
     toast(message, "error");
     const failedActiveTurn = Boolean(
       terminalTurnId
-      && (params.threadId || state.activeThread?.id) === state.activeThread?.id
+      && eventThreadId === state.activeThread?.id
       && state.activeTurnId === terminalTurnId,
     );
     if (failedActiveTurn) state.activeTurnId = null;
     if (terminalTurnId && state.codexActiveTurnId === terminalTurnId) state.codexActiveTurnId = null;
+    if (terminalTurnId) clearCodexThreadTurn(pendingErrorThreadId, terminalTurnId);
+    if (errorOperation?.interruptTurnId === terminalTurnId) {
+      errorOperation.interruptRequestPending = false;
+      errorOperation.interruptTurnId = null;
+    }
     if (failedActiveTurn) state.interruptRequestPending = false;
     setTurnBusy(conversationBusy(), conversationBusyLabel());
     renderConversationUpdate();
@@ -36699,7 +37409,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.70-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.71-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -42862,6 +43572,11 @@ function synchronizeTerminalTaskSnapshot(snapshot) {
       : null);
 
   const terminalStatus = taskStatusTerminalTurnStatus(snapshot.status);
+  const operation = codexThreadOperation(snapshot.threadId, { create: false });
+  if (operation?.interruptTurnId === turnId) {
+    operation.interruptRequestPending = false;
+    operation.interruptTurnId = null;
+  }
   const localTurn = turnId
     ? state.activeThread.turns?.find((turn) => turn?.id === turnId) || null
     : null;
@@ -43259,9 +43974,17 @@ function fenceCodexTurns(turns, threadId = state.activeThread?.id) {
   return fenceCodexTurnsByTaskAuthority(threadId, fenced);
 }
 
-function upsertTurn(turn) {
-  if (!state.activeThread || !turn?.id) return turn || null;
-  const activeThread = state.activeThread;
+function upsertTurnForThread(threadId, turn) {
+  if (!threadId || !turn?.id) return turn || null;
+  const active = state.activeThread?.id === threadId;
+  const currentThread = active
+    ? state.activeThread
+    : conversationThreadById(threadId);
+  const activeThread = currentThread || {
+    id: threadId,
+    cwd: conversationProjectForThread(threadId),
+    turns: [],
+  };
   const turns = [...(activeThread.turns || [])];
   const index = turns.findIndex((entry) => entry.id === turn.id);
   const incoming = index === -1 && !messageTimestamp(null, turn)
@@ -43274,40 +43997,66 @@ function upsertTurn(turn) {
   const merged = fenceCodexTurn(mergeTurn(index === -1 ? null : turns[index], fencedIncoming));
   if (index === -1) turns.push(merged);
   else turns[index] = merged;
-  replaceActiveConversationThread({
+  const nextThread = {
     ...activeThread,
     turns: orderTurnsChronologically(turns),
-  });
-  const stored = state.activeThread.turns.find((entry) => entry.id === merged.id) || merged;
+  };
+  if (active) {
+    replaceActiveConversationThread(nextThread);
+  } else {
+    if (nextThread.cwd) state.conversationThreadProjects.set(threadId, nextThread.cwd);
+    state.conversationState = replaceConversationThread(
+      state.conversationState,
+      activeConversationScope(nextThread.cwd || state.currentProject?.path),
+      nextThread,
+    );
+    state.threads = state.threads.map((entry) => (
+      entry.id === threadId ? { ...entry, turns: nextThread.turns } : entry
+    ));
+  }
+  const storedThread = active
+    ? state.activeThread
+    : conversationThreadById(threadId, nextThread.cwd) || nextThread;
+  const stored = (storedThread.turns || []).find((entry) => entry.id === merged.id) || merged;
   if (turnStatusType(stored) !== "inProgress") {
     rememberCodexTerminalTurn(stored.id, turnStatusType(stored));
   }
-  settlePendingUserMessage(stored);
-  settlePendingSteerMessages(stored);
+  settlePendingUserMessageForThread(threadId, stored);
+  settlePendingSteerMessages(stored, undefined, threadId);
   return stored;
 }
 
-function settlePendingUserMessage(turn, candidate) {
-  const pending = state.pendingUserMessage;
+function upsertTurn(turn) {
+  return upsertTurnForThread(state.activeThread?.id, turn);
+}
+
+function settlePendingUserMessageForThread(threadId, turn, candidate) {
+  const pending = codexThreadOperation(threadId, { create: false })?.pendingUserMessage;
   if (!pending) return;
   const items = candidate ? [candidate] : turn.items || [];
   if (items.some((item) => matchesPendingUserMessage(pending, turn.id, item))) {
-    state.pendingUserMessage = null;
+    const operation = codexThreadOperation(threadId, { create: false });
+    if (operation?.pendingUserMessage === pending) operation.pendingUserMessage = null;
   }
 }
 
-function settlePendingSteerMessages(turn, candidate) {
+function settlePendingUserMessage(turn, candidate) {
+  settlePendingUserMessageForThread(state.activeThread?.id, turn, candidate);
+}
+
+function settlePendingSteerMessages(turn, candidate, threadId = state.activeThread?.id) {
   if (!state.pendingSteerMessages.length || !turn?.id) return;
   const items = candidate ? [candidate] : turn.items || [];
   state.pendingSteerMessages = state.pendingSteerMessages.filter((pending) =>
     pending.turnId !== turn.id
-    || pending.threadId !== state.activeThread?.id
+    || pending.threadId !== threadId
     || !items.some((item) => matchesPendingUserMessage(pending, turn.id, item)));
 }
 
-function finishPendingSteerForTurn(turnId) {
-  if (!turnId) return;
-  const request = state.pendingSteerRequest;
+function finishPendingSteerForTurn(threadId, turnId) {
+  if (!threadId || !turnId) return;
+  const operation = codexThreadOperation(threadId, { create: false });
+  const request = operation?.pendingSteerRequest;
   if (request?.params.expectedTurnId === turnId) {
     const stillPending = state.pendingSteerMessages.some(
       (pending) => pending.clientId === request.pending.clientId,
@@ -43316,11 +44065,11 @@ function finishPendingSteerForTurn(turnId) {
     else {
       commitConversationImageContext(state.imageContextLedger, request.imageContextTransaction);
       rememberMapConversationImageDelivery(request.params.threadId, request.imageDelivery);
-      state.pendingSteerRequest = null;
+      if (operation.pendingSteerRequest === request) operation.pendingSteerRequest = null;
     }
   }
   state.pendingSteerMessages = state.pendingSteerMessages.filter(
-    (pending) => pending.turnId !== turnId,
+    (pending) => pending.turnId !== turnId || pending.threadId !== threadId,
   );
 }
 
@@ -43385,7 +44134,7 @@ async function refreshRecentTurns(threadId, { allowFollowup = true } = {}) {
       for (const turn of state.activeThread.turns || []) {
         settlePendingUserMessage(turn);
         settlePendingSteerMessages(turn);
-        if (turnStatusType(turn) !== "inProgress") finishPendingSteerForTurn(turn.id);
+        if (turnStatusType(turn) !== "inProgress") finishPendingSteerForTurn(threadId, turn.id);
       }
       const activeTurn = state.activeThread.turns?.find((turn) => turnStatusType(turn) === "inProgress");
       applyTaskAuthorityToActiveTurn(threadId, activeTurn?.id || null);
@@ -43512,31 +44261,39 @@ function codexLocalTurnIsBusy(turn) {
   return turnStatusType(turn) === "inProgress" && codexTurnIdIsBusy(turn?.id);
 }
 
-function clearStaleCodexTurnPointers(completedTurnId = null) {
+function clearStaleCodexTurnPointers(
+  completedTurnId = null,
+  threadId = state.activeThread?.id,
+) {
+  const operation = codexThreadOperation(threadId, { create: false });
+  if (!operation) return;
   const pointerNames = ["activeTurnId", "codexActiveTurnId"];
-  const localActiveIds = localInProgressTurnIds();
+  const localActiveIds = localInProgressTurnIds(threadId);
   const safeToClearUnknown = Boolean(
     completedTurnId
     && localActiveIds.length === 0
-    && !state.pendingTurnRequest
-    && !state.pendingSteerRequest
-    && !state.turnPreparationPending
-    && !state.turnStartRequestPending,
+    && !operation.pendingTurnRequest
+    && !operation.pendingSteerRequest
+    && !operation.turnPreparationPending
+    && !operation.turnStartRequestPending,
   );
   for (const name of pointerNames) {
-    const turnId = state[name];
+    const turnId = operation[name];
     if (!turnId) continue;
     if (completedTurnId && turnId === completedTurnId) {
-      state[name] = null;
+      operation[name] = null;
       continue;
     }
     if (state.codexTerminalTurnIds.has(turnId)) {
-      state[name] = null;
+      operation[name] = null;
       continue;
     }
-    const localTurn = state.activeThread?.turns?.find((turn) => turn?.id === turnId);
-    if (localTurn && turnStatusType(localTurn) !== "inProgress") state[name] = null;
-    else if (safeToClearUnknown && !localTurn) state[name] = null;
+    const thread = threadId === state.activeThread?.id
+      ? state.activeThread
+      : conversationThreadById(threadId);
+    const localTurn = thread?.turns?.find((turn) => turn?.id === turnId);
+    if (localTurn && turnStatusType(localTurn) !== "inProgress") operation[name] = null;
+    else if (safeToClearUnknown && !localTurn) operation[name] = null;
   }
 }
 

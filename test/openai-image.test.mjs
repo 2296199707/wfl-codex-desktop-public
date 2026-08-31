@@ -539,13 +539,27 @@ test("provider exceptions and secret-shaped structured fields are fully redacted
       apiKey: secret,
       prompt: "banana",
       fetchImpl: async () => {
-        throw new Error(`socket failed with ${secret}`);
+        throw Object.assign(new Error(`socket failed with ${secret}`), { code: "ENOTFOUND" });
       },
     }),
     (error) => error.code === "IMAGE_PROVIDER_UNREACHABLE"
       && error.statusCode === 502
       && error.retryable === true
+      && error.transportPhase === "dns"
       && !error.message.includes(secret),
+  );
+  await assert.rejects(
+    requestProviderImages({
+      baseUrl: "https://images.example.test/v1",
+      apiKey: secret,
+      prompt: "banana",
+      fetchImpl: async () => {
+        throw new Error("socket failed");
+      },
+    }),
+    (error) => error.code === "IMAGE_PROVIDER_UNREACHABLE"
+      && error.transportPhase === "network"
+      && !JSON.stringify(error).includes(secret),
   );
 });
 

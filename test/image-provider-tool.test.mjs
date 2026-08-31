@@ -242,6 +242,7 @@ test("image provider MCP v2 forwards explicit edit and outpaint path requests an
         error.stage = "provider";
         error.operation = "generate";
         error.model = "gpt-image-2";
+        error.transportPhase = "connect";
         error.requestedSize = "2512x944";
         error.providerSize = "2512x944";
         error.reason = "provider_size_unsupported";
@@ -405,6 +406,7 @@ test("image provider MCP v2 forwards explicit edit and outpaint path requests an
       stage: "provider",
       operation: "generate",
       reason: "provider_size_unsupported",
+      transportPhase: "connect",
       model: "gpt-image-2",
       requestedSize: "2512x944",
       providerSize: "2512x944",

@@ -1896,6 +1896,7 @@ class CodexBridge extends EventEmitter {
         const error = new Error(`${method} timed out`);
         error.code = "ERR_CODEX_RPC_TIMEOUT";
         error.delivery = "unknown";
+        error.deliveryUnknown = true;
         error.rpcId = String(id);
         reject(error);
       }, timeoutMs);
@@ -1914,6 +1915,7 @@ class CodexBridge extends EventEmitter {
         clearTimeout(timer);
         this.pending.delete(String(id));
         error.delivery = "unknown";
+        error.deliveryUnknown = true;
         error.rpcId = String(id);
         reject(error);
       }
@@ -1955,6 +1957,7 @@ class CodexBridge extends EventEmitter {
       const pendingError = new Error(error.message);
       pendingError.code = error.code || "ERR_CODEX_RPC_DISCONNECTED";
       pendingError.delivery = "unknown";
+      pendingError.deliveryUnknown = true;
       pendingError.rpcId = id;
       pendingError.cause = error;
       pending.reject(pendingError);
@@ -5244,7 +5247,7 @@ class UserRuntime {
             ...(read.thread.status || {}),
             type: statusType,
           });
-          return null;
+          return read;
         }
         this.bridge.emit("log", {
           level: "warn",
@@ -19035,6 +19038,9 @@ function serializedImageExecutionError(error) {
     const value = typeof normalized?.[key] === "string" ? normalized[key] : "";
     if (/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/u.test(value)) safeDetails[key] = value;
   }
+  if (["dns", "tls", "connect", "timeout", "reset", "network"].includes(normalized?.transportPhase)) {
+    safeDetails.transportPhase = normalized.transportPhase;
+  }
   const model = typeof normalized?.model === "string" ? normalized.model.trim().slice(0, 200) : "";
   if (model && !/[\u0000-\u001f\u007f]/u.test(model)) safeDetails.model = model;
   for (const key of ["requestedSize", "providerSize", "sourceSize"]) {
@@ -21805,7 +21811,7 @@ app.get("/api/maps/sessions/:sessionId/image-config", async (request, response, 
     const settings = imageExecutionSettings.snapshot();
     response.setHeader("Cache-Control", "no-store");
     response.json({
-      capabilities: publicImageCapabilities(runtime.providerStore.getImageApi()),
+      capabilities: publicImageCapabilities(runtime.providerStore.snapshot().imageApi),
       worker: {
         enabled: settings.config.worker.enabled,
         accepting: settings.acceptNewTasks,
@@ -26261,6 +26267,14 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
   }
   if (method === "turn/steer") {
     if (client) runtime.bindThreadClient(publicThreadId, client);
+    const expectedTurnId = bridgeParams.expectedTurnId;
+    const localTask = runtime.taskStatus.snapshot(publicThreadId);
+    const localTurnMatches = ["running", "waiting"].includes(localTask.status)
+      && localTask.turnId === expectedTurnId
+      && !runtime.taskStatus.submissionIsUncertain(
+        publicThreadId,
+        bridgeParams.clientUserMessageId,
+      );
     if (runtime.taskScopeIsFenced({
       threadId: publicThreadId,
       projectPath: params._wflProjectCwd || bridgeParams.cwd,
@@ -26269,10 +26283,12 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
       throw taskScopeFenceError("目标 Worktree 正在进行文件操作，请稍后重试");
     }
     const steer = async () => {
-      await runtime.reconcileNativeTaskStatus(publicThreadId, {
-        requestedTurnId: bridgeParams.expectedTurnId,
-        cwd: params._wflProjectCwd || bridgeParams.cwd,
-      });
+      if (!localTurnMatches) {
+        await runtime.reconcileNativeTaskStatus(publicThreadId, {
+          requestedTurnId: expectedTurnId,
+          cwd: params._wflProjectCwd || bridgeParams.cwd,
+        });
+      }
       const snapshot = runtime.taskStatus.snapshot(publicThreadId);
       if (!["running", "waiting"].includes(snapshot.status)) {
         throw httpError(409, snapshot.status === "stopping"
@@ -26282,15 +26298,32 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
       if (snapshot.turnId !== bridgeParams.expectedTurnId) {
         throw httpError(409, "运行任务已经变化，请刷新对话后重试");
       }
-      return runtime.submitCodexRpc({
-        submissionType: "steer",
-        clientSubmissionId: bridgeParams.clientUserMessageId,
-        method,
-        params: bridgeParams,
-        timeoutMs: CONVERSATION_SUBMISSION_TIMEOUT_MS,
-      });
+      try {
+        return await runtime.submitCodexRpc({
+          submissionType: "steer",
+          clientSubmissionId: bridgeParams.clientUserMessageId,
+          method,
+          params: bridgeParams,
+          timeoutMs: CONVERSATION_SUBMISSION_TIMEOUT_MS,
+        });
+      } catch (error) {
+        if (error.deliveryUnknown === true) {
+          runtime.taskStatus.deliveryUnknown({
+            threadId: publicThreadId,
+            turnId: expectedTurnId,
+            clientSubmissionId: bridgeParams.clientUserMessageId,
+          });
+        }
+        throw error;
+      }
     };
-    return runtime.turnStartDeduplicator.run(bridgeParams, steer);
+    return runtime.turnStartDeduplicator.run(bridgeParams, steer, {
+      // The local task table is updated from the same Codex notification
+      // stream and carries the exact expected Turn. Avoid a second full
+      // thread snapshot on the normal append path; uncertain delivery still
+      // uses the deduplicator read below before any retry.
+      skipRead: localTurnMatches,
+    });
   }
   if (method === "turn/start") {
     const leaseOwnerId = rpcThreadLeaseOwnerId(params, client);
@@ -26336,24 +26369,46 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
             cwd: params._wflProjectCwd || bridgeParams.cwd || localTask.cwd,
           });
         }
-        const admission = runtime.assertThreadTaskCanStart(publicThreadId, {
+        let admission = runtime.assertThreadTaskCanStart(publicThreadId, {
           clientSubmissionId: bridgeParams.clientUserMessageId,
         });
         if (admission !== "uncertain-replay") {
+          let preparedThread = null;
           if (RESCUE_MODE) {
-            await runtime.ensureRescueThreadLoadedForTurn(
+            preparedThread = await runtime.ensureRescueThreadLoadedForTurn(
               publicThreadId,
               bridgeParams,
               rescueModelProvider,
             );
           } else {
-            await runtime.ensureNativeThreadLoadedForTurn(publicThreadId, bridgeParams);
+            preparedThread = await runtime.ensureNativeThreadLoadedForTurn(publicThreadId, bridgeParams);
           }
-          runtime.taskStatus.start({
-            threadId: publicThreadId,
-            cwd: bridgeParams.cwd,
-            clientSubmissionId: bridgeParams.clientUserMessageId,
-          });
+          const preparedStatus = codexThreadStatus(preparedThread?.thread?.status);
+          if (preparedStatus === "active") {
+            // A resumed Thread can report an active native Turn even when the
+            // local task table lost its identity during reconnect. Reconcile
+            // once more before creating a new Turn; otherwise the next
+            // turn/start can race the native Turn that resume just exposed.
+            await runtime.reconcileNativeTaskStatus(publicThreadId, {
+              cwd: params._wflProjectCwd || bridgeParams.cwd || localTask.cwd,
+            });
+            admission = runtime.assertThreadTaskCanStart(publicThreadId, {
+              clientSubmissionId: bridgeParams.clientUserMessageId,
+            });
+            if (admission === "new") {
+              throw httpError(
+                409,
+                "Codex 恢复后仍报告当前对话正在运行，已停止重复发送，请稍后重试",
+              );
+            }
+          }
+          if (admission !== "uncertain-replay") {
+            runtime.taskStatus.start({
+              threadId: publicThreadId,
+              cwd: bridgeParams.cwd,
+              clientSubmissionId: bridgeParams.clientUserMessageId,
+            });
+          }
         }
         let started;
         try {
@@ -26460,12 +26515,13 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
         return started;
       });
       const allowUnmaterializedReadFailure = await runtime.codexThreadIsUnmaterialized(publicThreadId);
-      const skipRead = allowUnmaterializedReadFailure
-        && !runtime.taskStatus.submissionIsUncertain(
-          publicThreadId,
-          bridgeParams.clientUserMessageId,
-        )
-        && !runtime.taskStatus.threadIsActive(publicThreadId);
+      const localTask = runtime.taskStatus.snapshot(publicThreadId);
+      const localSubmissionIsUncertain = runtime.taskStatus.submissionIsUncertain(
+        publicThreadId,
+        bridgeParams.clientUserMessageId,
+      );
+      const skipRead = !localSubmissionIsUncertain
+        && !CODEX_ACTIVE_TASK_STATUSES.has(localTask.status);
       result = await runtime.turnStartDeduplicator.run(
         bridgeParams,
         startTurn,

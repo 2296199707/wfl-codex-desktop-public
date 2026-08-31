@@ -224,7 +224,7 @@ test("image runner preserves safe structured provider errors", async () => {
     await fs.writeFile(fakeWorker, [
       "const chunks = []; for await (const chunk of process.stdin) chunks.push(chunk);",
       "const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));",
-      "const error = { code: 'IMAGE_SIZE_MISMATCH', statusCode: 502, message: 'size mismatch', type: 'invalid_request_error', stage: 'provider', operation: 'outpaint', reason: 'provider_size_unsupported', model: 'gpt-image-2', requestedSize: '2512x944', providerSize: '1536x1024', sourceSize: '1672x941', preserveSource: 'seamless', alignmentPolicy: 'rescale-and-crop', providerStatusCode: 400, requestedWidth: 1024, requestedHeight: 1024, actualWidth: 512, actualHeight: 512, moderationDetails: { category: 'safe' }, apiKey: 'must-not-leak', internalTrace: 'must-not-leak' };",
+      "const error = { code: 'IMAGE_SIZE_MISMATCH', statusCode: 502, message: 'size mismatch', type: 'invalid_request_error', stage: 'provider', operation: 'outpaint', reason: 'provider_size_unsupported', transportPhase: 'connect', model: 'gpt-image-2', requestedSize: '2512x944', providerSize: '1536x1024', sourceSize: '1672x941', preserveSource: 'seamless', alignmentPolicy: 'rescale-and-crop', providerStatusCode: 400, requestedWidth: 1024, requestedHeight: 1024, actualWidth: 512, actualHeight: 512, moderationDetails: { category: 'safe' }, apiKey: 'must-not-leak', internalTrace: 'must-not-leak' };",
       "console.log(JSON.stringify({ protocolVersion: 1, id: input.id, type: 'error', error }));",
       "process.exitCode = 1;",
     ].join("\n"));
@@ -242,6 +242,7 @@ test("image runner preserves safe structured provider errors", async () => {
         && error.stage === "provider"
         && error.operation === "outpaint"
         && error.reason === "provider_size_unsupported"
+        && error.transportPhase === "connect"
         && error.model === "gpt-image-2"
         && error.requestedSize === "2512x944"
         && error.providerSize === "1536x1024"

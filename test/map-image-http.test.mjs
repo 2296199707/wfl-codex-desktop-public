@@ -120,6 +120,7 @@ test("map image HTTP jobs stage, preview, isolate, and explicitly publish a cand
       HOST: "127.0.0.1",
       PORT: String(port),
       CODEX_DESKTOP_PROJECT_ROOT: projectRoot,
+      CODEX_DESKTOP_PROJECT_ROOTS: projectRoot,
       CODEX_DESKTOP_DEFAULT_PROJECT: defaultProject,
       CODEX_DESKTOP_MULTI_USER_ROOT: managedUsersRoot,
       CODEX_DESKTOP_OWNER_CODEX_HOME: ownerCodexHome,
@@ -199,6 +200,14 @@ test("map image HTTP jobs stage, preview, isolate, and explicitly publish a cand
   });
   assert.equal(mapOpened.response.status, 201, JSON.stringify(mapOpened.data));
   const session = mapOpened.data.session;
+  const imageConfig = await fetchJson(
+    `${baseUrl}/api/maps/sessions/${encodeURIComponent(session.id)}/image-config`,
+    { headers: { Origin: baseUrl, "X-Codex-Desktop-Editor-Instance": editorInstanceId } },
+  );
+  assert.equal(imageConfig.response.status, 200, JSON.stringify(imageConfig.data));
+  assert.equal(imageConfig.data.capabilities.enabled, true);
+  assert.deepEqual(imageConfig.data.capabilities.operations, ["generate", "edit", "outpaint"]);
+  assert.doesNotMatch(JSON.stringify(imageConfig.data), /map-image-http-secret|apiKey|baseUrl/u);
   const jobsUrl = `${baseUrl}/api/maps/sessions/${encodeURIComponent(session.id)}/image-jobs`;
   const requestHeaders = {
     Origin: baseUrl,

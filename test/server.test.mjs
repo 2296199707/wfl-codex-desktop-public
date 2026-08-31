@@ -2848,6 +2848,15 @@ test("managed and fallback provider restarts fence and drain App Server requests
   }
 });
 
+test("Codex bridge marks transport failures as delivery unknown", () => {
+  const bridge = serverSource.slice(
+    serverSource.indexOf("class CodexBridge"),
+    serverSource.indexOf("class UserRuntime"),
+  );
+  assert.match(bridge, /error\.delivery = "unknown";\s*error\.deliveryUnknown = true;/);
+  assert.match(bridge, /pendingError\.delivery = "unknown";\s*pendingError\.deliveryUnknown = true;/);
+});
+
 test("rejects browser-supplied dynamic tools and remote execution environments", async () => {
   const dynamicTools = await websocketRequest(baseUrl.replace("http", "ws") + "/ws", {
     type: "rpc",

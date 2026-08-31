@@ -3,6 +3,12 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.71-beta] - 2026-08-31
+
+- 继续收敛多对话并行发送、追加、恢复和停止的 Thread 状态，避免迟到响应串线或恢复后重复创建 Turn。
+- 保留不确定投递的可恢复状态，并在恢复后重新确认原生 Turn，降低长任务和并行任务发送失败的概率。
+- 修复图片供应商能力配置的同步读取兼容问题，并补充网络传输阶段的脱敏错误信息。
+
 ## [0.44.70-beta] - 2026-08-30
 
 - 修复游戏编辑器主页协作侧栏必须等待地图画布和地图 AI 初始化完成后才连接对话的问题。

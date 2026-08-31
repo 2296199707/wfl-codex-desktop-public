@@ -1477,7 +1477,7 @@ test("active conversations survive provider restarts and browser reloads", () =>
   assert.match(app, /replaceConversationThread\([\s\S]*?resumedThread/);
   assert.doesNotMatch(app, /mergeThreadWithRecentPage\(targetSnapshot\.thread, recentThread\)/);
   assert.match(app, /rememberActiveThread\(state\.activeThread\)/);
-  assert.match(app, /if \(state\.activeThread && codexThreadNeedsResume\(state\.activeThread\.id\)\)/);
+  assert.match(app, /if \(threadId && codexThreadNeedsResume\(threadId\)\)/);
 });
 
 test("browser persistence is account-scoped without erasing server recovery", () => {
@@ -1512,12 +1512,12 @@ test("new conversations materialize their first message before thread list refre
 });
 
 test("interrupted turn starts keep one client ID and wait for safe confirmation", () => {
-  assert.match(app, /state\.pendingTurnRequest = \{\s*params,\s*text,\s*skills,\s*apps,\s*imageContextTransaction,/);
+  assert.match(app, /requestOperation\.pendingTurnRequest = \{\s*params,\s*text,\s*skills,\s*apps,\s*imageContextTransaction,/);
   assert.match(app, /retryPendingTurnRequest\(\)/);
   assert.match(app, /error\.deliveryUnknown/);
   assert.match(app, /本条消息将在恢复后安全确认/);
   assert.match(app, /payload\.type === "result"[\s\S]{0,240}?commitConversationImageContext\(state\.imageContextLedger, pending\.imageContextTransaction\)/);
-  assert.match(app, /function finishPendingSteerForTurn[\s\S]{0,500}?commitConversationImageContext\(state\.imageContextLedger, request\.imageContextTransaction\)/);
+  assert.match(app, /function finishPendingSteerForTurn\(threadId, turnId\)[\s\S]{0,500}?commitConversationImageContext\(state\.imageContextLedger, request\.imageContextTransaction\)/);
   assert.match(app, /setTimeout\(\(\) => refreshRecentTurns\(threadId\), 250\)/);
   assert.doesNotMatch(app, /catch \(error\) \{\s*elements\.promptInput\.value = text;\s*resizePrompt\(\);\s*state\.pendingUserMessage = null;/);
 });
@@ -1626,7 +1626,7 @@ test("conversation runtime events cannot overwrite the other runtime's active ta
 test("terminal conversation snapshots reject delayed stream mutations and settle steer delivery", () => {
   assert.match(conversationState, /function streamingTurn\(thread, turnId\) \{[\s\S]*?!runningStatus\(existing\.status\)/);
   assert.match(conversationState, /item\/agentMessage\/delta[\s\S]*?appendItemText\(thread, params/);
-  assert.match(app, /settlePendingSteerMessages\(turn\);[\s\S]*?turnStatusType\(turn\) !== "inProgress"[\s\S]*?finishPendingSteerForTurn\(turn\.id\)/);
+  assert.match(app, /settlePendingSteerMessages\(turn\);[\s\S]*?turnStatusType\(turn\) !== "inProgress"[\s\S]*?finishPendingSteerForTurn\(threadId, turn\.id\)/);
   assert.match(conversationState, /method === "error"[\s\S]*?turn\.status = "failed"/);
   assert.match(app, /if \(!turnStateIsComplete\) scheduleRecentTurnsRefresh\(eventThreadId\)/);
   assert.match(conversationState, /function completeTurn\(thread, incoming\)/);
@@ -1636,7 +1636,7 @@ test("terminal conversation snapshots reject delayed stream mutations and settle
   assert.ok(steer, "turn/steer server handler was not found");
   assert.match(
     steer,
-    /return runtime\.turnStartDeduplicator\.run\(bridgeParams, steer\)/,
+    /return runtime\.turnStartDeduplicator\.run\(bridgeParams, steer, \{[\s\S]*?skipRead: localTurnMatches/,
   );
   assert.doesNotMatch(steer, /CONVERSATION_SIDECAR_ENABLED|conversationSidecar/);
   assert.ok(steer.indexOf("runtime.taskStatus.snapshot") < steer.indexOf("runtime.submitCodexRpc"));
@@ -2185,7 +2185,7 @@ test("an unloaded Thread resumes from the official snapshot before the composer 
   const prepare = app.match(/async function prepareActiveThreadForSend\(\)[\s\S]*?\n}\n\nfunction recentTurnsParams/)?.[0] || "";
   assert.match(prepare, /void loadTaskStatus\(\)/);
   assert.doesNotMatch(prepare, /await loadTaskStatus\(\{ force: true \}\)/);
-  assert.match(app, /state\.activeThread && codexThreadNeedsResume\(state\.activeThread\.id\)[\s\S]*?await prepareActiveThreadForSend\(\)/);
+  assert.match(app, /threadId && codexThreadNeedsResume\(threadId\)[\s\S]*?await prepareActiveThreadForSend\(state\.activeThread\)/);
   assert.doesNotMatch(
     app.match(/const composerReady = Boolean\([\s\S]*?\n  \);/)?.[0] || "",
     /activeThreadNeedsResume/,
@@ -2206,9 +2206,11 @@ test("Codex recovery and interruption stay bound to their Thread identity", () =
   assert.match(resume, /markCodexThreadNeedsResume\(thread\.id, false, \{ expectedGeneration: recoveryGeneration \}\)/);
   assert.match(resume, /markCodexThreadNeedsResume\(thread\.id, true, \{ expectedGeneration: recoveryGeneration \}\)/);
   const interrupt = app.match(/async function interruptTurn\(\)[\s\S]*?\n\}\n\nasync function toggleClaudePause/)?.[0] || "";
-  assert.match(interrupt, /const threadId = state\.activeThread\.id;\s*const turnId = state\.activeTurnId;/);
+  assert.match(interrupt, /const threadId = state\.activeThread\?\.id \|\| null;/);
+  assert.match(interrupt, /const operation = codexThreadOperation\(threadId, \{ create: false \}\);/);
+  assert.match(interrupt, /const turnId = operation\?\.activeTurnId \|\| operation\?\.codexActiveTurnId \|\| null;/);
   assert.match(interrupt, /rpc\("turn\/interrupt", \{\s*threadId,\s*turnId,\s*\}\)/);
-  assert.match(interrupt, /targetIsActive/);
+  assert.match(interrupt, /targetPointerMatches/);
 });
 
 test("ordinary task status polls do not trigger native full-history reconciliation", () => {
@@ -2230,12 +2232,48 @@ test("turn starts reuse only a subscribed idle Thread and keep uncertain deliver
   assert.match(server, /codexThreadStatus\(runtimeStatus\) !== "idle"/);
   assert.match(server, /!this\.browserHasThreadSubscription\(publicThreadId\)/);
   assert.match(server, /if \(this\.threadHasActiveWork\(publicThreadId\)\) return false;/);
-  assert.match(server, /const skipRead = allowUnmaterializedReadFailure/);
+  assert.match(server, /const localTask = runtime\.taskStatus\.snapshot\(publicThreadId\)/);
+  assert.match(server, /const localSubmissionIsUncertain = runtime\.taskStatus\.submissionIsUncertain\(/);
+  assert.match(server, /const skipRead = !localSubmissionIsUncertain[\s\S]*?!CODEX_ACTIVE_TASK_STATUSES\.has\(localTask\.status\)/);
   assert.match(server, /!runtime\.taskStatus\.submissionIsUncertain\(/);
   assert.match(server, /skipRead,/);
   assert.match(
     turnStartDeduplicator,
-    /A caller may skip this read only after proving that the Thread is an\n\s+\/\/ unmaterialized shell\./,
+    /A caller may skip this read only after proving that its local per-Thread\n\s+\/\/ state is a fresh, non-uncertain submission or an unmaterialized shell\./,
+  );
+});
+
+test("parallel Codex sends resolve the latest Turn per target Thread", () => {
+  assert.match(app, /function codexThreadTurnForSubmission\(threadId, fallbackTurnId = null\)/);
+  const send = app.match(/async function sendPromptOnce\(context = null\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(send, /codexThreadTurnForSubmission\(/);
+  const steer = app.match(/async function sendSteerPrompt\(text, attachments, skills = \[\], apps = \[\], promptContext = null\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(steer, /codexThreadTurnForSubmission\(/);
+  assert.match(steer, /operation\.pendingSteerRequest/);
+});
+
+test("normal appends skip duplicate history reads only with a matching local Turn", () => {
+  const steer = server.match(/if \(method === "turn\/steer"\) \{[\s\S]*?\n  \}\n  if \(method === "turn\/start"\)/)?.[0] || "";
+  assert.match(steer, /const expectedTurnId = bridgeParams\.expectedTurnId/);
+  assert.match(steer, /const localTurnMatches = \["running", "waiting"\]\.includes\(localTask\.status\)/);
+  assert.match(steer, /if \(!localTurnMatches\) \{[\s\S]*?reconcileNativeTaskStatus/);
+  assert.match(steer, /taskStatus\.deliveryUnknown\(/);
+  assert.match(steer, /skipRead: localTurnMatches/);
+});
+
+test("turn starts recheck a native active Thread after recovery before creating a Turn", () => {
+  const start = server.match(/if \(method === "turn\/start"\) \{[\s\S]*?\n  \}\n  if \(method === "turn\/steer"\)/)?.[0]
+    || server.slice(server.indexOf('if (method === "turn/start")'));
+  assert.match(start, /let preparedThread = null/);
+  assert.match(start, /preparedThread = await runtime\.ensureNativeThreadLoadedForTurn/);
+  assert.match(start, /const preparedStatus = codexThreadStatus\(preparedThread\?\.thread\?\.status\)/);
+  assert.match(start, /if \(preparedStatus === "active"\) \{[\s\S]*?await runtime\.reconcileNativeTaskStatus/);
+  assert.match(start, /admission = runtime\.assertThreadTaskCanStart/);
+  assert.match(start, /admission === "new"[\s\S]*?已停止重复发送/);
+  assert.ok(
+    start.indexOf('if (preparedStatus === "active")')
+      < start.indexOf("runtime.taskStatus.start({"),
+    "native active recovery must be checked before local task start",
   );
 });
 
@@ -2356,7 +2394,7 @@ test("the main window reconnects promptly without retry storms", () => {
 
 test("the composer uses a synchronous submission guard and rejects IME enter events", () => {
   assert.match(app, /promptSubmissionGuard: false/);
-  assert.match(app, /if \(state\.promptSubmissionGuard\) return;[\s\S]*state\.promptSubmissionGuard = true/);
+  assert.match(app, /if \(codex \? guardOperation\.promptSubmissionGuard : state\.promptSubmissionGuard\) return;[\s\S]*if \(codex\) guardOperation\.promptSubmissionGuard = true/);
   assert.match(app, /finally \{[\s\S]*state\.promptSubmissionGuard = false/);
   const busySelector = app.match(/function conversationBusy\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(busySelector);
@@ -2367,16 +2405,31 @@ test("the composer uses a synchronous submission guard and rejects IME enter eve
 });
 
 test("sparse terminal Turn events release the composer without clearing a newer Turn", () => {
-  assert.match(app, /function inferCurrentTurnId\(params = \{\}, \{ terminal = false \} = \{\}\)[\s\S]*?localInProgressTurnIds\(\)[\s\S]*?return viableTracked\.length === 1/);
+  assert.match(app, /function inferCurrentTurnId\(params = \{\}, \{ terminal = false \} = \{\}\)[\s\S]*?localInProgressTurnIds\(threadId\)[\s\S]*?return viableTracked\.length === 1/);
   assert.match(app, /explicitThreadId !== activeThreadId[\s\S]*?Fall[\s\S]*?through so the local authoritative Turn/);
   assert.match(app, /inferredCurrent: Boolean\(turnId\)/);
   assert.match(app, /function terminalEventCanSettleTurn\(turn, params = \{\}\)/);
-  assert.match(app, /function authoritativeTrackedTurnIds\(\)/);
-  assert.match(app, /function clearStaleCodexTurnPointers\(completedTurnId = null\)/);
+  assert.match(app, /function authoritativeTrackedTurnIds\(threadId = state\.activeThread\?\.id\)/);
+  assert.match(app, /function clearStaleCodexTurnPointers\(\s*completedTurnId = null,\s*threadId = state\.activeThread\?\.id,\s*\)/);
   assert.match(app, /clearStaleCodexTurnPointers\(completedTurnId\);[\s\S]*?setTurnBusy\(conversationBusy\(\), conversationBusyLabel\(\)\)/);
   assert.match(app, /const localTurn = state\.activeThread\?\.turns\?\.find\(\(turn\) => turn\?\.id === turnId\);[\s\S]*?turnStatusType\(localTurn\) !== "inProgress"/);
   assert.match(app, /if \(state\.activeTurnId && codexTurnIdIsBusy\(state\.activeTurnId\)\) return "正在处理"/);
   assert.match(app, /state\.codexTerminalTurnIds\.has\(lifecycleContext\.turnId\)\) return;/);
+});
+
+test("final Codex errors settle steer requests per Thread while retry notices preserve them", () => {
+  assert.match(app, /function pendingSteerRequestMatchesError\(request, threadId, params = \{\}\)/);
+  assert.match(app, /const expectedTurnId = request\.params\?\.expectedTurnId;[\s\S]*?errorTurnId[\s\S]*?expectedTurnId && errorTurnId !== expectedTurnId/);
+  assert.match(app, /function settlePendingSteerRequestFromError\(threadId, params = \{\}\)/);
+  assert.match(app, /if \(!threadId \|\| params\.willRetry === true\) return false;/);
+  assert.match(app, /operation\.steerRequestPending = false;[\s\S]*?restorePendingSteerRequest\(request\)/);
+  assert.match(app, /settlePendingSteerRequestFromError\(eventThreadId, params\);/);
+  assert.match(app, /const pendingRequest = codexThreadPendingTurnRequest\(pendingErrorThreadId\);/);
+  const errorHandler = app.match(/if \(method === "error"\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.match(errorHandler, /settlePendingSteerRequestFromError\(pendingErrorThreadId, params\);[\s\S]*?if \(params\.willRetry\)/);
+  assert.match(app, /eventThreadId === state\.activeThread\?\.id[\s\S]*?state\.codexActiveTurnId \|\| state\.activeTurnId/);
+  assert.match(errorHandler, /clearCodexThreadTurn\(pendingErrorThreadId, terminalTurnId\)/);
+  assert.match(app, /restorePendingSteerRequest\(request\);[\s\S]*?operation\.restoredSteerRequest = request/);
 });
 
 test("slow proxy requests use bounded status polling and preserve available system data", () => {

@@ -894,6 +894,9 @@ function sanitizeImageErrorDiagnostics(value) {
     const text = safeErrorIdentifier(value?.[field], 100);
     if (text) output[field] = text;
   }
+  if (["dns", "tls", "connect", "timeout", "reset", "network"].includes(value?.transportPhase)) {
+    output.transportPhase = value.transportPhase;
+  }
   const model = typeof value?.model === "string" ? value.model.trim().slice(0, 200) : "";
   if (model && !/[\u0000-\u001f\u007f]/u.test(model)) output.model = model;
   for (const field of ["requestedSize", "providerSize", "sourceSize"]) {

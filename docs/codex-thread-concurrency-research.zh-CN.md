@@ -290,3 +290,159 @@ threadRecovery[threadId] = {
   不同 Thread 仍可并行，停止命令仍按精确的 `threadId + turnId` 发送。
 - 这些约束只抑制重复读取，不缩短既有历史读取超时，也不把不同 Thread 串成全局队列；
   真实历史请求仍由现有版本和连接代次校验决定是否可以写回页面。
+
+## 10. 并行发送失败审查（2026-08-30）
+
+### 10.1 官方协议依据
+
+官方 App Server 仍使用 `Thread → Turn → Item` 的层次：同一 Thread 内一次只运行一个
+Turn，追加内容使用 `turn/steer` 并携带该 Thread 当前 Turn 的 `expectedTurnId`；不同
+Thread 可以并行运行。App Server 的入口队列有界时会返回过载错误，客户端应使用有界的
+指数退避和随机抖动重试，不能把一次过载直接显示为永久发送失败。
+
+官方源码副本和快照保持不变：
+
+```text
+/www/mobile-agent-tooling/openai-codex-research.oZMeyF
+f5420174dafba153913a3e697f89002c338dfd7e
+```
+
+源码中的 `request_serialization.rs` 按资源键串行化，同一 Thread 的写操作保持 FIFO，
+共享读取可以并行；`connection_rpc_gate.rs` 只在单个连接内管理 RPC gate。它没有要求
+客户端把不同 Thread 的发送放进全局锁。
+
+### 10.2 WFL 根因
+
+当前 `public/app.js` 的以下状态虽然被命名为全局字段，实际却属于某个 Thread：
+
+```text
+pendingTurnRequest
+pendingSteerRequest
+turnPreparationPending
+turnStartRequestPending
+steerRequestPending
+interruptRequestPending
+activeTurnId / codexActiveTurnId
+pendingUserMessage
+```
+
+切换 Thread、创建新对话、发送和重试都直接读取这些单槽位字段。因此会出现：
+
+```text
+A 正在等待 turn/start 或 turn/steer 响应
+  -> 全局 pending 被占用
+  -> B 的新消息被前端直接 return，或 B 无法切换
+
+A 的 activeTurnId 残留在全局字段
+  -> 切换到 B 后 B 的消息错误走 turn/steer
+  -> expectedTurnId 不属于 B，服务端按协议拒绝追加
+```
+
+服务端 `turn/steer` 会再次按目标 Thread 核对运行状态和 `expectedTurnId`；这部分是
+必要的防串线校验，不应删除。`withCodexTaskAdmission`、`TaskStatusTracker`、写租约和
+`TurnStartDeduplicator` 也都使用 Thread 或 `threadId + clientSubmissionId`，目前没有
+证据表明它们是本次跨对话失败的根因。服务器任务并发上限仍然是有效的资源配置，不能把
+“排队/达到上限”伪装成已经发送成功。
+
+### 10.3 本次最小修复边界
+
+1. 在浏览器端为 Codex 的发送、准备、恢复和当前 Turn 指针建立按 `threadId` 的内存槽位；
+   旧字段保留为当前可见 Thread 的投影，尽量不改动现有 UI 渲染代码。
+2. 切换或新建对话时只阻止目标 Thread 自己仍在确认的请求；A 的 pending 不再阻止 B
+   加载、发送或继续运行。
+3. 所有 `turn/steer` 请求从目标 Thread 槽位读取 Turn ID，并在异步响应、错误和重连时
+   按目标 Thread 清理；迟到的 A 响应不能清掉 B 的 composer 或 Turn 指针。
+4. 同一 Thread 仍只允许一个待确认 steer，保持官方的 Turn 内 FIFO；不同 Thread 的
+   请求可以并行。新对话尚未拿到 Thread ID 时仍保留单独的草稿准备边界，避免创建过程
+   被切换破坏。
+5. 对明确的 App Server 入口过载错误只做少量、幂等的退避重试；传输超时仍保持
+   delivery-unknown 语义，不盲目重复执行可能已经被接受的 Turn。
+
+### 10.4 验收记录
+
+本次改动只执行有界检查：两个 Thread 的 pending 状态互不阻塞、A/B 的 Turn ID 不互串、
+同一 Thread 的追加仍使用 `turn/steer`，以及过载重试不改变 client message ID。不会在普通
+用户服务器运行完整仓库测试、压力测试或完整浏览器 smoke。
+
+### 10.5 实施与验证记录（2026-08-30）
+
+已完成的代码边界：
+
+- 浏览器端将发送、追加、恢复、停止、待确认消息和当前 Turn 指针按 `threadId` 保存；
+  旧的 `state.*` 字段只作为当前可见 Thread 的兼容投影。
+- A Thread 的发送准备、恢复或 RPC 响应不会再占用 B Thread 的发送槽位；后台 Thread 的
+  迟到事件只更新自己的缓存，不能清空当前页面的 composer 或 Turn 指针。
+- `turn/steer` 从目标 Thread 槽位取最新 Turn；只有本地任务状态不匹配时才走服务端原生
+  核验，正常追加不再先做重复的完整 `thread/read`。
+- 最终 `error` 通知现在按目标 `threadId + expectedTurnId` 收口 `turn/steer`：当前
+  对话立即恢复输入，后台对话把失败草稿放回自己的槽位；迟到的 RPC 回包不能再次清理
+  其他对话。`willRetry: true` 不会提前清理请求，最终错误到达时才释放追加锁。
+- 最终错误缺少显式 Thread ID 时，使用已经推断出的 Thread/Turn 指针；已确认的终态会
+  立即释放对应发送锁，不再等待最长 RPC 超时才能继续操作。
+- 新对话的 `thread/start` 使用稳定的客户端请求 ID；传输超时或断线被标为
+  `deliveryUnknown`，恢复时按同一 ID 核对，避免把“已执行但响应丢失”重复当成失败重跑。
+- 停止操作在点击瞬间保存目标 `{ threadId, turnId }`，切换对话后仍向原目标发送
+  `turn/interrupt`。
+
+本地有界验证结果：
+
+```text
+node --check server.mjs                         通过
+node --check public/app.js                      通过
+node --check lib/task-status.mjs                通过
+node --test test/turn-start-deduplicator.test.mjs test/task-status.test.mjs
+  34 passed, 0 failed
+node --test --test-name-pattern='Codex recovery and interruption stay bound|parallel Codex sends|normal appends skip duplicate|turn starts reuse only' test/ui.test.mjs
+  4 passed, 0 failed
+node --test --test-name-pattern='Codex recovery and interruption stay bound|parallel Codex sends|normal appends skip duplicate|turn starts reuse only|sparse terminal Turn events|final Codex errors settle steer' test/ui.test.mjs
+  6 passed, 0 failed
+```
+
+前一轮完整 `test/ui.test.mjs` 为 `112 passed, 3 failed`（共 115 项）。剩余失败项是工作树
+此前已经存在的权限默认值和图片供应商静态契约问题；本轮新增保护后完整 UI 套件为
+`113 passed, 3 failed`（共 116 项），并发相关新增和更新断言均已通过，不能把这次并发修复
+报告为完整 UI 套件全绿。服务端并行用例若单独使用名称筛选，会跳过
+该文件要求的前置登录测试并因 `Cookie: undefined` 失败；这不是业务断言结果。任务状态
+和去重测试仍为 `34 passed, 0 failed`。多用户/完整浏览器测试还依赖前置登录、供应商、
+额度和临时工程环境，未将其作为本次普通服务器验收条件，也未在普通用户服务器执行。
+
+本次新增回归边界：
+
+- 当前 Thread 的最终追加错误不再遗留 `pendingSteerRequest` 或 `steerRequestPending`。
+- 后台 Thread 的追加错误不会恢复到当前可见对话；切回目标 Thread 时仅恢复该 Thread
+  自己的失败草稿。
+- `willRetry: true` 仍保留原追加请求，最终错误才清理；不同 Turn 的迟到错误不能清掉
+  新 Turn 的追加请求。
+
+### 10.6 恢复后原生 active 复核（2026-08-30 继续）
+
+复查 `turn/start` 发送前路径时发现一个恢复边界：本地任务表可能已经是 idle，但第一次
+`thread/turns/list` 或 `thread/read` 因连接切换、Thread 尚未重新装载或索引重建而只能
+返回不确定结果。此时 `thread/resume` 可能明确返回 `thread.status.type = active`。如果
+继续直接执行 `turn/start`，就可能把原生仍在运行的 Turn 当成空闲对话，导致追加失败或
+重复创建 Turn。
+
+已做的最小修复：
+
+- `ensureNativeThreadLoadedForTurn` 在已装载 Thread 的轻量 `thread/read` 返回 idle/active
+  时保留该快照；`thread/resume` 的返回值也作为发送前准备结果保留。
+- 发送前只在准备结果明确为 `active` 时再调用一次有界的
+  `reconcileNativeTaskStatus`，然后重新执行 `assertThreadTaskCanStart`。
+- 二次核验发现活动 Turn 时沿用现有 Thread 准入错误；若原生仍报告 active 但暂时无法
+  取到 Turn 明细，则返回 409 并停止本次新建，绝不继续 `turn/start`。
+- 该逻辑只覆盖恢复明确报告 active 的异常路径，不增加全局恢复锁，不触发完整历史读取，
+  不改变不同 Thread 的并行发送，也不影响同一 client submission 的不确定投递核验。
+
+本轮验证：
+
+```text
+node --check server.mjs public/app.js lib/task-status.mjs lib/turn-start-deduplicator.mjs  通过
+git diff --check                                                                    通过
+node --test test/turn-start-deduplicator.test.mjs test/task-status.test.mjs          34 passed
+node --test --test-name-pattern='turn starts recheck a native active Thread|normal appends skip duplicate history reads|turn starts reuse only a subscribed idle Thread' test/ui.test.mjs
+  3 passed
+```
+
+新增的 UI 契约测试确认二次核验发生在本地 `taskStatus.start` 之前；它是源码级回归保护，
+不是对真实付费供应商的兼容性认证。当前工作树仍未提交、未推送、未部署，救援窗口
+`4321` 未修改。

@@ -313,6 +313,24 @@ test("an app-server exit terminates tasks whose completion notification was lost
   assert.equal(tracker.snapshot("thread-crashed").status, "failed");
 });
 
+test("a client-submitted task stays uncertain across a bridge exit", () => {
+  const tracker = new TaskStatusTracker();
+  tracker.start({
+    threadId: "thread-client-crashed",
+    turnId: "turn-client-crashed",
+    clientSubmissionId: "client-crashed",
+  });
+
+  tracker.bridgeStatus("offline");
+
+  const snapshot = tracker.snapshot("thread-client-crashed");
+  assert.equal(snapshot.status, "uncertain");
+  assert.equal(snapshot.phase, "reconnecting");
+  assert.equal(snapshot.turnId, "turn-client-crashed");
+  assert.equal(snapshot.clientSubmissionId, "client-crashed");
+  assert.equal(tracker.submissionIsUncertain("thread-client-crashed", "client-crashed"), true);
+});
+
 test("delivery-unknown tasks remain active across disconnect until authoritative reconciliation", () => {
   const tracker = new TaskStatusTracker();
   tracker.start({

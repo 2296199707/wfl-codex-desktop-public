@@ -1118,6 +1118,9 @@ function publicError(error) {
     const value = safeIdentifier(error?.[field], 100);
     if (value) result[field] = value;
   }
+  if (["dns", "tls", "connect", "timeout", "reset", "network"].includes(error?.transportPhase)) {
+    result.transportPhase = error.transportPhase;
+  }
   const model = optionalString(error?.model, 200);
   if (model && !/[\u0000-\u001f\u007f]/u.test(model)) result.model = model;
   for (const field of ["requestedSize", "providerSize", "sourceSize"]) {
