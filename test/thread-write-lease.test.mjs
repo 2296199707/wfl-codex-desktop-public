@@ -69,3 +69,65 @@ test("releasing a same-owner short write cannot release the running turn lease",
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test("idle lease recovery clears only the exact conflicting lease identity", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "thread-lease-reclaim-"));
+  let now = 1000;
+  try {
+    const first = await new ThreadWriteLeaseStore(directory, { ttlMs: 100, now: () => now }).initialize();
+    const second = await new ThreadWriteLeaseStore(directory, { ttlMs: 100, now: () => now }).initialize();
+    const lease = await first.acquire("thread-1", "window-1", { surface: "main" });
+    let conflict;
+    await assert.rejects(
+      () => second.acquire("thread-1", "window-2", { surface: "rescue" }),
+      (error) => {
+        conflict = error;
+        return error.code === "ERR_THREAD_LEASE_CONFLICT";
+      },
+    );
+
+    assert.ok(conflict?.leaseIdentity);
+    assert.equal(Object.keys(conflict).includes("leaseIdentity"), false);
+    assert.equal(await second.reclaim("thread-1", {
+      ...conflict.leaseIdentity,
+      holders: conflict.leaseIdentity.holders.map((holder) => ({
+        ...holder,
+        expiresAt: holder.expiresAt + 1,
+      })),
+    }), false);
+    assert.equal((await first.inspect("thread-1")).token, lease.token);
+
+    assert.equal(await second.reclaim("thread-1", conflict.leaseIdentity), true);
+    assert.equal(await first.inspect("thread-1"), null);
+    const takeover = await second.acquire("thread-1", "window-2", { surface: "rescue" });
+    assert.equal(takeover.ownerId, "window-2");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("lease recovery refuses an identity that changed after the conflict", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "thread-lease-reclaim-race-"));
+  let now = 1000;
+  try {
+    const first = await new ThreadWriteLeaseStore(directory, { ttlMs: 100, now: () => now }).initialize();
+    const second = await new ThreadWriteLeaseStore(directory, { ttlMs: 100, now: () => now }).initialize();
+    const lease = await first.acquire("thread-1", "window-1", { surface: "main" });
+    let conflict;
+    await assert.rejects(
+      () => second.acquire("thread-1", "window-2", { surface: "rescue" }),
+      (error) => {
+        conflict = error;
+        return error.code === "ERR_THREAD_LEASE_CONFLICT";
+      },
+    );
+
+    now = 1010;
+    const child = await first.acquire("thread-1", "window-1", { surface: "main" });
+    assert.notEqual(child.token, lease.token);
+    assert.equal(await second.reclaim("thread-1", conflict.leaseIdentity), false);
+    assert.equal((await first.inspect("thread-1")).references, 2);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

@@ -3,6 +3,12 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.73-beta] - 2026-08-31
+
+- 修复发送前置检查失败时错误保留 Thread 写租约，避免后续消息被误判为并发冲突。
+- 增加租约指纹校验和空闲 Thread 的安全回收，只有确认原生任务已结束才允许接管残留租约。
+- 修复任务状态核验暂时失败时刷新被误报为 HTTP 错误，并在状态确认期间正确禁止发送。
+
 ## [0.44.72-beta] - 2026-08-31
 
 - 为 WFL `secure-ssh-access` 插件接入管理员专用的临时 SSH AI 工具，支持列出活动授权和执行远程命令。

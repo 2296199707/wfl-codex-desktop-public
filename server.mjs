@@ -2629,7 +2629,14 @@ class UserRuntime {
       if (payload?.method === "serverRequest/resolved") {
         this.resolveServerRequestNotification(payload.params?.requestId);
       }
-      if (payload?.method === "turn/completed" || (payload?.method === "error" && !payload.params?.willRetry)) {
+      const terminalThreadLifecycle = payload?.method === "turn/completed"
+        || (payload?.method === "error" && !payload.params?.willRetry)
+        || payload?.method === "thread/closed"
+        || (
+          payload?.method === "thread/status/changed"
+          && ["idle", "notLoaded", "systemError"].includes(codexThreadStatus(payload.params?.status))
+        );
+      if (terminalThreadLifecycle) {
         const completedTurnId = payload.params?.turnId || payload.params?.turn?.id;
         this.clearInterruptWatchdog(
           payload.params?.threadId,
@@ -2639,7 +2646,7 @@ class UserRuntime {
         const belongsToCurrentTask = !currentTask.turnId
           || !completedTurnId
           || currentTask.turnId === completedTurnId;
-        if (belongsToCurrentTask) {
+        if (belongsToCurrentTask && !CODEX_ACTIVE_TASK_STATUSES.has(currentTask.status)) {
           this.clearServerRequestsForThread(payload.params?.threadId);
           void this.releaseThreadWriteLease(payload.params?.threadId);
         }
@@ -4896,6 +4903,42 @@ class UserRuntime {
     return results.some(Boolean);
   }
 
+  async reclaimIdleThreadWriteLease(threadId, conflict) {
+    if (
+      typeof threadId !== "string"
+      || !threadId
+      || conflict?.code !== "ERR_THREAD_LEASE_CONFLICT"
+      || !conflict.leaseIdentity
+      || !this.threadWriteLeases
+    ) return false;
+    const local = this.taskStatus.snapshot(threadId);
+    if (CODEX_ACTIVE_TASK_STATUSES.has(local.status)) return false;
+    // An empty Worktree Thread cannot own a native Turn yet. Treat it as a
+    // confirmed idle target so a lease left by a failed preflight does not
+    // block the first message until the lease TTL expires.
+    let unmaterialized = false;
+    try {
+      unmaterialized = await this.codexThreadIsUnmaterialized(threadId);
+    } catch {
+      return false;
+    }
+    if (unmaterialized) {
+      return this.threadWriteLeases.reclaim(threadId, conflict.leaseIdentity).catch(() => false);
+    }
+    let native;
+    try {
+      native = await this.findNativeActiveTurn(threadId, null, { timeoutMs: 8_000 });
+    } catch {
+      return false;
+    }
+    if (
+      native?.turn
+      || native?.confirmedInactive !== true
+      || native?.nativeVerified !== true
+    ) return false;
+    return this.threadWriteLeases.reclaim(threadId, conflict.leaseIdentity).catch(() => false);
+  }
+
   async renewActiveThreadLeases() {
     for (const [threadId, leases] of this.activeThreadWriteLeases) {
       for (const lease of leases.values()) {
@@ -5326,7 +5369,12 @@ class UserRuntime {
     return result;
   }
 
-  async retryTurnStartAfterTargetedFailure(publicThreadId, params, initialError) {
+  async retryTurnStartAfterTargetedFailure(
+    publicThreadId,
+    params,
+    initialError,
+    { onTurnStartDeliveryUnknown = null } = {},
+  ) {
     if (!isRecoverableTurnStartHandoffError(initialError)) throw initialError;
     const nativeThreadId = params.threadId || this.nativeThreadIdForPublic(publicThreadId);
     let read = null;
@@ -5377,13 +5425,18 @@ class UserRuntime {
         : {}),
       type: resumedStatus || "unknown",
     });
-    return this.submitCodexRpc({
-      submissionType: "start-recovery",
-      clientSubmissionId: params.clientUserMessageId,
-      method: "turn/start",
-      params,
-      timeoutMs: CONVERSATION_SUBMISSION_TIMEOUT_MS,
-    });
+    try {
+      return await this.submitCodexRpc({
+        submissionType: "start-recovery",
+        clientSubmissionId: params.clientUserMessageId,
+        method: "turn/start",
+        params,
+        timeoutMs: CONVERSATION_SUBMISSION_TIMEOUT_MS,
+      });
+    } catch (error) {
+      if (error.deliveryUnknown === true) onTurnStartDeliveryUnknown?.();
+      throw error;
+    }
   }
 
   recordTurnStartResult(threadId, result, { cwd = null, clientSubmissionId = null } = {}) {
@@ -12620,6 +12673,7 @@ app.get("/api/task/status", async (request, response, next) => {
       return;
     }
     let snapshot;
+    let nativeStatusUncertain = false;
     if (threadId) {
       const local = runtime.taskStatus.snapshot(threadId);
       const localActive = CODEX_ACTIVE_TASK_STATUSES.has(local.status);
@@ -12634,12 +12688,32 @@ app.get("/api/task/status", async (request, response, next) => {
       // the client's concrete Turn identity may trigger the expensive native
       // turns/list -> thread/read reconciliation fallback.
       if (clientTurnMismatch) {
-        await runtime.reconcileNativeTaskStatus(threadId, {
-          requestedTurnId: clientActiveTurnId || localTurnId,
-          cwd: local.cwd,
-        });
+        try {
+          await runtime.reconcileNativeTaskStatus(threadId, {
+            requestedTurnId: clientActiveTurnId || localTurnId,
+            cwd: local.cwd,
+          });
+        } catch {
+          nativeStatusUncertain = true;
+          snapshot = {
+            ...local,
+            status: "uncertain",
+            phase: "reconciling",
+            turnId: clientActiveTurnId || localTurnId,
+            canSend: false,
+            authoritative: true,
+            activeTurnId: clientActiveTurnId || localTurnId,
+            nativeStatusUncertain: true,
+            nativeStatusError: "任务状态暂时无法确认",
+            codexRecovery: codexRecoverySnapshotForUser(runtime.user.id),
+            runtimeEpoch: runtime.codexRuntimeEpoch,
+            writerEpoch: BACKEND_WRITER_EPOCH,
+          };
+        }
       }
-      snapshot = await runtime.authoritativeTaskSnapshot(threadId, { clientActiveTurnId });
+      if (!nativeStatusUncertain) {
+        snapshot = await runtime.authoritativeTaskSnapshot(threadId, { clientActiveTurnId });
+      }
     } else {
       snapshot = runtime.taskStatus.snapshot(null);
     }
@@ -26409,22 +26483,53 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
   }
   if (method === "turn/start") {
     const leaseOwnerId = rpcThreadLeaseOwnerId(params, client);
-    let taskLease = runtime.taskStatus.submissionIsUncertain(
+    const acquireTurnLease = async () => {
+      try {
+        return await runtime.threadWriteLeases.acquire(
+          publicThreadId,
+          leaseOwnerId,
+          { surface: RESCUE_MODE ? "rescue" : "main" },
+        );
+      } catch (error) {
+        if (!await runtime.reclaimIdleThreadWriteLease(publicThreadId, error)) throw error;
+        return runtime.threadWriteLeases.acquire(
+          publicThreadId,
+          leaseOwnerId,
+          { surface: RESCUE_MODE ? "rescue" : "main" },
+        );
+      }
+    };
+    const submissionWasUncertain = runtime.taskStatus.submissionIsUncertain(
       publicThreadId,
       bridgeParams.clientUserMessageId,
-    )
+    );
+    let taskLease = submissionWasUncertain
       ? runtime.threadWriteLeaseForOwner(publicThreadId, leaseOwnerId)
       : null;
+    const retainedUncertainLease = Boolean(taskLease);
     if (!taskLease) {
-      taskLease = await runtime.threadWriteLeases.acquire(
-        publicThreadId,
-        leaseOwnerId,
-        { surface: RESCUE_MODE ? "rescue" : "main" },
-      );
+      taskLease = await acquireTurnLease();
       runtime.rememberThreadWriteLease(taskLease);
     }
     if (client) runtime.bindThreadClient(publicThreadId, client);
     let result;
+    // An uncertain local submission only keeps its lease when this request
+    // actually found and reused the corresponding old lease. If the old
+    // lease was already lost and this call acquired a fresh one, preflight
+    // failures must release that fresh lease normally.
+    let turnStartDeliveryUnknown = retainedUncertainLease;
+    const submitTurnStart = (submissionType, requestParams = bridgeParams) => (
+      runtime.submitCodexRpc({
+        submissionType,
+        clientSubmissionId: requestParams.clientUserMessageId,
+        method,
+        params: requestParams,
+        timeoutMs: CONVERSATION_SUBMISSION_TIMEOUT_MS,
+      }).catch((error) => {
+        if (error.deliveryUnknown === true) turnStartDeliveryUnknown = true;
+        throw error;
+      })
+    );
     let effectiveThreadId = publicThreadId;
     let reboundWorktree = null;
     try {
@@ -26494,13 +26599,7 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
         }
         let started;
         try {
-          started = await runtime.submitCodexRpc({
-            submissionType: "start",
-            clientSubmissionId: bridgeParams.clientUserMessageId,
-            method,
-            params: bridgeParams,
-            timeoutMs: CONVERSATION_SUBMISSION_TIMEOUT_MS,
-          });
+          started = await submitTurnStart("start", bridgeParams);
         } catch (error) {
           const boundWorktree = runtime.worktreeStore?.forThread(publicThreadId) || null;
           const emptyWorktreeUnavailable = Boolean(
@@ -26530,13 +26629,7 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
               cwd: rebound.thread.cwd,
             };
             taskLease = rebound.lease;
-            started = await runtime.submitCodexRpc({
-              submissionType: "start-rebound",
-              clientSubmissionId: bridgeParams.clientUserMessageId,
-              method,
-              params: bridgeParams,
-              timeoutMs: CONVERSATION_SUBMISSION_TIMEOUT_MS,
-            });
+            started = await submitTurnStart("start-rebound", bridgeParams);
             started = {
               ...started,
               reboundFromThreadId: publicThreadId,
@@ -26552,6 +26645,7 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
                 publicThreadId,
                 bridgeParams,
                 error,
+                { onTurnStartDeliveryUnknown: () => { turnStartDeliveryUnknown = true; } },
               );
             } catch (recoveryError) {
               if (recoveryError.deliveryUnknown === true) {
@@ -26636,7 +26730,7 @@ async function executeBrowserRpc(runtime, method, params, client = null) {
           });
         }
       }
-      if (error.deliveryUnknown !== true) {
+      if (!turnStartDeliveryUnknown) {
         await runtime.releaseThreadWriteLease(effectiveThreadId, taskLease.token);
       }
       throw error;

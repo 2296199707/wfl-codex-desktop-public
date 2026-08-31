@@ -446,3 +446,67 @@ node --test --test-name-pattern='turn starts recheck a native active Thread|norm
 新增的 UI 契约测试确认二次核验发生在本地 `taskStatus.start` 之前；它是源码级回归保护，
 不是对真实付费供应商的兼容性认证。当前工作树仍未提交、未推送、未部署，救援窗口
 `4321` 未修改。
+
+## 11. 发送被错误租约拦截修复（2026-08-31）
+
+### 11.1 现象和根因
+
+一次 turn/start 请求会先取得 Thread 写租约，再在真正提交用户消息前执行原生
+任务核验。若 thread/turns/list 在这段可选核验中超时，Codex RPC 的通用超时错误
+带有 deliveryUnknown 标记。旧的外层处理把它误当成用户的 turn/start 已经
+投递但响应丢失，于是保留了本次其实尚未发送消息的租约。刷新页面后新窗口继续看到
+这个有效租约，表现为发送被“当前对话正在由另一个窗口执行”拦截。
+
+同样的原生核验还位于 /api/task/status 的刷新路径。它是辅助状态读取，不是用户
+消息提交；读取超时却直接变成 HTTP 错误，会让刷新同时显示任务状态读取失败。
+
+### 11.2 修复边界
+
+- turn/start 只有真正的 turn/start RPC（包括定向恢复重试）发生
+  deliveryUnknown 时才保留写租约。
+- 发送前的 thread/read、thread/resume、额度/准入检查和原生任务核验失败，
+  都释放本次新取得的租约，不把未发送的消息标记为已投递。
+- 如果本地确实有同一条不确定提交及其旧租约，则继续复用并保留该旧租约；旧租约已经
+  丢失时新建的租约不继承这个保留标记。
+- 租约冲突只在本地任务空闲、原生 Thread 明确确认无活动 Turn 且核验成功时自动回收。
+  回收使用冲突时捕获的不可枚举租约指纹，并在文件锁内再次比对；租约期间发生续租或
+  新增同主人的子租约时不会误删。
+- /api/task/status 的可选原生核验超时或连接不确定会返回 HTTP 200 的
+  status: "uncertain"、canSend: false，前端显示“确认任务状态”并继续轮询；
+  在权威状态恢复前不会发送新消息，避免与仍在运行的 Turn 重叠。
+
+### 11.3 回归验证
+
+本次新增了租约原子回收、指纹变化拒绝回收、发送前租约保留边界和刷新不确定状态的
+定向测试：
+
+node --check server.mjs public/app.js lib/thread-write-lease.mjs       通过
+node --test test/thread-write-lease.test.mjs                            5 passed
+node --test test/turn-start-deduplicator.test.mjs test/task-status.test.mjs
+  34 passed
+node --test --test-name-pattern='lease retention|optional native verification|terminal native lifecycle|automatic stale lease|composer stays closed|turn starts recheck|normal appends skip duplicate|turn starts reuse' test/ui.test.mjs
+  8 passed
+git diff --check                                                        通过
+
+当前修改仍未提交、未部署、未推送；冻结的救援窗口 4321 未修改。
+
+### 11.4 后续边界修复
+
+截图中出现“任务已完成”但发送仍提示主窗口占用，说明原生服务有时只发送
+`thread/status/changed: idle`、`notLoaded` 或 `thread/closed`，没有发送对应的
+`turn/completed`。服务端现在也把这些终态事件纳入租约释放，但只有任务表已经确认
+非活动时才释放，延迟的空闲事件不会清除仍在运行的 Turn。
+
+对尚未产生首条消息的空 Worktree Thread，原生上不可能存在活动 Turn；发送前遇到
+残留租约时可在指纹再次核对后回收，不必等待 30 分钟租约过期。其他 Thread 仍要求
+`thread/turns/list` 和 `thread/read` 的原生非活动证据，两者任一失败都不自动回收。
+
+任务状态接口的原生核验是辅助信息。任何核验失败都返回 HTTP 200 的
+`status: "uncertain"` 和 `canSend: false`，前端继续轮询，不再把刷新显示成任务状态
+HTTP 错误；在状态确认前仍禁止发送，以避免把真实运行中的 Turn 当成空闲。
+
+本轮增量验证还通过了：
+
+- `node --test --test-name-pattern='lease|task status|turn/start|turn start|recovery|concurr|delivery|thread status|notification' test/server.test.mjs`：11/11；
+- `node --check server.mjs public/app.js lib/thread-write-lease.mjs`；
+- `git diff --check`。

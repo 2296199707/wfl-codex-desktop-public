@@ -2277,6 +2277,60 @@ test("turn starts recheck a native active Thread after recovery before creating 
   );
 });
 
+test("turn-start lease retention distinguishes preflight failures from unknown delivery", () => {
+  const start = server.match(
+    /const acquireTurnLease = async \(\) => \{[\s\S]*?if \(!turnStartDeliveryUnknown\) \{[\s\S]*?releaseThreadWriteLease\([\s\S]*?\n    \}/,
+  )?.[0] || "";
+  assert.ok(start, "turn-start lease path was not found");
+  assert.match(start, /const retainedUncertainLease = Boolean\(taskLease\)/);
+  assert.match(start, /let turnStartDeliveryUnknown = retainedUncertainLease/);
+  assert.match(start, /const submitTurnStart = \(submissionType, requestParams = bridgeParams\)/);
+  assert.match(start, /if \(error\.deliveryUnknown === true\) turnStartDeliveryUnknown = true/);
+  assert.doesNotMatch(start, /let turnStartDeliveryUnknown = submissionWasUncertain/);
+});
+
+test("task status exposes an uncertain snapshot instead of turning optional native verification into an error", () => {
+  const routeStart = server.indexOf('app.get("/api/task/status"');
+  const routeEnd = server.indexOf('app.post("/api/task/admission/cancel"', routeStart);
+  const route = server.slice(routeStart, routeEnd);
+  assert.ok(routeStart >= 0 && routeEnd > routeStart, "task status route was not found");
+  assert.match(route, /let nativeStatusUncertain = false/);
+  assert.match(route, /status: "uncertain"/);
+  assert.match(route, /canSend: false/);
+  assert.match(route, /nativeStatusUncertain: true/);
+  assert.match(route, /if \(!nativeStatusUncertain\) \{[\s\S]*?authoritativeTaskSnapshot/);
+  assert.match(route, /\} catch \{\s*nativeStatusUncertain = true/);
+});
+
+test("terminal native lifecycle notifications release leases after the task tracker settles", () => {
+  const notification = server.match(
+    /const terminalThreadLifecycle = [\s\S]*?void this\.releaseThreadWriteLease\(payload\.params\?\.threadId\);/,
+  )?.[0] || "";
+  assert.match(notification, /payload\?\.method === "thread\/closed"/);
+  assert.match(notification, /payload\?\.method === "thread\/status\/changed"/);
+  assert.match(notification, /\["idle", "notLoaded", "systemError"\]/);
+  assert.match(notification, /!CODEX_ACTIVE_TASK_STATUSES\.has\(currentTask\.status\)/);
+});
+
+test("automatic stale lease recovery requires an idle local task and two native witnesses", () => {
+  const reclaim = server.match(
+    /async reclaimIdleThreadWriteLease\(threadId, conflict\) \{[\s\S]*?\n  \}/,
+  )?.[0] || "";
+  assert.match(reclaim, /CODEX_ACTIVE_TASK_STATUSES\.has\(local\.status\)/);
+  assert.match(reclaim, /codexThreadIsUnmaterialized\(threadId\)/);
+  assert.match(reclaim, /native\?\.confirmedInactive !== true/);
+  assert.match(reclaim, /native\?\.nativeVerified !== true/);
+  assert.match(reclaim, /this\.threadWriteLeases\.reclaim\(threadId, conflict\.leaseIdentity\)/);
+});
+
+test("the composer stays closed while the server is confirming a possibly active Turn", () => {
+  const busy = app.match(/function conversationBusy\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const composer = app.match(/const composerReady = Boolean\([\s\S]*?\n  \);/)?.[0] || "";
+  assert.match(busy, /codexTaskStatusIsUncertain\(\)/);
+  assert.match(composer, /!codexTaskStatusIsUncertain\(\)/);
+  assert.match(app, /status === "uncertain"/);
+});
+
 test("the resource explorer edits existing text files with guarded conflict-aware saves", () => {
   for (const id of [
     "resourceEditor",
