@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.75-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.75-beta";
+} from "./thread-state.js?v=0.44.76-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.76-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.75-beta";
+} from "./image-context-policy.js?v=0.44.76-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.75-beta";
+} from "./image-attachment-context.js?v=0.44.76-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.75-beta";
+} from "./game-work-mode.js?v=0.44.76-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.75-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.76-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.75-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.76-beta";
 import {
   createConversationState,
   listConversationThreads,
@@ -62,11 +62,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.75-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.75-beta";
+} from "./conversation-state.js?v=0.44.76-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.76-beta";
 
-const UI_VERSION = "0.44.75-beta";
-const UI_VERSION_LABEL = "0.44.75-beta";
+const UI_VERSION = "0.44.76-beta";
+const UI_VERSION_LABEL = "0.44.76-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -21147,7 +21147,7 @@ async function sendPromptOnce(context = null) {
     (!text && !attachments.length && !skills.length && !apps.length) ||
     targetOperation.pendingTurnRequest ||
     targetOperation.turnPreparationPending ||
-    state.contextCompactionThreadId === threadId ||
+    contextCompactionIsActive(threadId) ||
     targetUiBusy ||
     !targetProject ||
     !state.bridgeReady
@@ -37413,7 +37413,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.75-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.76-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -44301,6 +44301,12 @@ function clearStaleCodexTurnPointers(
   }
 }
 
+function contextCompactionIsActive(threadId = state.activeThread?.id) {
+  // A blank composer has no Thread yet. Treating null === null as an active
+  // compaction leaves every new conversation permanently busy.
+  return Boolean(threadId) && state.contextCompactionThreadId === threadId;
+}
+
 function conversationBusy() {
   if (state.runtime === "claude") {
     return Boolean(
@@ -44326,7 +44332,7 @@ function conversationBusy() {
     || state.interruptRequestPending
     || state.turnPreparationPending
     || state.imageGenerating
-    || state.contextCompactionThreadId === state.activeThread?.id
+    || contextCompactionIsActive()
     || state.threadSelectionPending
     || codexTaskStatusIsUncertain()
   );
@@ -44364,7 +44370,7 @@ function conversationBusyLabel() {
     if (state.activeClaudeSession?.status === "recoveryPending") return "等待恢复确认";
     return state.threadSelectionPending ? "正在切换" : "就绪";
   }
-  if (state.contextCompactionThreadId === state.activeThread?.id) return "正在压缩上下文";
+  if (contextCompactionIsActive()) return "正在压缩上下文";
   if (state.interruptRequestPending) return "正在终止";
   if (state.queuedPromptAfterReconnect) return "等待连接恢复";
   if (state.pendingSteerRequest || state.steerRequestPending) return "正在确认追加指令";

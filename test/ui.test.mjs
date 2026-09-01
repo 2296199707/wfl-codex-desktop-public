@@ -2255,6 +2255,16 @@ test("parallel Codex sends resolve the latest Turn per target Thread", () => {
   assert.match(steer, /operation\.pendingSteerRequest/);
 });
 
+test("a blank Codex conversation is not mistaken for an active compaction", () => {
+  assert.match(
+    app,
+    /function contextCompactionIsActive\(threadId = state\.activeThread\?\.id\) \{[\s\S]*?return Boolean\(threadId\) && state\.contextCompactionThreadId === threadId;/,
+  );
+  assert.match(app, /contextCompactionIsActive\(threadId\) \|\|/);
+  assert.match(app, /\|\| contextCompactionIsActive\(\)\n    \|\| state\.threadSelectionPending/);
+  assert.match(app, /if \(contextCompactionIsActive\(\)\) return "正在压缩上下文";/);
+});
+
 test("normal appends skip duplicate history reads only with a matching local Turn", () => {
   const steer = server.match(/if \(method === "turn\/steer"\) \{[\s\S]*?\n  \}\n  if \(method === "turn\/start"\)/)?.[0] || "";
   assert.match(steer, /const expectedTurnId = bridgeParams\.expectedTurnId/);
