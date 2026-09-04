@@ -3,6 +3,13 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.77-beta] - 2026-09-04
+
+### Fixed
+
+- 修复新开 Codex 对话因空白 Thread 的 `null/undefined` 状态判断不一致而无法发送的问题。
+- 修复创建首个 Thread 后界面未保持当前新对话可见的问题。
+
 ## [0.44.76-beta] - 2026-09-01
 
 ### Fixed

@@ -25,18 +25,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.76-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.76-beta";
+} from "./thread-state.js?v=0.44.77-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.77-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.76-beta";
+} from "./image-context-policy.js?v=0.44.77-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.76-beta";
+} from "./image-attachment-context.js?v=0.44.77-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,16 +44,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.76-beta";
+} from "./game-work-mode.js?v=0.44.77-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.76-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.77-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.76-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.77-beta";
 import {
   createConversationState,
   listConversationThreads,
@@ -62,11 +62,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.76-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.76-beta";
+} from "./conversation-state.js?v=0.44.77-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.77-beta";
 
-const UI_VERSION = "0.44.76-beta";
-const UI_VERSION_LABEL = "0.44.76-beta";
+const UI_VERSION = "0.44.77-beta";
+const UI_VERSION_LABEL = "0.44.77-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -1099,7 +1099,7 @@ function codexThreadTurnId(threadId) {
 }
 
 function setCodexThreadBusy(threadId, busy, label = busy ? "正在处理" : "就绪") {
-  if (state.activeThread?.id === threadId) setTurnBusy(busy, label);
+  if ((state.activeThread?.id || null) === (threadId || null)) setTurnBusy(busy, label);
 }
 
 function restoreCodexThreadDraft(threadId) {
@@ -20970,7 +20970,7 @@ function captureCodexPromptContext() {
 function codexPromptContextStillCurrent(context) {
   if (!context || state.runtime !== "codex") return false;
   return state.threadSelectionVersion === context.selectionVersion
-    && state.activeThread?.id === context.threadId
+    && (state.activeThread?.id || null) === (context.threadId || null)
     && state.currentProject?.path === context.projectPath;
 }
 
@@ -21067,12 +21067,23 @@ async function sendPromptOnce(context = null) {
   const targetThread = promptContext.thread
     || (threadId ? conversationThreadById(threadId, promptContext.projectPath) : null);
   const targetProjectPath = promptContext.projectPath || targetProject?.path || null;
+  const targetWasBlank = !threadId;
+  const targetSelectionVersion = promptContext.selectionVersion;
   let requestThreadId = threadId;
-  const targetIsVisible = () => (
-    state.runtime === "codex"
-    && state.activeThread?.id === (requestThreadId || threadId)
-    && state.currentProject?.path === targetProjectPath
-  );
+  const targetIsVisible = () => {
+    if (
+      state.runtime !== "codex"
+      || state.currentProject?.path !== targetProjectPath
+    ) return false;
+    const activeThreadId = state.activeThread?.id || null;
+    const requestedThreadId = requestThreadId || threadId || null;
+    return activeThreadId === requestedThreadId
+      || (
+        targetWasBlank
+        && !activeThreadId
+        && state.threadSelectionVersion === targetSelectionVersion
+      );
+  };
   if (state.providerConfigurationRequired) {
     toast(
       canEditProviderProfiles()
@@ -37413,7 +37424,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.76-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.77-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(

@@ -1,4 +1,4 @@
-import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.76-beta";
+import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.44.77-beta";
 
 const TERRAIN_TYPES = new Set(["corner", "edge", "mixed"]);
 const MAX_GID = 0x0fff_ffff;

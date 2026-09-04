@@ -1,5 +1,5 @@
-import { relativeTiledProjectReference } from "./tiled-document.js?v=0.44.76-beta";
-import { nextTiledTilesetFirstGid } from "./tiled-tileset-model.js?v=0.44.76-beta";
+import { relativeTiledProjectReference } from "./tiled-document.js?v=0.44.77-beta";
+import { nextTiledTilesetFirstGid } from "./tiled-tileset-model.js?v=0.44.77-beta";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 

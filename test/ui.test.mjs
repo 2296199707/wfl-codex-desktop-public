@@ -2265,6 +2265,21 @@ test("a blank Codex conversation is not mistaken for an active compaction", () =
   assert.match(app, /if \(contextCompactionIsActive\(\)\) return "正在压缩上下文";/);
 });
 
+test("a blank Codex conversation keeps null and undefined Thread ids equivalent", () => {
+  assert.match(
+    app,
+    /function codexPromptContextStillCurrent\(context\) \{[\s\S]*?\(state\.activeThread\?\.id \|\| null\) === \(context\.threadId \|\| null\)/,
+  );
+  assert.match(
+    app,
+    /function setCodexThreadBusy\(threadId, busy, label = busy \? "正在处理" : "就绪"\) \{[\s\S]*?\(state\.activeThread\?\.id \|\| null\) === \(threadId \|\| null\)/,
+  );
+  assert.match(
+    app,
+    /const targetWasBlank = !threadId;[\s\S]*?const targetIsVisible = \(\) => \{[\s\S]*?activeThreadId === requestedThreadId[\s\S]*?targetWasBlank[\s\S]*?state\.threadSelectionVersion === targetSelectionVersion/,
+  );
+});
+
 test("normal appends skip duplicate history reads only with a matching local Turn", () => {
   const steer = server.match(/if \(method === "turn\/steer"\) \{[\s\S]*?\n  \}\n  if \(method === "turn\/start"\)/)?.[0] || "";
   assert.match(steer, /const expectedTurnId = bridgeParams\.expectedTurnId/);
