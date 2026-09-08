@@ -1,6 +1,75 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { publicCodexNotification } from "../lib/codex-notification.mjs";
+import { CODEX_SERVER_NOTIFICATION_COVERAGE } from "../lib/codex-protocol-coverage.mjs";
+
+test("unimplemented 0.153 events remain redacted after inventory registration", () => {
+  const known = new Set(CODEX_SERVER_NOTIFICATION_COVERAGE
+    .filter((entry) => entry.state !== "deferred").map((entry) => entry.method));
+  const event = publicCodexNotification({
+    method: "mcpServer/event/stream/notification",
+    params: { threadId: "thread_1", event: { accessToken: "must-not-reach-browser", message: "notice" } },
+  }, known);
+  assert.equal(event._wflUnknown, true);
+  assert.equal(event.params.event.message, "notice");
+  assert.equal(event.params.event.accessToken, "[已隐藏]");
+});
+
+test("0.153 provider authentication recovery preserves identity and drops extra credentials", () => {
+  for (const method of ["modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted"]) {
+    const result = publicCodexNotification({
+      method,
+      params: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        provider: "managed-provider",
+        message: "Refreshing authentication",
+        accessToken: "must-not-reach-browser",
+      },
+    });
+    assert.deepEqual(result, {
+      method,
+      params: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        provider: "managed-provider",
+        message: "Refreshing authentication",
+      },
+      _wflSource: "codex-app-server",
+    });
+    assert.throws(() => publicCodexNotification({ method, params: { threadId: "thread_1" } }), /turnId is invalid/);
+  }
+});
+
+test("0.153 Guardian stdin reviews retain read-only action details", () => {
+  const result = publicCodexNotification({
+    method: "item/autoApprovalReview/started",
+    params: {
+      threadId: "thread_1",
+      turnId: "turn_1",
+      reviewId: "review_1",
+      startedAtMs: 100,
+      review: { status: "inProgress" },
+      action: {
+        type: "writeStdin",
+        approvalId: "approval_1",
+        processId: "1234",
+        cwd: "/srv/project",
+        stdin: "status\n",
+        credentials: "must-not-reach-browser",
+      },
+    },
+  });
+  assert.deepEqual(result.params.action, {
+    type: "writeStdin",
+    approvalId: "approval_1",
+    processId: "1234",
+    cwd: "/srv/project",
+    stdin: "status\n",
+  });
+  assert.equal(result.params.review.status, "inProgress");
+  assert.equal(JSON.stringify(result).includes("must-not-reach-browser"), false);
+});
 
 test("normalizes trusted Codex model notifications without accepting extra fields", () => {
   const buffering = publicCodexNotification({

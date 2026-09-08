@@ -2161,11 +2161,18 @@ function isValidReleaseDirectory(value, expectedVersion) {
   const resolved = path.resolve(value);
   if (!isInside(releasesDir, resolved)) return false;
   const expectedPrefix = `v${expectedVersion}`;
-  return path.basename(resolved) === expectedPrefix
-    || (
-      candidateSourceCommit
-      && path.basename(resolved) === `${expectedPrefix}-${candidateSourceCommit.slice(0, 12)}`
-    );
+  const basename = path.basename(resolved);
+  if (basename === expectedPrefix) return true;
+  if (candidateSourceCommit) {
+    return basename === `${expectedPrefix}-${candidateSourceCommit.slice(0, 12)}`;
+  }
+  // Published releases may include the first 12 characters of their source
+  // commit in the directory name.  The updater invokes this script from the
+  // already-active release and does not carry a candidate commit override, so
+  // accepting only the exact unsuffixed name makes a healthy active release
+  // fail preflight before the official Codex updater is reached.
+  return basename.startsWith(`${expectedPrefix}-`)
+    && /^[a-f0-9]{12}$/i.test(basename.slice(expectedPrefix.length + 1));
 }
 
 function validGitHash(value) {

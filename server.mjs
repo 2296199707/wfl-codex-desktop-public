@@ -480,7 +480,9 @@ const APP_VERSION = RESCUE_MODE
   : PACKAGE_JSON.version;
 const CHANGELOG_TEXT = await fs.readFile(path.join(APP_DIR, "CHANGELOG.md"), "utf8");
 const KNOWN_CODEX_NOTIFICATION_METHODS = new Set(
-  CODEX_SERVER_NOTIFICATION_COVERAGE.map((entry) => entry.method),
+  CODEX_SERVER_NOTIFICATION_COVERAGE
+    .filter((entry) => entry.state !== "deferred")
+    .map((entry) => entry.method),
 );
 const CURRENT_RELEASE = releaseNotesForVersion(CHANGELOG_TEXT, APP_VERSION);
 const OPS_HTML = await fs.readFile(path.join(PUBLIC_DIR, "ops.html"));
@@ -539,6 +541,10 @@ const OFFICIAL_ACCOUNT_HANDOFF_TIMEOUT_MS = 20_000;
 const RESCUE_MAIN_CONTROL_HEADER = "x-wfl-rescue-control";
 const RESCUE_MAIN_CONTROL_PREFIX = "/internal/rescue-control";
 const CODEX_ACTIVE_TASK_STATUSES = new Set(["queued", "running", "waiting", "stopping", "uncertain"]);
+// Codex can persist a terminal Turn before (or without) delivering the matching
+// turn/completed notification. Recheck a quiet, explicitly identified active
+// Turn so the browser cannot remain fenced forever after an interrupted retry.
+const CODEX_TRACKED_TURN_RECONCILE_STALE_MS = 10_000;
 const CODEX_CONFIRMED_INACTIVE_GOAL_STATUSES = new Set([
   "paused",
   "blocked",
@@ -3001,6 +3007,15 @@ class UserRuntime {
         || /before first user message/i.test(String(error?.message || ""))
       ) return null;
       throw error;
+    }
+    if (native?.confirmedInactive && native?.terminalTurn) {
+      // Codex 0.153.x can persist an interrupted/failed Turn without emitting
+      // turn/completed to the already-connected browser. Convert the verified
+      // native snapshot into the same notification path so task state, leases
+      // and every connected window settle atomically. The publisher checks the
+      // exact current Turn again, making a concurrent newer Turn safe.
+      this.publishRecoveredTurnCompletion(threadId, native.terminalTurn);
+      return null;
     }
     if (!native?.turn || !codexTurnIsActive(native.turn.status)) return null;
     const current = this.taskStatus.snapshot(threadId);
@@ -12684,31 +12699,42 @@ app.get("/api/task/status", async (request, response, next) => {
         && Boolean(clientActiveTurnId);
       const clientTurnMismatch = hasExplicitClientTurnId
         && (!localActive || !localTurnId || localTurnId !== clientActiveTurnId);
-      // An ordinary status poll is informational. Only a request that carries
-      // the client's concrete Turn identity may trigger the expensive native
-      // turns/list -> thread/read reconciliation fallback.
-      if (clientTurnMismatch) {
+      const trackedClientTurnNeedsVerification = hasExplicitClientTurnId
+        && localActive
+        && localTurnId === clientActiveTurnId
+        && local.status !== "queued"
+        && Date.now() - (Number(local.updatedAt) || 0) >= CODEX_TRACKED_TURN_RECONCILE_STALE_MS;
+      // Native verification remains tied to a concrete client Turn identity.
+      // Besides identity mismatches, periodically verify a quiet matching Turn:
+      // Codex 0.153.x may persist it as interrupted without sending the final
+      // turn/completed event, leaving both sides with the same stale ID forever.
+      if (clientTurnMismatch || trackedClientTurnNeedsVerification) {
         try {
           await runtime.reconcileNativeTaskStatus(threadId, {
             requestedTurnId: clientActiveTurnId || localTurnId,
             cwd: local.cwd,
           });
         } catch {
-          nativeStatusUncertain = true;
-          snapshot = {
-            ...local,
-            status: "uncertain",
-            phase: "reconciling",
-            turnId: clientActiveTurnId || localTurnId,
-            canSend: false,
-            authoritative: true,
-            activeTurnId: clientActiveTurnId || localTurnId,
-            nativeStatusUncertain: true,
-            nativeStatusError: "任务状态暂时无法确认",
-            codexRecovery: codexRecoverySnapshotForUser(runtime.user.id),
-            runtimeEpoch: runtime.codexRuntimeEpoch,
-            writerEpoch: BACKEND_WRITER_EPOCH,
-          };
+          // A mismatch cannot be answered safely without native evidence. A
+          // matching local Turn, however, remains valid active state when the
+          // optional periodic verification is temporarily unavailable.
+          if (clientTurnMismatch) {
+            nativeStatusUncertain = true;
+            snapshot = {
+              ...local,
+              status: "uncertain",
+              phase: "reconciling",
+              turnId: clientActiveTurnId || localTurnId,
+              canSend: false,
+              authoritative: true,
+              activeTurnId: clientActiveTurnId || localTurnId,
+              nativeStatusUncertain: true,
+              nativeStatusError: "任务状态暂时无法确认",
+              codexRecovery: codexRecoverySnapshotForUser(runtime.user.id),
+              runtimeEpoch: runtime.codexRuntimeEpoch,
+              writerEpoch: BACKEND_WRITER_EPOCH,
+            };
+          }
         }
       }
       if (!nativeStatusUncertain) {

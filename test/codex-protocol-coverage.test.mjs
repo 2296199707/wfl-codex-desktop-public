@@ -19,31 +19,31 @@ import {
 const serverSource = await fs.readFile(new URL("../server.mjs", import.meta.url), "utf8");
 const baselineMethods = JSON.parse(
   await fs.readFile(
-    new URL("./fixtures/codex-app-server-0.149.0-client-methods.json", import.meta.url),
+    new URL("./fixtures/codex-app-server-0.153.4-client-methods.json", import.meta.url),
     "utf8",
   ),
 );
 const baselineServerMethods = JSON.parse(
   await fs.readFile(
-    new URL("./fixtures/codex-app-server-0.149.0-server-methods.json", import.meta.url),
+    new URL("./fixtures/codex-app-server-0.153.4-server-methods.json", import.meta.url),
     "utf8",
   ),
 );
 const baselineNotifications = JSON.parse(
   await fs.readFile(
-    new URL("./fixtures/codex-app-server-0.149.0-notifications.json", import.meta.url),
+    new URL("./fixtures/codex-app-server-0.153.4-notifications.json", import.meta.url),
     "utf8",
   ),
 );
 const baselineSchemaManifest = JSON.parse(
   await fs.readFile(
-    new URL("./fixtures/codex-app-server-0.149.0-schema-manifest.json", import.meta.url),
+    new URL("./fixtures/codex-app-server-0.153.4-schema-manifest.json", import.meta.url),
     "utf8",
   ),
 );
 
 test("Codex app-server protocol inventory is complete and unique", () => {
-  assert.equal(CODEX_PROTOCOL_BASELINE, "codex-cli 0.149.0");
+  assert.equal(CODEX_PROTOCOL_BASELINE, "codex-cli 0.153.4");
   assert.equal(baselineMethods.baseline, CODEX_PROTOCOL_BASELINE);
   assert.equal(baselineMethods.command, "codex app-server generate-ts --experimental");
   assert.deepEqual(
@@ -101,8 +101,8 @@ test("Codex notification inventories are complete, unique, and explicitly review
   );
   const serverSnapshot = codexServerNotificationCoverageSnapshot();
   const clientSnapshot = codexClientNotificationCoverageSnapshot();
-  assert.equal(serverSnapshot.total, 77);
-  assert.equal(serverSnapshot.counts.browser, 53);
+  assert.equal(serverSnapshot.total, 83);
+  assert.equal(serverSnapshot.counts.browser, 55);
   assert.equal(clientSnapshot.total, 1);
   assert.equal(serverSnapshot.counts.planned, 0);
   assert.ok(serverSnapshot.counts.deferred >= 10);
@@ -112,35 +112,47 @@ test("Codex notification inventories are complete, unique, and explicitly review
   ]);
 });
 
+test("deferred notifications retain the redacted unknown-event path", () => {
+  assert.match(serverSource, /CODEX_SERVER_NOTIFICATION_COVERAGE\s*\.filter\(\(entry\) => entry\.state !== "deferred"\)/);
+  for (const method of [
+    "mcpServer/event/stream/notification",
+    "thread/realtime/item/started",
+    "thread/realtime/item/completed",
+    "thread/realtime/item/transcript/delta",
+  ]) {
+    assert.equal(CODEX_SERVER_NOTIFICATION_COVERAGE.find((entry) => entry.method === method)?.state, "deferred");
+  }
+});
+
 test("stable and experimental generated schema surfaces stay separately pinned", () => {
   assert.equal(baselineSchemaManifest.baseline, CODEX_PROTOCOL_BASELINE);
   assert.match(baselineSchemaManifest.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.ok(Number.isFinite(Date.parse(baselineSchemaManifest.generatedAt)));
   assert.deepEqual(baselineSchemaManifest.stable.counts, {
-    clientRequests: 95,
+    clientRequests: 99,
     serverRequests: 10,
     clientNotifications: 1,
-    serverNotifications: 75,
+    serverNotifications: 81,
   });
   assert.deepEqual(baselineSchemaManifest.experimental.counts, {
-    clientRequests: 150,
+    clientRequests: 155,
     serverRequests: 11,
     clientNotifications: 1,
-    serverNotifications: 75,
+    serverNotifications: 81,
   });
   assert.equal(Object.keys(baselineSchemaManifest.stable.sha256).length, 6);
   assert.equal(Object.keys(baselineSchemaManifest.experimental.sha256).length, 6);
   assert.deepEqual(baselineSchemaManifest.typescript.stable.counts, {
-    clientRequests: 98,
+    clientRequests: 102,
     serverRequests: 10,
     clientNotifications: 1,
-    serverNotifications: 77,
+    serverNotifications: 83,
   });
   assert.deepEqual(baselineSchemaManifest.typescript.experimental.counts, {
-    clientRequests: 153,
+    clientRequests: 158,
     serverRequests: 11,
     clientNotifications: 1,
-    serverNotifications: 77,
+    serverNotifications: 83,
   });
   assert.deepEqual(baselineMethods.legacyMethods, [
     "getAuthStatus",
@@ -162,7 +174,7 @@ test("installed Codex CLI and regenerated schemas match the reviewed baseline", 
     { cwd: fileURLToPath(new URL("..", import.meta.url)), encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /fixtures match codex-cli 0\.149\.0/);
+  assert.match(result.stdout, /fixtures match codex-cli 0\.153\.4/);
 });
 
 test("browser-routed protocol methods stay visible in the server allowlist", () => {
@@ -245,7 +257,7 @@ test("coverage snapshot reports every reviewed method", () => {
   );
   assert.ok(snapshot.counts.browser > 50);
   assert.equal(snapshot.counts.planned, 0);
-  assert.equal(snapshot.counts.deferred, 51);
+  assert.equal(snapshot.counts.deferred, 56);
   assert.equal(snapshot.counts.internal, 21);
 });
 

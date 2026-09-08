@@ -4,17 +4,29 @@ const TURN_NOTIFICATION_ITEM_TYPES = new Set([
   "modelReroute",
   "modelSafetyBuffering",
   "modelVerification",
+  "modelAuthRecovery",
   "turnModerationMetadata",
   "guardianApprovalReview",
 ]);
+
+export function agentMessageDisplayText(item) {
+  const parts = [typeof item?.text === "string" ? item.text : ""];
+  for (const question of Array.isArray(item?.questions) ? item.questions : []) {
+    if (typeof question?.title !== "string" || !question.title.trim()) continue;
+    const options = Array.isArray(question.options)
+      ? question.options.filter((option) => typeof option === "string")
+      : [];
+    parts.push([question.title, ...options.map((option, index) => `${index + 1}. ${option}`)].join("\n\n"));
+  }
+  return parts.filter(Boolean).join("\n\n");
+}
 
 export function turnHasRenderableAssistantMessage(turn) {
   return Array.isArray(turn?.items) && turn.items.some((item) => (
     item?.type === "agentMessage"
     && typeof item.id === "string"
     && item.id
-    && typeof item.text === "string"
-    && item.text.length > 0
+    && agentMessageDisplayText(item).length > 0
   ));
 }
 
@@ -192,6 +204,15 @@ export function reduceConversationNotification(current, scope, notification) {
       type: "modelVerification",
       verifications: Array.isArray(params.verifications) ? params.verifications.map(copyObject) : [],
       status: "required",
+      _trustedSource: true,
+    });
+  } else if (method === "modelProvider/authRecoveryStarted" || method === "modelProvider/authRecoveryCompleted") {
+    upsertLiveItem(thread, params.turnId, {
+      id: `model-auth-recovery-${params.turnId}`,
+      type: "modelAuthRecovery",
+      provider: params.provider,
+      message: params.message,
+      status: method.endsWith("Completed") ? "completed" : "inProgress",
       _trustedSource: true,
     });
   } else if (method === "turn/moderationMetadata") {

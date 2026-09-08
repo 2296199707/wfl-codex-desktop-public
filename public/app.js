@@ -20,23 +20,24 @@ import {
   reconcileClaudeUserMessage,
   selectTurnWindow,
   settleSubagentStateForTurn,
+  subagentActivityStatus,
   summarizeFileChanges,
   sortThreadsWithPins,
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.44.77-beta";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.44.77-beta";
+} from "./thread-state.js?v=0.44.80-beta";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.44.80-beta";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.44.77-beta";
+} from "./image-context-policy.js?v=0.44.80-beta";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.44.77-beta";
+} from "./image-attachment-context.js?v=0.44.80-beta";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -44,17 +45,18 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.44.77-beta";
+} from "./game-work-mode.js?v=0.44.80-beta";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.44.77-beta";
+} from "./map-editor/map-tab-channel.js?v=0.44.80-beta";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.44.77-beta";
+} from "./map-editor/map-conversation-channel.js?v=0.44.80-beta";
 import {
+  agentMessageDisplayText,
   createConversationState,
   listConversationThreads,
   reduceConversationNotification,
@@ -62,11 +64,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.44.77-beta";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.77-beta";
+} from "./conversation-state.js?v=0.44.80-beta";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.44.80-beta";
 
-const UI_VERSION = "0.44.77-beta";
-const UI_VERSION_LABEL = "0.44.77-beta";
+const UI_VERSION = "0.44.80-beta";
+const UI_VERSION_LABEL = "0.44.80-beta";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -17562,7 +17564,7 @@ async function openConversationSearchPreview({ thread, turn, preview }) {
 }
 
 function conversationSearchItemText(item) {
-  if (item?.type === "agentMessage") return typeof item.text === "string" ? item.text : "";
+  if (item?.type === "agentMessage") return agentMessageDisplayText(item);
   if (item?.type !== "userMessage") return "";
   return Array.isArray(item.content)
     ? visibleUserContent(item.content)
@@ -19185,10 +19187,7 @@ function rememberSubagentItem(threadId, item, { persist = true } = {}) {
   const eventAt = nonnegativeGoalInteger(item._eventAt) || Date.now();
   if (item.type === "subAgentActivity" && typeof item.agentThreadId === "string" && item.agentThreadId) {
     rememberSubagentState(agents, item.agentThreadId, {
-      status: normalizeSubagentStatus(
-        item.status,
-        item.kind === "interrupted" ? "interrupted" : "running",
-      ),
+      status: subagentActivityStatus(item),
       message: null,
       updatedAt: eventAt,
     });
@@ -23028,12 +23027,12 @@ function mapConversationMessages(threadId, projectPath = null) {
           createdAt: mapConversationTimestamp(messageTimestamp(item, turn)),
           streaming: false,
         });
-      } else if (item?.type === "agentMessage" && item.text) {
+      } else if (item?.type === "agentMessage" && agentMessageDisplayText(item)) {
         messages.push({
           id: protocolEntityId(item) || `${turn.id}-agent-${messages.length}`,
           turnId: turn.id,
           role: "agent",
-          text: item.text,
+          text: agentMessageDisplayText(item),
           attachments: [],
           createdAt: mapConversationTimestamp(messageTimestamp(item, turn)),
           streaming: item._live === true || turnStatusType(turn) === "inProgress",
@@ -23149,7 +23148,9 @@ function mapConversationCompaction(threadId, thread) {
 }
 
 function mapConversationActivityStatus(item, turn) {
-  const status = turnStatusType(item) || turnStatusType(turn);
+  const status = item?.type === "subAgentActivity" && ["completed", "interrupted"].includes(item.kind)
+    ? subagentActivityStatus(item)
+    : turnStatusType(item) || turnStatusType(turn);
   if (["inProgress", "running"].includes(status)) return "running";
   if (["failed", "error", "errored"].includes(status)) return "failed";
   if (["interrupted", "cancelled", "canceled"].includes(status)) return "stopped";
@@ -25492,6 +25493,11 @@ function handleCodexNotification(notification) {
     return;
   }
 
+  if (method === "modelProvider/authRecoveryStarted" || method === "modelProvider/authRecoveryCompleted") {
+    renderConversationUpdate();
+    return;
+  }
+
   if (method === "turn/moderationMetadata") {
     renderConversationUpdate();
     return;
@@ -27317,7 +27323,7 @@ function flushStreamItemRender() {
       renderMessages(true);
       return;
     }
-    if (item.type === "agentMessage") target.textContent = item.text || "";
+    if (item.type === "agentMessage") target.textContent = agentMessageDisplayText(item);
     else target.textContent = renderedToolOutput(item.aggregatedOutput || "");
   }
   if (nearBottom) requestAnimationFrame(scrollMessagesToBottom);
@@ -27771,7 +27777,8 @@ function renderItem(item, turn) {
     }));
   }
   if (item.type === "agentMessage") {
-    return item.text ? hydrated(renderMessage("agent", item.text, timestamp, {
+    const text = agentMessageDisplayText(item);
+    return text ? hydrated(renderMessage("agent", text, timestamp, {
       branchPoint: codexMessageBranchPoint("agent", turn),
     })) : null;
   }
@@ -27833,6 +27840,14 @@ function renderItem(item, turn) {
   }
   if (item.type === "modelSafetyBuffering") return renderModelSafetyBuffering(item);
   if (item.type === "modelVerification") return renderModelVerification(item);
+  if (item.type === "modelAuthRecovery") {
+    return renderTool(
+      "key-round",
+      item.status === "completed" ? "供应商认证恢复已结束" : "正在恢复供应商认证",
+      item._trustedSource === true ? item.message : "",
+      item.status,
+    );
+  }
   if (item.type === "guardianApprovalReview") return renderGuardianApprovalReview(item);
   if (item.type === "guardianWarning") {
     return renderTool(
@@ -27868,6 +27883,15 @@ function renderItem(item, turn) {
     const output = item.contentItems?.map((entry) => entry.text || entry.imageUrl || entry.audioUrl || "").join("\n")
       || safeProtocolJson(item.arguments, 8_000);
     return renderTool("workflow", `${item.namespace ? `${item.namespace} / ` : ""}${item.tool}`, output, item.status);
+  }
+  if (item.type === "functionCallOutput") {
+    return renderCollapsibleTool(
+      "workflow",
+      `${item.namespace ? `${item.namespace} / ` : ""}${item.name || "工具结果"}`,
+      typeof item.output === "string" ? item.output : safeProtocolJson(item.output),
+      "completed",
+      { key: itemKey },
+    );
   }
   if (item.type === "hookPrompt") {
     return renderTool("webhook", "Hook 提示", (item.fragments || []).map((fragment) => fragment.text).join("\n"), "completed");
@@ -28147,6 +28171,13 @@ function guardianActionSummary(action) {
     const command = [action.program, ...(Array.isArray(action.argv) ? action.argv : [])].filter(Boolean).join(" ");
     return [command || "进程调用", action.cwd ? `目录：${action.cwd}` : null].filter(Boolean).join("\n");
   }
+  if (action.type === "writeStdin") {
+    return [
+      `终端输入 · ${action.processId || "未知进程"}`,
+      action.cwd ? `目录：${action.cwd}` : null,
+      action.stdin,
+    ].filter(Boolean).join("\n");
+  }
   if (action.type === "applyPatch") {
     return [`修改补丁 · ${action.cwd || "当前目录"}`, ...(Array.isArray(action.files) ? action.files : [])].join("\n");
   }
@@ -28187,6 +28218,10 @@ function renderCollabAgentTool(item) {
     resumeAgent: "恢复子代理",
     wait: "等待子代理",
     closeAgent: "关闭子代理",
+    sendMessage: "发送子代理消息",
+    followupTask: "追加子代理任务",
+    interruptAgent: "中断子代理",
+    listAgents: "查看子代理",
   };
   const wrapper = document.createElement("section");
   wrapper.className = "subagent-item";
@@ -28269,6 +28304,7 @@ function renderSubAgentActivity(item) {
     started: "子代理已启动",
     interacted: "子代理有新进展",
     interrupted: "子代理已中断",
+    completed: "子代理已完成",
   };
   const marker = document.createElement("div");
   marker.className = "subagent-activity";
@@ -37424,7 +37460,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.77-beta");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.44.80-beta");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -43429,7 +43465,22 @@ function renderTaskStatus(snapshot) {
     // a delayed idle/completed event. The current Turn is authoritative again.
     state.codexTerminalTaskAuthorities.delete(snapshot.threadId);
   }
+  const localInProgressBeforeSync = state.activeThread?.id === snapshot?.threadId
+    ? localInProgressTurnIds(snapshot.threadId)
+    : [];
   synchronizeTerminalTaskSnapshot(state.taskStatusSnapshot);
+  if (
+    snapshot?.authoritative === true
+    && snapshot?.canSend === true
+    && TERMINAL_TASK_STATUSES.has(status)
+    && localInProgressBeforeSync.length > 0
+  ) {
+    // A missed turn/completed can leave more than one historical Turn marked
+    // inProgress in browser memory. An identity-free idle snapshot can fence
+    // only one Turn safely, so refresh the bounded official Turn page and let
+    // its persisted terminal statuses settle every stale history entry.
+    scheduleRecentTurnsRefresh(snapshot.threadId, 0);
+  }
   if (
     state.imageTaskStatusSnapshot?.handoff
     && snapshot?.threadId === state.imageTaskStatusSnapshot.threadId

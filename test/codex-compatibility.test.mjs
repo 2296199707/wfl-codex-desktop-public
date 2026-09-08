@@ -8,10 +8,10 @@ import {
 
 const fixtureRoot = new URL("./fixtures/", import.meta.url);
 const [client, server, notifications, manifest] = await Promise.all([
-  readFixture("codex-app-server-0.149.0-client-methods.json"),
-  readFixture("codex-app-server-0.149.0-server-methods.json"),
-  readFixture("codex-app-server-0.149.0-notifications.json"),
-  readFixture("codex-app-server-0.149.0-schema-manifest.json"),
+  readFixture("codex-app-server-0.153.4-client-methods.json"),
+  readFixture("codex-app-server-0.153.4-server-methods.json"),
+  readFixture("codex-app-server-0.153.4-notifications.json"),
+  readFixture("codex-app-server-0.153.4-schema-manifest.json"),
 ]);
 const reviewedSurface = {
   clientRequests: client.methods,
@@ -20,9 +20,9 @@ const reviewedSurface = {
   serverNotifications: notifications.experimental.server,
 };
 
-test("Codex compatibility snapshot reports the reviewed 0.149 surface", () => {
+test("Codex compatibility snapshot reports the reviewed 0.153.4 surface", () => {
   const snapshot = buildCodexProtocolCompatibility({
-    installedVersion: "codex-cli 0.149.0",
+    installedVersion: "codex-cli 0.153.4",
     reviewedSurface,
     detectedSurface: reviewedSurface,
     generatedAt: manifest.generatedAt,
@@ -30,10 +30,10 @@ test("Codex compatibility snapshot reports the reviewed 0.149 surface", () => {
   });
   assert.equal(snapshot.state, "compatible");
   assert.equal(snapshot.compatible, true);
-  assert.equal(snapshot.snapshotVersion, "0.149.0");
-  assert.equal(snapshot.surfaces.clientRequests.reviewed, 153);
+  assert.equal(snapshot.snapshotVersion, "0.153.4");
+  assert.equal(snapshot.surfaces.clientRequests.reviewed, 158);
   assert.equal(snapshot.surfaces.serverRequests.reviewed, 11);
-  assert.equal(snapshot.surfaces.serverNotifications.reviewed, 77);
+  assert.equal(snapshot.surfaces.serverNotifications.reviewed, 83);
   assert.equal(snapshot.surfaces.clientNotifications.reviewed, 1);
   assert.equal(snapshot.coverage.clientRequests.counts.planned, 0);
   assert.equal(snapshot.runtimeCapabilities.conversationSections, true);
@@ -53,7 +53,7 @@ test("Codex compatibility snapshot identifies added, removed, and unreviewed met
     .filter((method) => method !== "thread/read")
     .concat("thread/newMethod");
   const snapshot = buildCodexProtocolCompatibility({
-    installedVersion: "codex-cli 0.149.0",
+    installedVersion: "codex-cli 0.153.4",
     reviewedSurface,
     detectedSurface: detected,
     generatedAt: manifest.generatedAt,
@@ -71,7 +71,7 @@ test("Codex compatibility snapshot identifies added, removed, and unreviewed met
 
 test("a newer CLI remains partially compatible when its current method names match", () => {
   const snapshot = buildCodexProtocolCompatibility({
-    installedVersion: "codex-cli 0.150.0",
+    installedVersion: "codex-cli 0.154.0",
     reviewedSurface,
     detectedSurface: reviewedSurface,
     generatedAt: manifest.generatedAt,
@@ -129,7 +129,7 @@ test("non-core method removal reports the limited feature without forcing rollba
   const detected = structuredClone(reviewedSurface);
   detected.clientRequests = detected.clientRequests.filter((method) => method !== "app/list");
   const snapshot = buildCodexProtocolCompatibility({
-    installedVersion: "codex-cli 0.150.0",
+    installedVersion: "codex-cli 0.154.0",
     reviewedSurface,
     detectedSurface: detected,
     generatedAt: manifest.generatedAt,
@@ -177,7 +177,7 @@ test("the real retained 0.146 CLI exposes core chat but not 0.147-only capabilit
 
 test("installed Codex lightweight TypeScript probe matches the reviewed snapshot", { timeout: 20_000 }, async () => {
   const snapshot = await inspectCodexProtocolCompatibility();
-  assert.equal(snapshot.installedVersion, "codex-cli 0.149.0");
+  assert.equal(snapshot.installedVersion, "codex-cli 0.153.4");
   assert.equal(snapshot.compatible, true);
   assert.ok(snapshot.checkedAt > 0);
 });
@@ -192,7 +192,7 @@ test("Codex update checks protocol compatibility before staging a backend", asyn
   assert.match(source, /holdCodexInstallRecoveryForDecision/);
 });
 
-test("ordinary server application updates inspect the installed Codex protocol without requiring 0.149", async () => {
+test("ordinary server application updates inspect the installed Codex protocol without requiring the exact baseline", async () => {
   const source = await fs.readFile(new URL("../scripts/quick-update-check.mjs", import.meta.url), "utf8");
   assert.match(source, /inspectCodexProtocolCompatibility/);
   assert.match(source, /assertCodexActivationAllowed\(compatibility\)/);

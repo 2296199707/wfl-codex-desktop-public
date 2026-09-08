@@ -2811,7 +2811,11 @@ test("rebuildable Sidecar state cannot block submissions or author conversation 
   );
   assert.doesNotMatch(
     taskAuthority,
-    /conversationSidecar|terminalTurn|reconciledTurnIds|runtime-task-idle/,
+    /conversationSidecar|reconciledTurnIds|runtime-task-idle/,
+  );
+  assert.match(
+    taskAuthority,
+    /native\?\.confirmedInactive && native\?\.terminalTurn[\s\S]*publishRecoveredTurnCompletion/,
   );
   assert.doesNotMatch(serverSource, /\/api\/ops\/sidecar\/prune|cleanupExpiredOutbox/);
 

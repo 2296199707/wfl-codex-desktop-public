@@ -336,6 +336,25 @@ test("deployment preflight verifies the selected release without changing topolo
   });
 });
 
+test("deployment preflight accepts the active release with a source commit suffix", async () => {
+  await withDeploymentFixture(async (fixture) => {
+    const sourceCommit = "a".repeat(40);
+    const activeRelease = path.join(
+      fixture.runtimeDirectory,
+      "releases",
+      `v${packageJson.version}-${sourceCommit.slice(0, 12)}`,
+    );
+    await fs.rm(fixture.releaseDirectory, { recursive: true, force: true });
+    await seedVerifiedRelease(activeRelease, { sourceCommit });
+    await fs.symlink(activeRelease, fixture.bootstrapSlot);
+
+    const output = await fixture.run(["--preflight", "--version", packageJson.version]);
+    assert.match(output, /Deployment preflight passed/);
+    assert.equal(await fs.realpath(fixture.bootstrapSlot), activeRelease);
+    await assert.rejects(fs.access(fixture.preparedPath), { code: "ENOENT" });
+  });
+});
+
 test("staged deployment runs a lightweight standby without selecting or enabling it", () => {
   const recoveryGates = functionBlock("verifyBackendRecoveryGates", "stageCandidate");
   const stage = functionBlock("stageCandidate", "activatePreparedDeployment");

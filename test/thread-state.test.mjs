@@ -21,6 +21,7 @@ import {
   reconcileClaudeUserMessage,
   selectTurnWindow,
   settleSubagentStateForTurn,
+  subagentActivityStatus,
   summarizeFileChanges,
   sortThreadsWithPins,
   terminalSubagentStatusForTurn,
@@ -34,6 +35,19 @@ const userItem = (id, text, clientId = null) => ({
   id,
   clientId,
   content: [{ type: "text", text, text_elements: [] }],
+});
+
+test("0.153 subagent completion does not fall back to running", () => {
+  assert.equal(subagentActivityStatus({ kind: "completed" }), "completed");
+  assert.equal(subagentActivityStatus({ kind: "completed", status: "inProgress" }), "completed");
+  assert.equal(subagentActivityStatus({ kind: "interrupted" }), "interrupted");
+  assert.equal(subagentActivityStatus({ kind: "started" }), "running");
+  assert.equal(subagentActivityStatus({ kind: "interacted", status: "errored" }), "errored");
+  const completed = mergeSubagentState({ status: "running" }, {
+    status: subagentActivityStatus({ kind: "completed" }),
+  });
+  assert.equal(completed.status, "completed");
+  assert.equal(mergeSubagentState(completed, { status: "running" }).status, "completed");
 });
 
 test("conversation display values hide collaboration preference metadata", () => {
@@ -122,6 +136,7 @@ test("a terminal full snapshot preserves notification-only event projections", (
       { id: "agent-live", type: "agentMessage", text: "stale partial", _live: true },
       { id: "guardian-live", type: "guardianApprovalReview", status: "denied", _live: true },
       { id: "reroute-live", type: "modelReroute", toModel: "gpt-safe", _live: true },
+      { id: "auth-live", type: "modelAuthRecovery", status: "completed", _live: true },
       { id: "protocol-live", type: "protocolEvent", method: "future/safeEvent", _live: true },
     ],
   }, {
@@ -133,7 +148,7 @@ test("a terminal full snapshot preserves notification-only event projections", (
 
   assert.deepEqual(
     merged.items.map((item) => item.id),
-    ["agent-final", "guardian-live", "reroute-live", "protocol-live"],
+    ["agent-final", "guardian-live", "reroute-live", "auth-live", "protocol-live"],
   );
 });
 

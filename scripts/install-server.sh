@@ -32,7 +32,7 @@ CURRENT_STEP="initial preflight"
 INITIAL_RESCUE_INSTALL=1
 NODE_SOURCE_SETUP_SHA256="575583bbac2fccc0b5edd0dbc03e222d9f9dc8d724da996d22754d6411104fd1"
 CODEX_INSTALLER_SHA256="ba92dd27e5c06f0d3bbc58bfa4b9cfb6599cd2742fbb1f92a2765e6c07dedb5a"
-CODEX_CLI_VERSION="${CODEX_DESKTOP_CODEX_VERSION:-0.149.0}"
+CODEX_CLI_VERSION="${CODEX_DESKTOP_CODEX_VERSION:-0.153.4}"
 
 usage() {
   printf '%s\n' \
@@ -482,7 +482,7 @@ sync_directory() {
 
 validate_codex_cli_version() {
   [[ "$CODEX_CLI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-    printf 'CODEX_DESKTOP_CODEX_VERSION must be a semantic version such as 0.149.0.\n' >&2
+    printf 'CODEX_DESKTOP_CODEX_VERSION must be a semantic version such as 0.153.4.\n' >&2
     return 1
   }
 }

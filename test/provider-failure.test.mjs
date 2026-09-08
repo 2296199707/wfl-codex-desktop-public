@@ -6,6 +6,17 @@ import {
   providerFailureLabel,
 } from "../lib/provider-failure.mjs";
 
+test("0.153 rateLimitExceeded stays retryable without unlimited connection retries", () => {
+  assert.deepEqual(classifyProviderFailure({
+    error: { codexErrorInfo: "rateLimitExceeded", message: "request rejected" },
+  }), {
+    kind: "rate-limit",
+    statusCode: null,
+    retryable: true,
+    unlimitedRetryEligible: false,
+  });
+});
+
 test("classifies structured Codex provider failures before message fallbacks", () => {
   assert.deepEqual(
     classifyProviderFailure({

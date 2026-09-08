@@ -1,6 +1,6 @@
 {
   "name": "wfl-codex-desktop",
-  "version": "0.44.77-beta",
+  "version": "0.44.80-beta",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -25,7 +25,7 @@
     "worktrees:source:advance": "node scripts/advance-worktree-source-refs.mjs",
     "update:quick-check": "node scripts/quick-update-check.mjs",
     "playwright:check": "node --check lib/playwright-browser.mjs && node --check scripts/ensure-playwright-browser.mjs",
-    "codex:install": "npm install --global @openai/codex@0.149.0",
+    "codex:install": "npm install --global @openai/codex@0.153.4",
     "codex:update:status": "node scripts/update-codex.mjs --status",
     "app:update": "node scripts/update-app.mjs",
     "app:update:wait": "node scripts/update-app.mjs --wait",

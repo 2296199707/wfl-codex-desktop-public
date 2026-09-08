@@ -73,7 +73,12 @@ try {
 async function launchWorker() {
   const active = await readActiveBackendVersion();
   currentVersion = active.version;
-  await verifyRollbackRelease(targetVersion, { runtimeDirectory, sourceDirectory, backupDirectory, stateSchema: 1 });
+  const verifiedTarget = await verifyRollbackRelease(targetVersion, {
+    runtimeDirectory,
+    sourceDirectory,
+    backupDirectory,
+    stateSchema: 1,
+  });
   const unit = `wfl-codex-rollback-v${targetVersion.replaceAll(".", "-")}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
   const reservation = await reserveMaintenanceOperation(runtimeDirectory, {
     operationKind: "rollback",
@@ -114,6 +119,7 @@ async function launchWorker() {
       `--setenv=CODEX_DESKTOP_UPSTREAM_PORTS=${backendPorts.join(",")}`,
       `--setenv=CODEX_DESKTOP_OPERATION_ID=${unit}`,
       `--setenv=CODEX_DESKTOP_MAINTENANCE_RESERVATION_TOKEN=${reservation.record.token}`,
+      `--setenv=CODEX_DESKTOP_CANDIDATE_COMMIT=${verifiedTarget.sourceCommit}`,
       ...(process.env.CODEX_DESKTOP_LEGACY_DRAIN_CONFIRMED === "1"
         ? ["--setenv=CODEX_DESKTOP_LEGACY_DRAIN_CONFIRMED=1"]
         : []),
@@ -187,16 +193,31 @@ async function runWorker() {
   let drainLease = null;
   let candidateStaged = false;
   let deploymentWatchdog = null;
+  let deploymentEnvironment = { ...process.env };
   try {
     await assertNotCancelled(operationId);
     const active = await readActiveBackendVersion();
     currentVersion = active.version;
     await update("preflight", "复验本地版本、状态兼容性与 SHA-256");
-    await verifyRollbackRelease(targetVersion, { runtimeDirectory, sourceDirectory, backupDirectory, stateSchema: 1 });
+    const verifiedTarget = await verifyRollbackRelease(targetVersion, {
+      runtimeDirectory,
+      sourceDirectory,
+      backupDirectory,
+      stateSchema: 1,
+    });
+    deploymentEnvironment = {
+      ...deploymentEnvironment,
+      CODEX_DESKTOP_CANDIDATE_COMMIT: verifiedTarget.sourceCommit,
+    };
     if (targetVersion === currentVersion) throw new Error("Target version is already active");
 
     await update("backup", "回滚前备份当前版本");
-    await run("npm", ["run", "backup"]);
+    await run("npm", ["run", "backup"], {
+      env: {
+        ...process.env,
+        CODEX_DESKTOP_CANDIDATE_COMMIT: await currentSourceCommit(),
+      },
+    });
 
     await assertNotCancelled(operationId);
     await update("deploying", "启动独立恢复看门进程，当前对话继续可用");
@@ -211,7 +232,7 @@ async function runWorker() {
       path.join(sourceDirectory, "scripts", "deploy.mjs"),
       "--stage", "--operation-id", operationId, "--version", targetVersion,
     ], {
-      env: { ...process.env, CODEX_DESKTOP_DEPLOYMENT_WATCH_TOKEN: deploymentWatchdog.token },
+      env: { ...deploymentEnvironment, CODEX_DESKTOP_DEPLOYMENT_WATCH_TOKEN: deploymentWatchdog.token },
     });
     candidateStaged = true;
     await deploymentWatchdog.assertActive();
@@ -225,7 +246,7 @@ async function runWorker() {
         "--activate-staged", "--defer-finalize", "--operation-id", operationId, "--version", targetVersion,
       ], {
         env: {
-          ...process.env,
+          ...deploymentEnvironment,
           CODEX_DESKTOP_FORCE_ACTIVATION: "1",
           CODEX_DESKTOP_DEPLOYMENT_WATCH_TOKEN: deploymentWatchdog.token,
         },
@@ -254,7 +275,7 @@ async function runWorker() {
         "--activate-staged", "--defer-finalize", "--operation-id", operationId, "--version", targetVersion,
       ], {
         env: {
-          ...process.env,
+          ...deploymentEnvironment,
           CODEX_DESKTOP_DRAIN_TOKEN: drainLease.token,
           CODEX_DESKTOP_DRAIN_TTL_MS: "20000",
           CODEX_DESKTOP_DRAIN_DEADLINE_AT: String(drainLease.deadlineAt),
@@ -272,7 +293,7 @@ async function runWorker() {
       "--finalize-staged", "--operation-id", operationId, "--version", targetVersion,
     ], {
       env: {
-        ...process.env,
+        ...deploymentEnvironment,
         CODEX_DESKTOP_DEPLOYMENT_WATCH_TOKEN: deploymentWatchdog.token,
       },
       timeoutMs: drainLease ? remainingDrainMs(drainLease) : activationForceTimeout(),
@@ -576,6 +597,43 @@ function run(command, args, { env = process.env, timeoutMs = null } = {}) {
   });
 }
 
+function currentSourceCommit() {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["rev-parse", "HEAD"], {
+      cwd: sourceDirectory,
+      env: process.env,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let stdout = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      reject(new Error("Could not resolve the current source commit"));
+    }, 5_000);
+    timer.unref?.();
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("exit", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const commit = stdout.trim().toLowerCase();
+      if (code !== 0 || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(commit)) {
+        reject(new Error("Could not resolve the current source commit"));
+      } else {
+        resolve(commit);
+      }
+    });
+  });
+}
+
 function boundedLauncherDuration(value, maximum, minimum) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < minimum) return maximum;
@@ -603,7 +661,9 @@ function optionValue(name) {
 }
 
 function validateVersion(value) {
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)) throw new Error("Invalid rollback version");
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(value)) {
+    throw new Error("Invalid rollback version");
+  }
 }
 
 function parsePorts(value) {

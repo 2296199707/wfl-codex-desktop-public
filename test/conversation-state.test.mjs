@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  agentMessageDisplayText,
   createConversationState,
   completedTurnStateIsComplete,
   reduceConversationNotification,
@@ -11,6 +12,56 @@ import {
 
 const scopeA = { accountId: "user-a", projectId: "/srv/a" };
 const scopeB = { accountId: "user-a", projectId: "/srv/b" };
+
+test("0.153 question-only messages remain visible and complete without forcing history recovery", () => {
+  const question = {
+    id: "question-1",
+    type: "agentMessage",
+    text: "",
+    questions: [{ title: "Which environment?", options: ["Development", "Production"] }],
+  };
+  const turn = {
+    id: "turn-1",
+    status: "completed",
+    items: [{ id: "user-1", type: "userMessage", content: [] }, question],
+  };
+  assert.equal(agentMessageDisplayText(question), "Which environment?\n\n1. Development\n\n2. Production");
+  assert.equal(turnHasRenderableAssistantMessage(turn), true);
+  assert.equal(completedTurnStateIsComplete({ turn }, turn), true);
+  assert.equal(agentMessageDisplayText({ text: "Normal reply" }), "Normal reply");
+  assert.equal(agentMessageDisplayText({ questions: [null, { title: "" }, { options: [] }] }), "");
+  assert.equal(agentMessageDisplayText({ questions: [{ title: "Your preference?", options: null }] }), "Your preference?");
+});
+
+test("0.153 authentication recovery stays within its thread without changing task lifecycle", () => {
+  let state = replaceConversationThread(createConversationState(), scopeA, {
+    id: "active", turns: [{ id: "active-turn", status: "inProgress", items: [] }],
+  });
+  for (const phase of ["Started", "Completed"]) {
+    state = reduceConversationNotification(state, scopeA, {
+      method: `modelProvider/authRecovery${phase}`,
+      params: { threadId: "background", turnId: "turn-bg", provider: "managed", message: phase },
+    });
+    const turn = selectConversationThread(state, scopeA, "background").turns[0];
+    assert.equal(turn.status, "inProgress");
+    assert.equal(turn.items.length, 1);
+    assert.equal(turn.items[0].status, phase === "Started" ? "inProgress" : "completed");
+    assert.equal(turn.items[0]._trustedSource, true);
+    assert.equal(selectConversationThread(state, scopeA, "active").turns[0].items.length, 0);
+    assert.equal(selectConversationThread(state, scopeB, "background"), null);
+  }
+  state = reduceConversationNotification(state, scopeA, {
+    method: "turn/completed",
+    params: { threadId: "background", turn: { id: "turn-bg", status: "completed", items: [] } },
+  });
+  state = reduceConversationNotification(state, scopeA, {
+    method: "modelProvider/authRecoveryStarted",
+    params: { threadId: "background", turnId: "turn-bg", provider: "managed", message: "delayed" },
+  });
+  const terminal = selectConversationThread(state, scopeA, "background").turns[0];
+  assert.equal(terminal.status, "completed");
+  assert.equal(terminal.items[0].status, "completed");
+});
 
 test("history recovery atomically replaces a complete Thread", () => {
   let state = createConversationState();

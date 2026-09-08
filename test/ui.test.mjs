@@ -2216,14 +2216,20 @@ test("Codex recovery and interruption stay bound to their Thread identity", () =
   assert.match(interrupt, /targetPointerMatches/);
 });
 
-test("ordinary task status polls do not trigger native full-history reconciliation", () => {
+test("identified task status polls periodically verify quiet matching native Turns", () => {
   const start = server.indexOf('app.get("/api/task/status"');
   const end = server.indexOf('app.post("/api/task/admission/cancel"', start);
   const route = server.slice(start, end);
   assert.ok(start >= 0 && end > start, "task status route was not found");
   assert.match(route, /const hasExplicitClientTurnId/);
   assert.match(route, /const clientTurnMismatch = hasExplicitClientTurnId/);
-  assert.match(route, /if \(clientTurnMismatch\) \{[\s\S]*?reconcileNativeTaskStatus/);
+  assert.match(route, /const trackedClientTurnNeedsVerification = hasExplicitClientTurnId/);
+  assert.match(route, /localTurnId === clientActiveTurnId/);
+  assert.match(route, /CODEX_TRACKED_TURN_RECONCILE_STALE_MS/);
+  assert.match(
+    route,
+    /if \(clientTurnMismatch \|\| trackedClientTurnNeedsVerification\) \{[\s\S]*?reconcileNativeTaskStatus/,
+  );
   assert.doesNotMatch(route, /if \(!localActive \|\| !localTurnId \|\| clientTurnMismatch\)/);
 });
 
@@ -2327,7 +2333,23 @@ test("task status exposes an uncertain snapshot instead of turning optional nati
   assert.match(route, /canSend: false/);
   assert.match(route, /nativeStatusUncertain: true/);
   assert.match(route, /if \(!nativeStatusUncertain\) \{[\s\S]*?authoritativeTaskSnapshot/);
-  assert.match(route, /\} catch \{\s*nativeStatusUncertain = true/);
+  assert.match(route, /if \(clientTurnMismatch\) \{\s*nativeStatusUncertain = true/);
+});
+
+test("verified native terminal Turns settle local task state and refresh stale browser history", () => {
+  const reconcile = server.match(
+    /async reconcileNativeTaskStatus\([\s\S]*?\n  async conversationSidecarRequest/,
+  )?.[0] || "";
+  assert.match(reconcile, /native\?\.confirmedInactive && native\?\.terminalTurn/);
+  assert.match(reconcile, /publishRecoveredTurnCompletion\(threadId, native\.terminalTurn\)/);
+
+  const render = app.match(
+    /function renderTaskStatus\(snapshot\)[\s\S]*?\n}\n\nconst TERMINAL_TASK_STATUSES/,
+  )?.[0] || "";
+  assert.match(render, /const localInProgressBeforeSync =/);
+  assert.match(render, /snapshot\?\.authoritative === true/);
+  assert.match(render, /snapshot\?\.canSend === true/);
+  assert.match(render, /scheduleRecentTurnsRefresh\(snapshot\.threadId, 0\)/);
 });
 
 test("terminal native lifecycle notifications release leases after the task tracker settles", () => {

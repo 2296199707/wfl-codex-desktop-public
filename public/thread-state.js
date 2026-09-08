@@ -192,6 +192,11 @@ export function terminalSubagentStatusForTurn(value) {
   return ["completed", "errored", "interrupted"].includes(status) ? status : null;
 }
 
+export function subagentActivityStatus(item) {
+  if (["completed", "interrupted"].includes(item?.kind)) return item.kind;
+  return normalizeSubagentStatus(item?.status);
+}
+
 export function settleSubagentStateForTurn(current, turnStatus, updatedAt = null) {
   if (!current || typeof current !== "object") return current;
   const terminalStatus = terminalSubagentStatusForTurn(turnStatus);
@@ -442,6 +447,7 @@ const TERMINAL_EVENT_PROJECTION_TYPES = new Set([
   "modelReroute",
   "modelSafetyBuffering",
   "modelVerification",
+  "modelAuthRecovery",
   "turnModerationMetadata",
   "guardianApprovalReview",
   "guardianWarning",
