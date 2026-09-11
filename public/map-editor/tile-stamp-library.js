@@ -1,4 +1,4 @@
-import { normalizeTileStamp } from "./tile-tool-model.js?v=0.44.80-beta";
+import { normalizeTileStamp } from "./tile-tool-model.js?v=0.44.81-beta";
 
 export const TILE_STAMP_LIBRARY_VERSION = 1;
 

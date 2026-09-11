@@ -3,6 +3,13 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.81-beta] - 2026-09-11
+
+### Fixed
+
+- 修复 Codex 分页对话仍被内部调用完整历史接口、触发弃用提示弹窗的问题，改为分页读取并保留完整历史。
+- 保留重复发送保护和原有超时；分页异常或后台进程切换时不会将不完整历史当作成功结果。
+
 ## [0.44.80-beta] - 2026-09-08
 
 ### Fixed

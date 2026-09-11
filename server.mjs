@@ -401,6 +401,7 @@ import {
   userCodexMemoryConfigMetadata,
 } from "./lib/codex-memory-store.mjs";
 import { publicCodexNotification } from "./lib/codex-notification.mjs";
+import { readCodexThreadHistory } from "./lib/codex-thread-history.mjs";
 import {
   CODEX_PROTOCOL_BASELINE,
   CODEX_SERVER_NOTIFICATION_COVERAGE,
@@ -1906,7 +1907,26 @@ class CodexBridge extends EventEmitter {
     if (message.method) this.emit("notification", message);
   }
 
-  request(method, params = {}, {
+  request(method, params = {}, options = {}) {
+    if (!RESCUE_MODE && method === "thread/read" && params.includeTurns === true) {
+      const child = this.child;
+      return readCodexThreadHistory((pageMethod, pageParams, pageOptions) => {
+        // Never combine pages from different app-server processes across a
+        // provider switch/restart. Every page also retains the native fence.
+        if (this.child !== child) {
+          const error = new Error("Codex app-server changed during thread/read");
+          error.code = "ERR_CODEX_RPC_DISCONNECTED";
+          error.delivery = "unknown";
+          error.deliveryUnknown = true;
+          return Promise.reject(error);
+        }
+        return this.requestRaw(pageMethod, pageParams, pageOptions);
+      }, params, options);
+    }
+    return this.requestRaw(method, params, options);
+  }
+
+  requestRaw(method, params = {}, {
     timeoutMs = 120_000,
     onResponseObserved = null,
     allowWhileFenced = false,

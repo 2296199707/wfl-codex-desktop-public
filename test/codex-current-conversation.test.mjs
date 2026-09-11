@@ -215,9 +215,17 @@ test("installed Codex handles website GPT-6 tool turns, active reads, steer and 
   const stopped = await waitFor(() => messages.find((entry) => entry.type === "codex/notification"
     && entry.payload?.method === "turn/completed" && entry.payload.params.turn.id === active.turn.id), () => output);
   assert.equal(stopped.payload.params.turn.status, "interrupted");
-  const resumed = await rpc("thread/resume", { threadId, cwd: project });
+  const resumed = await rpc("thread/resume", { threadId, cwd: project, excludeTurns: true });
   assert.equal(resumed.thread.id, threadId);
   assert.deepEqual(providerErrors, []);
+  assert.equal(messages.some((entry) => entry.type === "codex/notification"
+    && entry.payload?.method === "deprecationNotice"
+    && /Full-history hydration/.test(entry.payload.params?.summary || "")), false,
+  `history reads must not produce the deprecated full-history popup: ${JSON.stringify({
+    historyMode: read.thread.historyMode,
+    notices: messages.filter((entry) => entry.type === "codex/notification"
+      && entry.payload?.method === "deprecationNotice").map((entry) => entry.payload.params),
+  })}`);
 });
 
 async function waitFor(predicate, describe) {
