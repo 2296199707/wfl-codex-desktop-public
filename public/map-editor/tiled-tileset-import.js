@@ -1,8 +1,8 @@
-import { relativeTiledProjectReference, resolveTiledProjectReference } from "./tiled-document.js?v=0.44.81-beta";
+import { relativeTiledProjectReference, resolveTiledProjectReference } from "./tiled-document.js?v=0.45.0";
 import {
   nextTiledTilesetFirstGid,
   tiledTilesetLayout,
-} from "./tiled-tileset-model.js?v=0.44.81-beta";
+} from "./tiled-tileset-model.js?v=0.45.0";
 
 /**
  * Plan a TSJ import without mutating the map. The caller must authorize the

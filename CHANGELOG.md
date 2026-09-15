@@ -3,6 +3,14 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.45.0] - 2026-09-15
+
+### Changed
+
+- 将已部署的 0.44.81-beta 主站版本转为 0.45.0 正式版，同步版本信息与浏览器资源缓存标识。
+- 汇总此前的 Codex 0.153.4 兼容、对话发送与任务状态恢复、完整历史分页读取修复。
+- 本次仅发布主站源码，备用窗口组件保持冻结。
+
 ## [0.44.81-beta] - 2026-09-11
 
 ### Fixed

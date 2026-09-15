@@ -93,7 +93,7 @@
   });
 
   const loadApplication = async () => {
-    const url = new URL("/app.js?v=0.44.81-beta", location.origin);
+    const url = new URL("/app.js?v=0.45.0", location.origin);
     url.searchParams.set("v", assetVersion);
     if (attempt) url.searchParams.set("recovery", `${Date.now()}-${attempt}`);
     try {
