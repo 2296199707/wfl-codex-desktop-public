@@ -1,10 +1,10 @@
 import {
   normalizeTiledProjectPath,
   resolveTiledProjectReference,
-} from "./tiled-document.js?v=0.45.0";
-import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.45.0";
-import { TiledEditDocument } from "./tiled-edit-document.js?v=0.45.0";
-import { findTiledFillRegion } from "./tiled-fill.js?v=0.45.0";
+} from "./tiled-document.js?v=0.45.1";
+import { decodeGlobalTileId } from "./tiled-render-model.js?v=0.45.1";
+import { TiledEditDocument } from "./tiled-edit-document.js?v=0.45.1";
+import { findTiledFillRegion } from "./tiled-fill.js?v=0.45.1";
 
 export const TILED_AI_PATCH_FORMAT = "wfl-tiled-patch";
 export const TILED_AI_PATCH_VERSION = 1;

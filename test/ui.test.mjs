@@ -842,7 +842,7 @@ test("API provider controls are wired and never prefill a stored secret", () => 
   assert.match(html, /id="providerModelCatalogSelect"[^>]*hidden/);
   assert.match(app, /providerModelInput\.value = ""/);
   assert.match(app, /providerModelInput\.value = profile\.model \|\| ""/);
-  assert.match(app, /fetch\(`\/api\/providers\/\$\{encodeURIComponent\(providerId\)\}\/models`/);
+  assert.match(app, /fetchWithTimeout\(`\/api\/providers\/\$\{encodeURIComponent\(providerId\)\}\/models`/);
   assert.match(app, /"X-Codex-Desktop-Action": "provider-models-query"/);
   assert.match(app, /mergeDiscoveredProviderModels\(providerId\)/);
   assert.doesNotMatch(server, /DeepSeekHarness|deepseek-harness|WFL_DEEPSEEK_HARNESS|codexDeepSeekHarnessMcpOverride/u);

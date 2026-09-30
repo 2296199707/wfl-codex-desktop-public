@@ -25,6 +25,9 @@ test("queries the provider v1 models endpoint with a secret and returns bounded 
 
   assert.equal(observedUrl, "https://api.example.test/openai/v1/models");
   assert.equal(observedOptions.method, "GET");
+  assert.equal(observedOptions.cache, "no-store");
+  assert.equal(observedOptions.headers["Cache-Control"], "no-cache, no-store");
+  assert.equal(observedOptions.headers.Pragma, "no-cache");
   assert.equal(observedOptions.redirect, "error");
   assert.equal(observedOptions.headers.Authorization, "Bearer provider-model-secret");
   assert.deepEqual(models, ["vendor-chat-1.0", "vendor-chat-2.0"]);

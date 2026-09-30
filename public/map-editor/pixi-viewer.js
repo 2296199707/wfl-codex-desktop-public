@@ -23,19 +23,19 @@ const {
 import {
   parseTiledDocument,
   resolveTiledProjectReference,
-} from "./tiled-document.js?v=0.45.0";
-import { decodeTiledTileLayer } from "./tiled-tile-codec.js?v=0.45.0";
+} from "./tiled-document.js?v=0.45.1";
+import { decodeTiledTileLayer } from "./tiled-tile-codec.js?v=0.45.1";
 import {
   tiledObjectSemantic,
   tiledPortalReference,
   tiledSpawnIdentifier,
-} from "./map-object-model.js?v=0.45.0";
+} from "./map-object-model.js?v=0.45.1";
 import {
   TiledTilesetError,
   tiledTilesetLayout,
   validateTiledImageSize,
   validateTiledTilesetRanges,
-} from "./tiled-tileset-model.js?v=0.45.0";
+} from "./tiled-tileset-model.js?v=0.45.1";
 import {
   decodeGlobalTileId,
   mapPixelBounds,
@@ -67,7 +67,7 @@ import {
   tileLayerCellsInRange,
   tileLayerCellsInRenderOrder,
   tilesetForGlobalId,
-} from "./tiled-render-model.js?v=0.45.0";
+} from "./tiled-render-model.js?v=0.45.1";
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 8;

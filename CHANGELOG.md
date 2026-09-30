@@ -3,6 +3,14 @@
 All notable changes to WFL Codex Desktop are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.45.1] - 2026-09-30
+
+### Fixed
+
+- 供应商模型选择面板支持手动刷新和打开时重新查询，显示目录数量、刷新时间与错误信息，查询明确禁用缓存。
+- 合并重复模型查询，避免旧供应商、旧配置或旧账号的响应覆盖当前目录；刷新失败保留原目录，保留当前已选模型。
+- 主站版本与浏览器资源缓存标识同步更新，备用窗口保持冻结。
+
 ## [0.45.0] - 2026-09-15
 
 ### Changed

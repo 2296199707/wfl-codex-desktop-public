@@ -1,4 +1,4 @@
-import { cloneTiledDocument } from "./tiled-document.js?v=0.45.0";
+import { cloneTiledDocument } from "./tiled-document.js?v=0.45.1";
 
 const DEFAULT_HISTORY_LIMIT = 200;
 const DEFAULT_CHUNK_SIZE = 16;

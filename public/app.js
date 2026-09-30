@@ -26,18 +26,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.45.0";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.45.0";
+} from "./thread-state.js?v=0.45.1";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.45.1";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.45.0";
+} from "./image-context-policy.js?v=0.45.1";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.45.0";
+} from "./image-attachment-context.js?v=0.45.1";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -45,16 +45,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.45.0";
+} from "./game-work-mode.js?v=0.45.1";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.45.0";
+} from "./map-editor/map-tab-channel.js?v=0.45.1";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.45.0";
+} from "./map-editor/map-conversation-channel.js?v=0.45.1";
 import {
   agentMessageDisplayText,
   createConversationState,
@@ -64,11 +64,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.45.0";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.45.0";
+} from "./conversation-state.js?v=0.45.1";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.45.1";
 
-const UI_VERSION = "0.45.0";
-const UI_VERSION_LABEL = "0.45.0";
+const UI_VERSION = "0.45.1";
+const UI_VERSION_LABEL = "0.45.1";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -922,6 +922,8 @@ const state = {
   providerQuickStatusLoading: false,
   providerQuickStatusUpdatedAt: 0,
   providerModelCatalogs: {},
+  providerModelQueries: {},
+  providerModelCatalogStatus: {},
   imageApi: {
     configured: false,
     providerId: null,
@@ -2128,6 +2130,9 @@ const elements = Object.fromEntries(
     "intelligenceModelLabel",
     "intelligenceModelView",
     "intelligenceMenuBackButton",
+    "intelligenceModelRefresh",
+    "intelligenceModelsRefreshButton",
+    "intelligenceModelsStatus",
     "intelligenceModelOptions",
     "claudePermissionView",
     "claudePermissionBackButton",
@@ -7319,6 +7324,9 @@ function bindEvents() {
   elements.claudeStrictMcpInput.addEventListener("change", updateClaudeLaunchDraftAvailability);
   elements.claudeExecutionSaveButton.addEventListener("click", saveClaudeExecutionSettings);
   elements.intelligenceModelButton.addEventListener("click", showIntelligenceModelView);
+  elements.intelligenceModelsRefreshButton.addEventListener("click", () => queryProviderModels(
+    currentProviderModelCatalogId(), "models", { announce: false },
+  ));
   elements.intelligenceMenuBackButton.addEventListener("click", showIntelligenceEffortView);
   elements.settingsModel.addEventListener("change", () => {
     populateSettingsEfforts(elements.settingsModel.value, null);
@@ -7494,6 +7502,7 @@ async function loadAccount({ summary = false } = {}) {
     const previousAccountId = state.account?.id || null;
     const storedThreadRecovery = loadStoredThreadRecovery(data.user);
     state.account = data.user;
+    if (previousAccountId !== (data.user?.id || null)) resetProviderModelCatalogs();
     if (
       state.providerUsageAccountId !== (data.user?.id || null)
       || state.providerUsageRequestAccountId !== (data.user?.id || null)
@@ -7901,6 +7910,7 @@ async function logoutAccount({ switching = false } = {}) {
   clearThreadSessionCache();
   clearThreadRecovery();
   resetProviderUsageState(null);
+  resetProviderModelCatalogs();
   await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
   location.replace(switching ? "/login.html?switch=1" : "/login.html");
 }
@@ -14505,6 +14515,7 @@ function renderCollaborationSettings() {
 }
 
 function renderIntelligenceControl() {
+  renderProviderModelRefresh();
   if (state.runtime === "claude") {
     elements.worktreeBranchButton.hidden = true;
     elements.worktreeHandoffButton.hidden = true;
@@ -14802,6 +14813,7 @@ function renderClaudePermissionStatus() {
 }
 
 function renderClaudeIntelligenceControl() {
+  renderProviderModelRefresh();
   const settings = currentClaudeSettings();
   const effort = CLAUDE_EFFORTS.find((entry) => entry.value === settings.effort) || CLAUDE_EFFORTS[0];
   const modelLabel = claudeModelLabel(settings.model);
@@ -14977,6 +14989,9 @@ function showIntelligenceModelView() {
   elements.claudeWorkspaceView.hidden = true;
   elements.claudeExecutionView.hidden = true;
   elements.collaborationSettingsView.hidden = true;
+  if (state.runtime === "codex" && currentProviderModelCatalogId()) {
+    void queryProviderModels(currentProviderModelCatalogId(), "models", { announce: false });
+  }
   requestAnimationFrame(() => elements.intelligenceModelOptions.querySelector('[aria-checked="true"]')?.focus());
 }
 
@@ -35555,6 +35570,9 @@ async function saveProviderProfile({ activate = false } = {}) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "无法保存 API 供应商");
+    delete state.providerModelCatalogs[data.profile.id];
+    delete state.providerModelCatalogStatus[data.profile.id];
+    delete state.providerModelQueries[data.profile.id];
     state.editingProviderId = data.profile.id;
     clearProviderKeyInput();
     await loadProviderProfiles();
@@ -35930,23 +35948,16 @@ async function queryProviderModels(providerId, target, { announce = true } = {})
   if (button) button.disabled = true;
   if (errorElement) errorElement.textContent = "";
   try {
-    const response = await fetch(`/api/providers/${encodeURIComponent(providerId)}/models`, {
-      method: "POST",
-      headers: { "X-Codex-Desktop-Action": "provider-models-query" },
-    });
-    const data = await readApiJson(response, "无法查询供应商模型");
-    state.providerModelCatalogs[providerId] = data.models || [];
-    if (target === "image") renderImageModelOptions();
-    else if (target === "provider") renderProviderModelOptions(providerId);
-    if (providerId === currentProviderModelCatalogId()) {
-      mergeDiscoveredProviderModels(providerId);
-      populateModelSelects();
-    }
+    const data = await fetchProviderModelCatalog(providerId);
+    if (!data) return;
     if (announce) toast(`已读取 ${data.models.length} 个供应商模型`);
+    return data;
   } catch (error) {
-    if (errorElement) errorElement.textContent = error.message;
+    if (errorElement && (target === "image"
+      ? elements.imageApiProviderInput.value === providerId
+      : state.editingProviderId === providerId)) errorElement.textContent = error.message;
     else if (announce) toast(error.message, "error");
-    else console.error("Unable to refresh the active provider model catalog:", error);
+    else if (target !== "models") console.error("Unable to refresh the active provider model catalog:", error);
   } finally {
     if (button) {
       button.disabled = target === "image"
@@ -35954,6 +35965,75 @@ async function queryProviderModels(providerId, target, { announce = true } = {})
         : !state.editingProviderId || ["default", "image-api"].includes(state.editingProviderId);
     }
   }
+}
+
+function resetProviderModelCatalogs() {
+  state.providerModelCatalogs = {};
+  state.providerModelCatalogStatus = {};
+  state.providerModelQueries = {};
+  state.models = state.models.filter((model) => model.providerCatalog !== true);
+}
+
+function fetchProviderModelCatalog(providerId) {
+  const accountId = state.account?.id || null;
+  const pending = state.providerModelQueries[providerId];
+  if (pending?.accountId === accountId) return pending.promise;
+  const query = { accountId, promise: null };
+  state.providerModelQueries[providerId] = query;
+  const isCurrent = () => state.providerModelQueries[providerId] === query
+    && accountId === (state.account?.id || null);
+  query.promise = fetchWithTimeout(`/api/providers/${encodeURIComponent(providerId)}/models`, {
+    method: "POST",
+    cache: "no-store",
+    headers: { "X-Codex-Desktop-Action": "provider-models-query" },
+  }, 20_000).then(async (response) => {
+    const data = await readApiJson(response, "无法查询供应商模型");
+    // A saved configuration or account change invalidates an older query.
+    if (!isCurrent()) return null;
+    state.providerModelCatalogs[providerId] = data.models || [];
+    state.providerModelCatalogStatus[providerId] = { updatedAt: Date.now() };
+    if (state.editingProviderId === providerId) renderProviderModelOptions(providerId);
+    if (elements.imageApiProviderInput.value === providerId) renderImageModelOptions();
+    if (providerId === currentProviderModelCatalogId() && state.runtime === "codex") {
+      const selected = state.models.find((model) => model.model === state.selectedModel);
+      mergeDiscoveredProviderModels(providerId);
+      // Refreshing the directory must not silently change the model in use.
+      if (selected && !state.models.some((model) => model.model === selected.model)) {
+        state.models.push({ ...selected, description: "当前已选模型；本次供应商目录未返回" });
+      }
+      populateModelSelects();
+    }
+    return data;
+  }).catch((error) => {
+    if (!isCurrent()) return null;
+    state.providerModelCatalogStatus[providerId] = {
+      ...state.providerModelCatalogStatus[providerId], error: error.message,
+    };
+    throw error;
+  }).finally(() => {
+    if (state.providerModelQueries[providerId] === query) delete state.providerModelQueries[providerId];
+    renderProviderModelRefresh();
+  });
+  renderProviderModelRefresh();
+  return query.promise;
+}
+
+function renderProviderModelRefresh() {
+  const providerId = currentProviderModelCatalogId();
+  const visible = state.runtime === "codex" && Boolean(providerId);
+  elements.intelligenceModelRefresh.hidden = !visible;
+  if (!visible) return;
+  const pending = Boolean(state.providerModelQueries[providerId]);
+  elements.intelligenceModelsRefreshButton.disabled = pending;
+  const status = state.providerModelCatalogStatus[providerId];
+  const name = state.providers.find((profile) => profile.id === providerId)?.name || "当前供应商";
+  elements.intelligenceModelsStatus.textContent = pending
+    ? `正在向${name}查询最新目录…`
+    : status?.error
+      ? `刷新失败：${status.error}。${status.updatedAt ? "保留上次目录，" : ""}可重试。`
+      : status?.updatedAt
+        ? `${name} · ${state.providerModelCatalogs[providerId]?.length || 0} 个模型 · ${new Date(status.updatedAt).toLocaleTimeString()} 已刷新`
+        : `从${name}读取模型目录`;
 }
 
 function renderProviderModelOptions(providerId) {
@@ -37460,7 +37540,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.45.0");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.45.1");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(

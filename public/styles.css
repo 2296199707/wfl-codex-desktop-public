@@ -4666,6 +4666,18 @@ p {
   overflow-y: auto;
 }
 
+.intelligence-model-refresh:not([hidden]) {
+  display: grid;
+  gap: 6px;
+  padding: 4px 7px 10px;
+}
+
+.intelligence-model-refresh small {
+  color: var(--ink-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .intelligence-menu:has(#codexWorkspaceView:not([hidden])),
 .intelligence-menu:has(#claudeWorkspaceView:not([hidden])),
 .intelligence-menu:has(#claudeExecutionView:not([hidden])),

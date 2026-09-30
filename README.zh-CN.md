@@ -16,7 +16,7 @@ WFL Codex Web Workspace 是一个可自行部署的 **Codex 网页工作区**，
 使用前需要登录你自己的 Codex 官方账号，或配置兼容的 API 供应商；模型调用使用该账号或
 供应商的额度。命令执行与文件修改遵循当前账号权限和所选审批设置。
 
-当前版本：`v0.45.0`。版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本：`v0.45.1`。版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 在网页里使用 Codex
 
@@ -135,7 +135,7 @@ sudo bash install.sh
 ```
 
 - `git status --short` 必须没有输出。
-- `git describe --tags --exact-match` 必须显示当前发布标签 `v0.45.0`。
+- `git describe --tags --exact-match` 必须显示当前发布标签 `v0.45.1`。
 - 本地分支必须跟踪 `origin/stable`；不要使用产生 detached HEAD 的标签克隆方式，
   也不要在源码目录中保留手工改动。
 
@@ -162,9 +162,9 @@ npm run release:status
 
 ```bash
 cd /root/install
-sha256sum -c wfl-codex-desktop-v0.45.0.tar.gz.sha256
-tar -xzf wfl-codex-desktop-v0.45.0.tar.gz -C /srv
-mv /srv/wfl-codex-desktop-v0.45.0 /srv/wfl-codex-desktop
+sha256sum -c wfl-codex-desktop-v0.45.1.tar.gz.sha256
+tar -xzf wfl-codex-desktop-v0.45.1.tar.gz -C /srv
+mv /srv/wfl-codex-desktop-v0.45.1 /srv/wfl-codex-desktop
 cd /srv/wfl-codex-desktop
 sudo bash install.sh
 ```
