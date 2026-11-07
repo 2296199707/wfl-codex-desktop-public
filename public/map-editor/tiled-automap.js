@@ -1,8 +1,8 @@
 import {
   normalizeTiledProjectPath,
   resolveTiledProjectReference,
-} from "./tiled-document.js?v=0.45.1";
-import { TILED_FLIP_FLAGS, decodeGlobalTileId } from "./tiled-render-model.js?v=0.45.1";
+} from "./tiled-document.js?v=0.45.6";
+import { TILED_FLIP_FLAGS, decodeGlobalTileId } from "./tiled-render-model.js?v=0.45.6";
 
 const DEFAULT_MAX_RULE_FILES = 128;
 const DEFAULT_MAX_RULES = 10_000;

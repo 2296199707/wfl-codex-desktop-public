@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>SSH 登录 · WFL</title>
+    <link rel="stylesheet" href="/vendor/xterm/css/xterm.css?v=0.45.6" />
+    <link rel="stylesheet" href="/web-ssh.css?v=0.45.6" />
+  </head>
+  <body data-mode="access">
+    <main class="ssh-workspace access-workspace">
+      <header class="page-header"><div><span class="eyebrow">WFL WEB SSH</span><h1>SSH 登录</h1><p>输入管理员提供的访问密钥，通过本站连接指定服务器。</p></div></header>
+      <p id="pageStatus" class="page-status" role="status" aria-live="polite"></p>
+      <section class="card access-card">
+        <form id="accessForm" autocomplete="off"><label>访问密钥<input id="accessKeyInput" name="accessKey" type="password" autocomplete="off" required placeholder="粘贴访问密钥" /></label><button class="primary" id="connectButton" type="submit">连接服务器</button></form>
+        <p class="muted">不需要主站管理员账号或远程 SSH 密码。密钥只允许访问管理员绑定的服务器，不保存在浏览器中。</p>
+      </section>
+      <section class="terminal-panel card">
+        <header class="terminal-header"><div><h2 id="terminalTitle">终端</h2><span id="connectionStatus" role="status" aria-live="polite">等待登录</span></div><button id="disconnectButton" class="secondary" type="button" disabled>断开</button></header>
+        <div id="terminal" aria-label="交互式 SSH 终端"></div>
+        <div class="terminal-keys" role="toolbar" aria-label="终端辅助按键"><button type="button" data-key="ctrl-c">Ctrl-C</button><button type="button" data-key="ctrl-d">Ctrl-D</button><button type="button" data-key="escape">Esc</button><button type="button" data-key="tab">Tab</button><button type="button" data-key="up">↑</button><button type="button" data-key="down">↓</button><button type="button" data-key="left">←</button><button type="button" data-key="right">→</button><button type="button" id="pasteButton">粘贴</button><button type="button" id="copySelectionButton">复制选中</button></div>
+        <p class="muted">短暂断网会自动恢复原终端，最多保留 5 分钟；恢复期间不会发送或重放命令。远端终端退出或主站重启后需重新登录。</p>
+        <details class="file-panel" id="filesPanel">
+          <summary>文件上传与下载</summary>
+          <fieldset id="fileControls" disabled>
+            <form id="directoryForm" class="file-path-form"><label>远程目录<input id="remoteDirectory" value="." spellcheck="false" required /></label><button type="submit">打开 / 刷新</button><button id="parentDirectoryButton" type="button">上一级</button></form>
+            <form id="uploadForm"><label>上传到上方目录<input id="uploadInput" type="file" multiple required /></label><label class="checkbox-label"><input id="overwriteFiles" type="checkbox" />允许覆盖同名文件</label><div class="actions"><button id="uploadButton" class="primary" type="submit">上传文件</button><button id="cancelUploadButton" class="secondary" type="button" hidden>取消上传</button></div></form>
+            <form id="downloadForm" class="file-path-form"><label>远程文件路径<input id="remoteDownloadPath" spellcheck="false" placeholder="输入完整文件路径，或从列表选择" required /></label><button type="submit">下载文件</button></form>
+            <div id="remoteFiles" class="remote-files" aria-label="远程目录内容"></div>
+          </fieldset>
+          <p id="fileStatus" class="file-status" role="status" aria-live="polite">连接终端后可传输文件。权限与 SSH 账号相同，取消传输不会关闭终端。</p>
+        </details>
+      </section>
+    </main>
+    <script src="/vendor/xterm/lib/xterm.js?v=0.45.6"></script>
+    <script src="/vendor/xterm-fit/addon-fit.js?v=0.45.6"></script>
+    <script type="module" src="/web-ssh.js?v=0.45.6"></script>
+  </body>
+</html>

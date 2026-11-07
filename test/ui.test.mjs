@@ -1127,7 +1127,7 @@ test("official multi-agent collaboration is explicit, visible, and bounded", () 
   assert.doesNotMatch(server, /applyCollaborationStrategyToTurnInput|normalizeCollaborationStrategy/);
   assert.match(server, /不能提交 Codex developer 协作指令/);
   assert.match(server, /_wflCollaborationStrategy:/);
-  assert.match(app, /Ultra（最高，主动多代理）/);
+  assert.match(app, /Ultra（最高）/);
   assert.match(app, /ultra: "自动协作"/);
   assert.doesNotMatch(app, /toggleCollaborationMode/);
   assert.match(app, /const model = preset\.model \|\| state\.selectedModel/);

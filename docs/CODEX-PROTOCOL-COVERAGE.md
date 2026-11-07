@@ -4,15 +4,34 @@ The authoritative machine-readable inventory lives in
 `lib/codex-protocol-coverage.mjs` and is checked by
 `test/codex-protocol-coverage.test.mjs`.
 
-Baseline: `codex-cli 0.149.0`.
+Baseline: `codex-cli 0.159.3`.
 
-The inventory classifies all 153 client request methods emitted by
+The inventory classifies all 170 client request methods emitted by
 `codex app-server generate-ts --experimental`. The checked-in generated method
-snapshot is `test/fixtures/codex-app-server-0.149.0-client-methods.json`.
+snapshot is `test/fixtures/codex-app-server-0.159.3-client-methods.json`.
 The same review covers all 11 app-server-initiated methods in
-`test/fixtures/codex-app-server-0.149.0-server-methods.json`, all 77
+`test/fixtures/codex-app-server-0.159.3-server-methods.json`, all 85
 server notifications, and the single client notification. The schema manifest
 records when the reviewed snapshot was generated.
+
+The 2026-10-01 adaptation also probes generated field types for item anchors,
+single-server MCP discovery, and MCP resource targets. These fields share older
+method names, so a matching method or a newer version string alone does not
+enable them. The Memories endpoint uses `memory/status` only when detected.
+
+Codex's `ReasoningEffort` protocol type is a string. Numeric and custom effort
+strings are preserved through collaboration settings, with native Codex owning
+the provider-side representation. The installed 0.159.3 check confirms `"42"`
+is sent to a local Responses provider as JSON number `42`. Model selection and
+native subagent orchestration remain owned by the existing user settings and
+official Codex behavior; `instant_interrupt` is not enabled automatically.
+
+New typed JSON thread attachments, native user verification, explicit gateway
+OAuth, and rollout storage compression are reviewed but deferred. Thread
+attachments are metadata records, separate from composer image/file inputs;
+verification needs a host proof/enrollment flow. The existing login and context
+compaction flows remain usable. Their unused notifications stay on the redacted
+unknown-event path.
 
 ## Runtime capability matrix
 
@@ -97,8 +116,8 @@ continuation, lifecycle, role, or orchestration contract for subagents.
 
 ## Deprecated thread rollback
 
-`thread/rollback` remains present in the `0.149.0` generated schema but is
-deprecated. Codex 0.149 also adds experimental `thread/revert`, which replaces
+`thread/rollback` was deprecated in the `0.149.0` generated schema and is removed
+from the `0.159.3` inventory. Codex 0.149 also adds experimental `thread/revert`, which replaces
 durable conversation history with the prefix before a selected turn and does not
 revert local file changes. WFL does not expose either mutating history RPC; users
 retain history through `thread/fork`, managed Worktree generations, and immutable

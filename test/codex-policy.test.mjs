@@ -4,6 +4,7 @@ import {
   assertManagedPolicyValue,
   collaborationModeFromPreset,
   normalizePermissionProfileListParams,
+  normalizeCodexReasoningEffort,
   sanitizeCollaborationModeListResult,
   sanitizeConfigRequirementsResult,
   sanitizePermissionProfileListResult,
@@ -148,4 +149,17 @@ test("managed policy enforcement rejects disabled browser selections", () => {
     () => assertManagedPolicyValue("default_permissions", ":workspace", requirements, profiles),
     /不可用|禁用/,
   );
+});
+
+test("Codex numeric and custom effort strings survive official collaboration presets", () => {
+  for (const reasoning_effort of ["42", "high", "ultra", "future-effort"]) {
+    const modes = sanitizeCollaborationModeListResult({ data: [
+      { name: "default", mode: "default", model: null, reasoning_effort },
+    ] });
+    const request = collaborationModeFromPreset(modes.data[0], { model: "gpt-6.1-sol" });
+    assert.equal(request.settings.reasoning_effort, reasoning_effort);
+  }
+  for (const invalid of [42, {}, "", " high", "high\n", "high\0"]) {
+    assert.throws(() => normalizeCodexReasoningEffort(invalid), /推理强度无效/);
+  }
 });

@@ -58,6 +58,9 @@ const opsHtmlPath = path.join(projectDir, "public", "ops.html");
 const usersHtmlPath = path.join(projectDir, "public", "users.html");
 const mobileToolHtmlPath = path.join(projectDir, "public", "mobile-tool.html");
 const serverFileManagerHtmlPath = path.join(projectDir, "public", "server-file-manager.html");
+const webSshHtmlPath = path.join(projectDir, "public", "ssh.html");
+const webSshAccessHtmlPath = path.join(projectDir, "public", "ssh-access.html");
+const webSshDirectHtmlPath = path.join(projectDir, "public", "ssh-direct.html");
 const readmePath = path.join(projectDir, "README.md");
 const chineseReadmePath = path.join(projectDir, "README.zh-CN.md");
 const transactionPath = path.join(projectDir, ".codex-runtime", "version-sync.transaction.json");
@@ -280,6 +283,10 @@ mobileToolHtml = versionHtmlBrowserAssets(mobileToolHtml);
 let serverFileManagerHtml = await fs.readFile(serverFileManagerHtmlPath, "utf8");
 serverFileManagerHtml = versionHtmlBrowserAssets(serverFileManagerHtml);
 
+const webSshHtml = versionHtmlBrowserAssets(await fs.readFile(webSshHtmlPath, "utf8"));
+const webSshAccessHtml = versionHtmlBrowserAssets(await fs.readFile(webSshAccessHtmlPath, "utf8"));
+const webSshDirectHtml = versionHtmlBrowserAssets(await fs.readFile(webSshDirectHtmlPath, "utf8"));
+
 let readme = await fs.readFile(readmePath, "utf8");
 if (!/Current release: `v[^`]+`/.test(readme)) throw new Error("Current release was not found in README.md");
 readme = readme.replace(/Current release: `v[^`]+`/, `Current release: \`v${version}\``);
@@ -315,6 +322,9 @@ await commitVersionSyncTransaction({
     { destination: usersHtmlPath, content: usersHtml },
     { destination: mobileToolHtmlPath, content: mobileToolHtml },
     { destination: serverFileManagerHtmlPath, content: serverFileManagerHtml },
+    { destination: webSshHtmlPath, content: webSshHtml },
+    { destination: webSshAccessHtmlPath, content: webSshAccessHtml },
+    { destination: webSshDirectHtmlPath, content: webSshDirectHtml },
     { destination: readmePath, content: readme },
     { destination: chineseReadmePath, content: chineseReadme },
     { destination: chineseDeploymentPath, content: chineseDeployment },

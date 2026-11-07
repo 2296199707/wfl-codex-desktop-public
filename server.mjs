@@ -239,6 +239,8 @@ import {
   MapSaveSessionStore,
 } from "./lib/map-save-sessions.mjs";
 import { PersistentSshServerStore } from "./lib/persistent-ssh-servers.mjs";
+import { WebSshService } from "./lib/web-ssh.mjs";
+import { createWebSshRouters } from "./lib/web-ssh-http.mjs";
 import {
   PersistentSshToolService,
   TemporarySshToolService,
@@ -378,7 +380,7 @@ import {
 import { assertCodexExperimentalBrowserParams } from "./lib/codex-experimental-policy.mjs";
 import {
   assertManagedPolicyValue,
-  CODEX_REASONING_EFFORTS,
+  normalizeCodexReasoningEffort,
   normalizePermissionProfileListParams,
   sanitizeCollaborationModeListResult,
   sanitizeConfigRequirementsResult,
@@ -1540,7 +1542,6 @@ const WRITABLE_CONFIG_KEYS = new Set([
 
 // These values mirror the official Codex configuration surface. They are
 // deliberately independent of any provider-specific or WFL subagent schema.
-const COLLABORATION_SUBAGENT_EFFORTS = new Set(CODEX_REASONING_EFFORTS);
 const COLLABORATION_THREAD_LIMITS = new Set([1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128]);
 const COLLABORATION_DEPTH_LIMITS = new Set([1, 2, 3]);
 const THREAD_RECONNECT_GRACE_MS = environmentDuration(
@@ -8387,6 +8388,29 @@ async function tryPersistentStateOperation(operation) {
   }
 }
 
+const webSshService = RESCUE_MODE ? null : await new WebSshService(STATE_DIR, {
+  resolvePersistent: async (ownerId, serverId) => {
+    const runtime = await runtimeForUser(ownerId);
+    const store = requirePersistentSshStore(runtime);
+    return { ...store.publicServer(serverId), connect: () => store.connectTerminal(serverId) };
+  },
+  ownerAllowed: async (ownerId) => {
+    const user = multiUserStore.modeSnapshot().enabled
+      ? multiUserStore.getUser(ownerId) : ownerId === legacyUser.id ? legacyUser : null;
+    return Boolean(user && ["owner", "admin"].includes(user.role) && user.status === "active");
+  },
+  sessionAllowed: (identity) => multiUserStore.sessionIsActive(identity),
+}).initialize();
+const webSshRoutes = createWebSshRouters({
+  service: webSshService, requireAdmin, assertOperation: assertOperationRequest,
+  mutate: withPersistentStateOperation,
+  persistentServers: async (request) => requirePersistentSshStore(await runtimeForRequest(request)).snapshot()
+    .map((target) => ({ ...target, terminalAvailable: target.authMode === "password" })),
+  retryAfter: (request) => sshRetryAfter(`web-ssh:${authClientKey(request)}`),
+  recordFailure: (request) => recordSshFailure(`web-ssh:${authClientKey(request)}`),
+  clearFailures: (request) => clearSshFailures(`web-ssh:${authClientKey(request)}`),
+});
+
 const app = express();
 app.disable("x-powered-by");
 app.use((request, _response, next) => {
@@ -9079,6 +9103,8 @@ app.use("/tools/mobile-preview/:sessionId/:accessKey", async (request, response,
     next(error);
   }
 });
+
+app.use("/api/tools/web-ssh/access", webSshRoutes.accessRouter);
 
 app.use(async (request, response, next) => {
   if (isWebdavPath(request.path)) {
@@ -14356,6 +14382,8 @@ app.delete("/api/plugins/secure-ssh-access/access/:id", async (request, response
     next(error);
   }
 });
+
+app.use("/api/tools/web-ssh", webSshRoutes.router);
 
 app.get("/api/plugins/persistent-ssh-servers/servers", async (request, response, next) => {
   try {
@@ -23564,6 +23592,8 @@ app.post("/api/preview/capture", async (request, response, next) => {
 });
 
 const staticOptions = { setHeaders: setStaticCacheHeaders };
+app.use("/vendor/xterm", express.static(path.join(APP_DIR, "node_modules/@xterm/xterm"), staticOptions));
+app.use("/vendor/xterm-fit", express.static(path.join(APP_DIR, "node_modules/@xterm/addon-fit/lib"), staticOptions));
 app.use("/vendor/lucide", express.static(path.join(APP_DIR, "node_modules/lucide/dist/umd"), staticOptions));
 app.use("/vendor/pixi", express.static(path.join(APP_DIR, "node_modules/pixi.js/dist"), staticOptions));
 app.use("/vendor/manrope", express.static(path.join(APP_DIR, "node_modules/@fontsource/manrope/files"), staticOptions));
@@ -23588,6 +23618,17 @@ app.get(["/users", "/users/", "/users.html"], (request, response, next) => {
     response.setHeader("Cache-Control", "no-store");
     markInlineHtmlResponse(response, "users.html");
     response.type("html").send(USERS_HTML);
+  } catch (error) {
+    next(error);
+  }
+});
+app.get(["/ssh", "/ssh/", "/ssh.html"], (request, response, next) => {
+  try {
+    requireAdmin(request);
+    if (!webSshService) throw httpError(404, "备用窗口不提供网页 SSH 工具");
+    response.setHeader("Cache-Control", "no-store");
+    markInlineHtmlResponse(response, "ssh.html");
+    response.sendFile("ssh.html", { root: PUBLIC_DIR });
   } catch (error) {
     next(error);
   }
@@ -23666,6 +23707,8 @@ server.on("close", () => {
 const wss = new WebSocketServer({ noServer: true });
 const vncWss = new WebSocketServer({ noServer: true });
 const deviceWss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
+const sshWss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
+server.once("close", () => { webSshService?.close(); sshWss.close(); });
 const deviceBrokerSweepTimer = windowsDeviceBroker ? setInterval(() => {
   windowsDeviceBroker.sweepExpired();
 }, 15_000) : null;
@@ -23678,6 +23721,21 @@ server.on("upgrade", (request, socket, head) => {
     const origin = request.headers.origin;
     const requestUrl = new URL(request.url || "/", `http://${host || "localhost"}`);
     const pathname = requestUrl.pathname;
+    if (pathname === "/ssh/ws") {
+      const protocol = trustedForwardedHeader(request, "x-forwarded-proto")
+        || (request.socket.encrypted ? "https" : "http");
+      if (!webSshService || !host || !origin || requestUrl.search
+        || new URL(origin).origin !== `${protocol}://${host}`) {
+        rejectUpgrade(socket, 403, "Forbidden", { "Content-Type": "text/plain" });
+        return;
+      }
+      sshWss.handleUpgrade(request, socket, head, (client) => {
+        webSshService.accept(client, {
+          onAuthenticated: (context) => bindSocketAuthSession(client, context.authSession),
+        });
+      });
+      return;
+    }
     if (pathname === "/device/ws") {
       if (RESCUE_MODE || !windowsDeviceBroker || !host || requestUrl.search) {
         rejectUpgrade(socket, 404, "Not Found", { "Content-Type": "text/plain" });
@@ -25118,7 +25176,7 @@ function normalizeCodexThreadItemsListParams(params) {
       CODEX_THREAD_ITEMS_PAGE_MAX,
       "消息分页数量",
     ),
-    cursor: normalizeCodexSearchCursor(params.cursor),
+    cursor: null,
     sortDirection: params.sortDirection == null ? "desc" : params.sortDirection,
   };
   if (!["asc", "desc"].includes(result.sortDirection)) {
@@ -25126,6 +25184,19 @@ function normalizeCodexThreadItemsListParams(params) {
   }
   if (params.turnId != null) {
     result.turnId = normalizeCodexLifecycleThreadId(params.turnId, "轮次 ID");
+  }
+  if (params.cursor && typeof params.cursor === "object") {
+    if (Array.isArray(params.cursor) || params.cursor.type !== "item"
+      || Object.keys(params.cursor).some((key) => !["type", "itemId"].includes(key))
+      || !result.turnId) {
+      throw httpError(400, "消息定位必须指定轮次和 item ID");
+    }
+    if (!codexRuntimeSupports(CODEX_RUNTIME_CAPABILITIES, "itemAnchors")) {
+      throw codexRuntimeFeatureUnavailable("消息 item 定位");
+    }
+    result.cursor = { type: "item", itemId: normalizeCodexLifecycleThreadId(params.cursor.itemId, "消息 ID") };
+  } else {
+    result.cursor = normalizeCodexSearchCursor(params.cursor);
   }
   return result;
 }
@@ -25145,7 +25216,11 @@ function sanitizeCodexThreadItemsListResult(result, { limit, turnId = null } = {
         || typeof entry.item !== "object"
         || Array.isArray(entry.item)
       ) return [];
-      return [{ turnId: entry.turnId, item: entry.item }];
+      const timestamps = {};
+      for (const key of ["startedAtMs", "completedAtMs"]) {
+        if (Number.isSafeInteger(entry[key]) && entry[key] >= 0) timestamps[key] = entry[key];
+      }
+      return [{ turnId: entry.turnId, item: entry.item, ...timestamps }];
     });
   const sanitized = {
     data,
@@ -28816,9 +28891,7 @@ function validateWritableConfigValue(keyPath, value) {
     return;
   }
   if (keyPath === "agents.default_subagent_reasoning_effort") {
-    if (typeof value !== "string" || !COLLABORATION_SUBAGENT_EFFORTS.has(value)) {
-      throw new Error("子代理推理强度无效");
-    }
+    normalizeCodexReasoningEffort(value);
     return;
   }
   if (keyPath === "agents.max_concurrent_threads_per_session") {
@@ -31776,7 +31849,7 @@ function assertOfficialBridgeReady(runtime) {
 async function readCodexMemorySnapshot(runtime, rawThreadId = null) {
   const store = requireCodexMemoryStore(runtime);
   const threadId = rawThreadId == null || rawThreadId === "" ? null : String(rawThreadId);
-  const [configRead, featureList, files] = await Promise.all([
+  const [configRead, featureList, files, nativeStatus] = await Promise.all([
     runtime.bridge.request(
       "config/read",
       { includeLayers: true, cwd: runtime.defaultProject },
@@ -31788,12 +31861,22 @@ async function readCodexMemorySnapshot(runtime, rawThreadId = null) {
       { timeoutMs: 30_000 },
     ).catch(() => null),
     store.listMemories(),
+    codexRuntimeSupports(CODEX_RUNTIME_CAPABILITIES, "memoryStatus")
+      ? runtime.bridge.request("memory/status", {}, { timeoutMs: 15_000 })
+        .then((value) => ({
+          v2Ready: value?.v2Ready === true,
+          v2ConsolidatedThreads: Number.isSafeInteger(value?.v2ConsolidatedThreads)
+            && value.v2ConsolidatedThreads >= 0 ? value.v2ConsolidatedThreads : 0,
+        }))
+        .catch(() => null)
+      : null,
   ]);
   const configuration = publicCodexMemoryConfiguration(configRead, featureList);
   const tracked = threadId ? store.threadMode(threadId) : null;
   const configuredMode = tracked?.mode || "enabled";
   return {
     configuration,
+    nativeStatus,
     thread: threadId ? {
       id: threadId,
       configuredMode,
@@ -32261,7 +32344,7 @@ async function listCodexMcpServerStatus(runtime, payload = {}) {
 
 function normalizeCodexMcpStatusParams(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw httpError(400, "MCP 状态参数无效");
-  const allowed = new Set(["cursor", "limit", "detail", "threadId"]);
+  const allowed = new Set(["cursor", "limit", "detail", "threadId", "serverName"]);
   if (Object.keys(value).some((key) => !allowed.has(key))) throw httpError(400, "MCP 状态参数包含未知字段");
   const params = {};
   if (value.cursor != null && value.cursor !== "") {
@@ -32281,12 +32364,22 @@ function normalizeCodexMcpStatusParams(value) {
     params.detail = value.detail;
   }
   Object.assign(params, normalizeOptionalCodexMcpThreadId(value.threadId));
+  if (value.serverName != null) {
+    if (!codexRuntimeSupports(CODEX_RUNTIME_CAPABILITIES, "mcpServerFilter")) {
+      throw codexRuntimeFeatureUnavailable("MCP 单服务查询");
+    }
+    try {
+      params.serverName = normalizeCodexMcpServerName(value.serverName);
+    } catch (error) {
+      throw httpError(400, error.message);
+    }
+  }
   return params;
 }
 
 function normalizeCodexMcpResourceReadParams(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw httpError(400, "MCP 资源参数无效");
-  const allowed = new Set(["server", "uri", "threadId"]);
+  const allowed = new Set(["server", "uri", "threadId", "target"]);
   if (Object.keys(value).some((key) => !allowed.has(key))) throw httpError(400, "MCP 资源参数包含未知字段");
   let server;
   try {
@@ -32295,7 +32388,23 @@ function normalizeCodexMcpResourceReadParams(value) {
     throw httpError(400, error.message);
   }
   const uri = boundedCodexMcpRpcString(value.uri, 8_192, "MCP 资源 URI");
-  return { server, uri, ...normalizeOptionalCodexMcpThreadId(value.threadId) };
+  const params = { server, uri, ...normalizeOptionalCodexMcpThreadId(value.threadId) };
+  if (value.target != null) {
+    if (!codexRuntimeSupports(CODEX_RUNTIME_CAPABILITIES, "mcpResourceTarget")) {
+      throw codexRuntimeFeatureUnavailable("MCP 资源目标查询");
+    }
+    if (typeof value.target !== "object" || Array.isArray(value.target)
+      || !Object.hasOwn(value.target, "linkId")
+      || Object.keys(value.target).some((key) => !["connectorId", "linkId"].includes(key))) {
+      throw httpError(400, "MCP 资源目标无效");
+    }
+    params.target = {
+      connectorId: boundedCodexMcpRpcString(value.target.connectorId, 256, "MCP 连接器 ID"),
+      linkId: value.target.linkId === null
+        ? null : boundedCodexMcpRpcString(value.target.linkId, 256, "MCP 连接授权 ID"),
+    };
+  }
+  return params;
 }
 
 function normalizeCodexMcpToolCallParams(value) {
@@ -39181,6 +39290,8 @@ function legacySessionCanAuthenticate(request) {
 
 function isPublicAuthPath(requestPath) {
   return requestPath === "/login.html"
+    || (!RESCUE_MODE && ["/ssh-access.html", "/ssh-direct.html", "/web-ssh.js", "/web-ssh.css"].includes(requestPath))
+    || (!RESCUE_MODE && (requestPath.startsWith("/vendor/xterm/") || requestPath.startsWith("/vendor/xterm-fit/")))
     || requestPath === "/login.js"
     || requestPath === "/login.css"
     || requestPath === "/i18n.js"
@@ -39925,6 +40036,7 @@ function shutdown() {
     codexAppInstallBrowser?.closeAll(),
     mobileAppPreviewValidator?.close(),
     temporarySshAccess.close(),
+    webSshService?.close(),
     closeImageExecutionSystem(),
     closeMapRenderSystem(),
     ...runtimes.map((runtime) => Promise.all([

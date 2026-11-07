@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>WFL Codex Web Workspace</title>
-    <link rel="stylesheet" href="/styles.css?v=0.45.1" />
+    <link rel="stylesheet" href="/styles.css?v=0.45.6" />
   </head>
   <body>
     <div class="desktop" id="desktop">
@@ -28,9 +28,9 @@
             </button>
           </div>
         </div>
-        <button class="version-button" id="versionButton" type="button" title="检查升级" aria-label="当前版本 0.45.1，检查升级" data-mobile-label="0.45.1">
+        <button class="version-button" id="versionButton" type="button" title="检查升级" aria-label="当前版本 0.45.6，检查升级" data-mobile-label="0.45.6">
           <i data-lucide="refresh-cw"></i>
-          <span id="versionLabel">v0.45.1</span>
+          <span id="versionLabel">v0.45.6</span>
         </button>
         <div class="connection-pill" id="connectionPill" data-status="starting" role="status" aria-live="polite" aria-label="正在连接">
           <span id="connectionText">正在连接</span>
@@ -730,7 +730,8 @@
                           <label class="form-field">
                             <span>子代理推理强度</span>
                             <small>官方 Codex agents.default_subagent_reasoning_effort</small>
-                            <select id="collaborationSubagentEffortInput">
+                            <input id="collaborationSubagentEffortInput" type="text" list="collaborationSubagentEffortOptions" value="high" autocomplete="off" aria-label="子代理推理强度" />
+                            <datalist id="collaborationSubagentEffortOptions">
                               <option value="none">无</option>
                               <option value="minimal">最少</option>
                               <option value="low">低</option>
@@ -738,8 +739,9 @@
                               <option value="high" selected>高</option>
                               <option value="xhigh">极高</option>
                               <option value="max">最大</option>
-                              <option value="ultra">自动协作</option>
-                            </select>
+                              <option value="ultra">最高</option>
+                            </datalist>
+                            <small>可选择模型支持的强度，或填写新版 Codex 的数字/自定义强度；由 Codex 校验并发送。</small>
                           </label>
                           <label class="form-field">
                             <span>最大并发线程</span>
@@ -1050,7 +1052,7 @@
           <div class="version-overview" id="versionOverview" data-admin="true">
             <div>
               <span id="currentVersionLabel">当前网页</span>
-              <strong id="currentVersionValue">v0.45.1</strong>
+              <strong id="currentVersionValue">v0.45.6</strong>
             </div>
             <div id="versionDateTile" hidden>
               <span>本版发布</span>
@@ -3790,6 +3792,12 @@
                   <button class="toolbox-card-action primary-button" id="toolboxOpenServerFilesButton" type="button" data-toolbox-action="server-files" title="打开服务器文件管理器"><span>打开</span><i data-lucide="arrow-up-right"></i></button>
                   <button class="toolbox-favorite" type="button" data-toolbox-favorite="server-files" title="收藏服务器文件管理器" aria-label="收藏服务器文件管理器" aria-pressed="false"><i data-lucide="star"></i></button>
                 </article>
+                <article class="toolbox-tool-card" data-toolbox-tool-id="web-ssh" data-toolbox-category="other" data-toolbox-admin="true" data-toolbox-search="网页 SSH 终端 服务器 中转 分享 访问 密钥 运维 管理员">
+                  <span class="toolbox-card-icon"><i data-lucide="terminal"></i></span>
+                  <div class="toolbox-card-copy"><strong>网页 SSH</strong><span>本站中转终端，配置服务器并分享访问密钥</span></div>
+                  <a class="toolbox-card-action primary-button" id="toolboxOpenWebSshButton" href="/ssh.html" target="_blank" rel="noopener noreferrer" data-toolbox-action="web-ssh" title="打开网页 SSH"><span>打开</span><i data-lucide="arrow-up-right"></i></a>
+                  <button class="toolbox-favorite" type="button" data-toolbox-favorite="web-ssh" title="收藏网页 SSH" aria-label="收藏网页 SSH" aria-pressed="false"><i data-lucide="star"></i></button>
+                </article>
               </div>
               <div class="toolbox-empty-state" id="toolboxEmpty" hidden>
                 <i data-lucide="search-x"></i>
@@ -4756,8 +4764,8 @@
     <div class="mobile-action-label" id="mobileActionLabel" role="status" aria-live="polite" hidden></div>
     <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
-    <script src="/i18n.js?v=0.45.1"></script>
-    <script src="/vendor/lucide/lucide.min.js?v=0.45.1"></script>
-    <script src="/boot.js?v=0.45.1" data-version="0.45.1" data-asset-version="0.45.1"></script>
+    <script src="/i18n.js?v=0.45.6"></script>
+    <script src="/vendor/lucide/lucide.min.js?v=0.45.6"></script>
+    <script src="/boot.js?v=0.45.6" data-version="0.45.6" data-asset-version="0.45.6"></script>
   </body>
 </html>

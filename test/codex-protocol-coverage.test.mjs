@@ -19,31 +19,31 @@ import {
 const serverSource = await fs.readFile(new URL("../server.mjs", import.meta.url), "utf8");
 const baselineMethods = JSON.parse(
   await fs.readFile(
-    new URL("./fixtures/codex-app-server-0.153.4-client-methods.json", import.meta.url),
+    new URL("./fixtures/codex-app-server-0.159.3-client-methods.json", import.meta.url),
     "utf8",
   ),
 );
 const baselineServerMethods = JSON.parse(
   await fs.readFile(
-    new URL("./fixtures/codex-app-server-0.153.4-server-methods.json", import.meta.url),
+    new URL("./fixtures/codex-app-server-0.159.3-server-methods.json", import.meta.url),
     "utf8",
   ),
 );
 const baselineNotifications = JSON.parse(
   await fs.readFile(
-    new URL("./fixtures/codex-app-server-0.153.4-notifications.json", import.meta.url),
+    new URL("./fixtures/codex-app-server-0.159.3-notifications.json", import.meta.url),
     "utf8",
   ),
 );
 const baselineSchemaManifest = JSON.parse(
   await fs.readFile(
-    new URL("./fixtures/codex-app-server-0.153.4-schema-manifest.json", import.meta.url),
+    new URL("./fixtures/codex-app-server-0.159.3-schema-manifest.json", import.meta.url),
     "utf8",
   ),
 );
 
 test("Codex app-server protocol inventory is complete and unique", () => {
-  assert.equal(CODEX_PROTOCOL_BASELINE, "codex-cli 0.153.4");
+  assert.equal(CODEX_PROTOCOL_BASELINE, "codex-cli 0.159.3");
   assert.equal(baselineMethods.baseline, CODEX_PROTOCOL_BASELINE);
   assert.equal(baselineMethods.command, "codex app-server generate-ts --experimental");
   assert.deepEqual(
@@ -101,7 +101,7 @@ test("Codex notification inventories are complete, unique, and explicitly review
   );
   const serverSnapshot = codexServerNotificationCoverageSnapshot();
   const clientSnapshot = codexClientNotificationCoverageSnapshot();
-  assert.equal(serverSnapshot.total, 83);
+  assert.equal(serverSnapshot.total, 85);
   assert.equal(serverSnapshot.counts.browser, 55);
   assert.equal(clientSnapshot.total, 1);
   assert.equal(serverSnapshot.counts.planned, 0);
@@ -129,30 +129,30 @@ test("stable and experimental generated schema surfaces stay separately pinned",
   assert.match(baselineSchemaManifest.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.ok(Number.isFinite(Date.parse(baselineSchemaManifest.generatedAt)));
   assert.deepEqual(baselineSchemaManifest.stable.counts, {
-    clientRequests: 99,
+    clientRequests: 104,
     serverRequests: 10,
     clientNotifications: 1,
-    serverNotifications: 81,
+    serverNotifications: 83,
   });
   assert.deepEqual(baselineSchemaManifest.experimental.counts, {
-    clientRequests: 155,
+    clientRequests: 167,
     serverRequests: 11,
     clientNotifications: 1,
-    serverNotifications: 81,
+    serverNotifications: 83,
   });
   assert.equal(Object.keys(baselineSchemaManifest.stable.sha256).length, 6);
   assert.equal(Object.keys(baselineSchemaManifest.experimental.sha256).length, 6);
   assert.deepEqual(baselineSchemaManifest.typescript.stable.counts, {
-    clientRequests: 102,
+    clientRequests: 107,
     serverRequests: 10,
     clientNotifications: 1,
-    serverNotifications: 83,
+    serverNotifications: 85,
   });
   assert.deepEqual(baselineSchemaManifest.typescript.experimental.counts, {
-    clientRequests: 158,
+    clientRequests: 170,
     serverRequests: 11,
     clientNotifications: 1,
-    serverNotifications: 83,
+    serverNotifications: 85,
   });
   assert.deepEqual(baselineMethods.legacyMethods, [
     "getAuthStatus",
@@ -174,7 +174,7 @@ test("installed Codex CLI and regenerated schemas match the reviewed baseline", 
     { cwd: fileURLToPath(new URL("..", import.meta.url)), encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /fixtures match codex-cli 0\.153\.4/);
+  assert.match(result.stdout, /fixtures match codex-cli 0\.159\.3/);
 });
 
 test("browser-routed protocol methods stay visible in the server allowlist", () => {
@@ -257,8 +257,8 @@ test("coverage snapshot reports every reviewed method", () => {
   );
   assert.ok(snapshot.counts.browser > 50);
   assert.equal(snapshot.counts.planned, 0);
-  assert.equal(snapshot.counts.deferred, 56);
-  assert.equal(snapshot.counts.internal, 21);
+  assert.equal(snapshot.counts.deferred, 67);
+  assert.equal(snapshot.counts.internal, 22);
 });
 
 test("high-risk process APIs stay deferred behind the bounded terminal replacement", () => {
@@ -277,11 +277,10 @@ test("high-risk process APIs stay deferred behind the bounded terminal replaceme
   }
 });
 
-test("deprecated thread rollback is not part of the active implementation plan", () => {
+test("removed thread rollback is absent from the current protocol and browser allowlist", () => {
   const rollback = CODEX_PROTOCOL_COVERAGE.find((entry) => entry.method === "thread/rollback");
-  assert.equal(rollback?.state, "deferred");
-  assert.equal(rollback?.deprecated, true);
-  assert.match(rollback?.replacement || "", /thread\/fork/);
+  assert.equal(rollback, undefined);
+  assert.equal(sourceSet("RPC_ALLOWLIST").has("thread/rollback"), false);
 });
 
 function sourceSet(name) {

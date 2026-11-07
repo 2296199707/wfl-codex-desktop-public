@@ -94,7 +94,8 @@ server.on("upgrade", (request, socket, head) => {
   const rescueSocket = pathname === "/rescue/ws";
   const vncSocket = OFFICIAL_BROWSER_VNC_PATHS.has(pathname);
   const deviceSocket = pathname === "/device/ws";
-  if ((!rescueSocket && !vncSocket && !deviceSocket && pathname !== "/ws") || !validWebSocketOrigin(request)) {
+  const sshSocket = pathname === "/ssh/ws";
+  if ((!rescueSocket && !vncSocket && !deviceSocket && !sshSocket && pathname !== "/ws") || !validWebSocketOrigin(request)) {
     socket.destroy();
     return;
   }
@@ -114,7 +115,7 @@ server.on("upgrade", (request, socket, head) => {
       if (settled) return;
       settled = true;
       wss.handleUpgrade(request, socket, head, (client) => {
-        bridges.set(client, bridgeWebSocket(client, upstream, request.headers, { opaque: vncSocket || deviceSocket }));
+        bridges.set(client, bridgeWebSocket(client, upstream, request.headers, { opaque: vncSocket || deviceSocket || sshSocket }));
         client.once("close", () => bridges.delete(client));
         wss.emit("connection", client, request);
       });
@@ -192,6 +193,9 @@ function proxyHttpRequestOnce(request, response, target, body = null, channel = 
       : "Service is updating. Retry shortly.\n");
   });
   request.on("aborted", () => upstream.destroy());
+  if (request.url?.startsWith("/api/tools/web-ssh/access/files")) {
+    response.once("close", () => { if (!response.writableFinished) upstream.destroy(); });
+  }
   if (body === null) request.pipe(upstream);
   else {
     if (body.length) upstream.setHeader?.("Content-Length", String(body.length));

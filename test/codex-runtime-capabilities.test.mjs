@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   codexVersionAtLeast,
   codexRuntimeCapabilities,
+  codexRuntimeSchemaCapabilities,
   codexRuntimeFeatureMethods,
   codexRuntimeSupports,
 } from "../lib/codex-runtime-capabilities.mjs";
@@ -23,6 +24,10 @@ test("Codex 0.146 keeps core chat while disabling 0.147-only runtime features", 
     sectionPositionSort: false,
     pluginSearch: false,
     cursorMigration: true,
+    memoryStatus: false,
+    itemAnchors: false,
+    mcpServerFilter: false,
+    mcpResourceTarget: false,
   });
   assert.equal(codexRuntimeSupports(capabilities, "conversationSections"), false);
 });
@@ -59,6 +64,25 @@ test("Codex version range checks allow newer runtimes without accepting unsuppor
   assert.equal(codexVersionAtLeast("codex-cli 0.149.0", "codex-cli 0.149.0"), true);
   assert.equal(codexVersionAtLeast("codex-cli 0.146.0", "0.149.0"), false);
   assert.equal(codexVersionAtLeast("not-codex", "0.149.0"), false);
+});
+
+test("new optional fields require generated schema evidence, not just a version or method name", () => {
+  const clientRequests = ["thread/items/list", "mcpServerStatus/list", "mcpServer/resource/read", "memory/status"];
+  const old = codexRuntimeCapabilities({ version: "0.159.3", clientRequests });
+  assert.equal(old.memoryStatus, true);
+  assert.equal(old.itemAnchors, false);
+  assert.equal(old.mcpServerFilter, false);
+  const schemaCapabilities = codexRuntimeSchemaCapabilities({
+    "ThreadItemsListCursor.ts": "export type ThreadItemsListCursor = string | ThreadItemsListAnchor;",
+    "ThreadItemsListAnchor.ts": 'export type ThreadItemsListAnchor = { "type": "item", itemId: string };',
+    "ListMcpServerStatusParams.ts": "export type ListMcpServerStatusParams = { serverName?: string | null };",
+    "McpResourceReadParams.ts": "export type McpResourceReadParams = { target?: McpResourceReadTarget | null };",
+  });
+  const current = codexRuntimeCapabilities({ clientRequests, schemaCapabilities });
+  assert.equal(current.itemAnchors, true);
+  assert.equal(current.mcpServerFilter, true);
+  assert.equal(current.mcpResourceTarget, true);
+  assert.equal(codexRuntimeCapabilities({ schemaCapabilities }).itemAnchors, false);
 });
 
 async function readClientMethods(version) {

@@ -1,0 +1,70 @@
+{
+  "baseline": "codex-cli 0.159.3",
+  "generatedAt": "2026-10-01T13:11:31.270Z",
+  "commands": {
+    "stable": "codex app-server generate-json-schema --out <dir>",
+    "experimental": "codex app-server generate-json-schema --experimental --out <dir>"
+  },
+  "stable": {
+    "counts": {
+      "clientRequests": 104,
+      "serverRequests": 10,
+      "clientNotifications": 1,
+      "serverNotifications": 83
+    },
+    "sha256": {
+      "ClientRequest.json": "54126ef9d3a4aa8078f3a136c22eb2a46987ee29228778b1d9039a7cce90cf51",
+      "ServerRequest.json": "bb99b2f4c87f01d0e1465de6efbcbc00cbf92165dc6ca5ef60164d4a568315ae",
+      "ClientNotification.json": "4446a1ae8626aa55d812836bfc2dae24213500d87c4759af2698f6199ea5b59f",
+      "ServerNotification.json": "00111a8d8738183df997c9c3b800355e330d7972e96e95a48cf77804cbc6b381",
+      "codex_app_server_protocol.schemas.json": "0d063e68d1b40f4e9b388c9fccbf0a8e10ebfa25afb769c6218088b7c69173d4",
+      "codex_app_server_protocol.v2.schemas.json": "f77d76b2b7e883009e5080c53cb88d7e829ebd259c66a5a6417adc1855372972"
+    }
+  },
+  "experimental": {
+    "counts": {
+      "clientRequests": 167,
+      "serverRequests": 11,
+      "clientNotifications": 1,
+      "serverNotifications": 83
+    },
+    "sha256": {
+      "ClientRequest.json": "0c0f031935bbd198697669ea44c896aa54ff2a35870c1e7897edd2f5a9a2f4fd",
+      "ServerRequest.json": "c9d016ae54367f5038555b9300aaee8dda5cab15b0360a5de7e2f46fd529cc15",
+      "ClientNotification.json": "4446a1ae8626aa55d812836bfc2dae24213500d87c4759af2698f6199ea5b59f",
+      "ServerNotification.json": "0b83d9049cceacd38ce285edd43878a4db042d62b10b2120011cbcfd93ca80b5",
+      "codex_app_server_protocol.schemas.json": "643d0df9ed92af37e9f7a14af703a040015c3465ed8b1fec0bfc117ed615a682",
+      "codex_app_server_protocol.v2.schemas.json": "88ce2fcde746f8d0c02bd26627f5975cfe37b4a3f698d49e04f74a9dff548f01"
+    }
+  },
+  "typescript": {
+    "stable": {
+      "counts": {
+        "clientRequests": 107,
+        "serverRequests": 10,
+        "clientNotifications": 1,
+        "serverNotifications": 85
+      },
+      "sha256": {
+        "ClientRequest.ts": "e2761659dcbdc94e98768fbbd97987a55334393b670aaf9412b54a779f3b13fa",
+        "ServerRequest.ts": "30880f1a8da876eec30600ba27560d05ad0db5c645e14564c9c79a2429274f06",
+        "ClientNotification.ts": "96692c191ff9ac32c2688b46a0a04f23d15646937adc352f2adcc8211c6d17a0",
+        "ServerNotification.ts": "459d76defb8b368e906b2afbdd14f5ea8cae33eabdd28de097fd703c6f38c4ad"
+      }
+    },
+    "experimental": {
+      "counts": {
+        "clientRequests": 170,
+        "serverRequests": 11,
+        "clientNotifications": 1,
+        "serverNotifications": 85
+      },
+      "sha256": {
+        "ClientRequest.ts": "f21e6307c8c2c7f2b5a32d434cdca238e3ec19b71a1f40b60f8c305289860436",
+        "ServerRequest.ts": "1c5837adbfbdd005f387478ba87840808d1353b47b82dcf63739a78bb1c8d3be",
+        "ClientNotification.ts": "96692c191ff9ac32c2688b46a0a04f23d15646937adc352f2adcc8211c6d17a0",
+        "ServerNotification.ts": "459d76defb8b368e906b2afbdd14f5ea8cae33eabdd28de097fd703c6f38c4ad"
+      }
+    }
+  }
+}

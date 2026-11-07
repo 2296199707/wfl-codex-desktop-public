@@ -515,7 +515,15 @@ export function mergeLoadedItemPage(
 ) {
   const current = Array.isArray(currentItems) ? currentItems : [];
   const incoming = Array.isArray(incomingEntries)
-    ? incomingEntries.map((entry) => entry?.item).filter((item) => item && typeof item === "object")
+    ? incomingEntries.map((entry) => {
+      const item = entry?.item;
+      if (!item || typeof item !== "object") return null;
+      const timestamps = {};
+      for (const key of ["startedAtMs", "completedAtMs"]) {
+        if (Number.isSafeInteger(entry[key]) && entry[key] >= 0) timestamps[key] = entry[key];
+      }
+      return { ...item, ...timestamps };
+    }).filter(Boolean)
     : [];
   const incomingById = new Map(incoming.filter((item) => item.id).map((item) => [item.id, item]));
   const currentById = new Map(current.filter((item) => item.id).map((item) => [item.id, item]));

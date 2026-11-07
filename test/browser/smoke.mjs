@@ -1132,7 +1132,7 @@ test("uses official subagent settings without synthetic collaboration prompts", 
   assert.equal(await page.locator("#collaborationStrategyInput").count(), 0);
   assert.equal(await page.locator("#collaborationPromptPreview").count(), 0);
   await page.locator("#collaborationSubagentEnabledInput").check();
-  await page.locator("#collaborationSubagentEffortInput").selectOption("xhigh");
+  await page.locator("#collaborationSubagentEffortInput").fill("xhigh");
   await page.locator("#collaborationThreadsInput").selectOption("6");
   await page.locator("#collaborationDepthInput").selectOption("1");
   await page.locator("#collaborationPresetInput").selectOption("");

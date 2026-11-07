@@ -8,10 +8,10 @@ import {
 
 const fixtureRoot = new URL("./fixtures/", import.meta.url);
 const [client, server, notifications, manifest] = await Promise.all([
-  readFixture("codex-app-server-0.153.4-client-methods.json"),
-  readFixture("codex-app-server-0.153.4-server-methods.json"),
-  readFixture("codex-app-server-0.153.4-notifications.json"),
-  readFixture("codex-app-server-0.153.4-schema-manifest.json"),
+  readFixture("codex-app-server-0.159.3-client-methods.json"),
+  readFixture("codex-app-server-0.159.3-server-methods.json"),
+  readFixture("codex-app-server-0.159.3-notifications.json"),
+  readFixture("codex-app-server-0.159.3-schema-manifest.json"),
 ]);
 const reviewedSurface = {
   clientRequests: client.methods,
@@ -20,9 +20,9 @@ const reviewedSurface = {
   serverNotifications: notifications.experimental.server,
 };
 
-test("Codex compatibility snapshot reports the reviewed 0.153.4 surface", () => {
+test("Codex compatibility snapshot reports the reviewed 0.159.3 surface", () => {
   const snapshot = buildCodexProtocolCompatibility({
-    installedVersion: "codex-cli 0.153.4",
+    installedVersion: "codex-cli 0.159.3",
     reviewedSurface,
     detectedSurface: reviewedSurface,
     generatedAt: manifest.generatedAt,
@@ -30,10 +30,10 @@ test("Codex compatibility snapshot reports the reviewed 0.153.4 surface", () => 
   });
   assert.equal(snapshot.state, "compatible");
   assert.equal(snapshot.compatible, true);
-  assert.equal(snapshot.snapshotVersion, "0.153.4");
-  assert.equal(snapshot.surfaces.clientRequests.reviewed, 158);
+  assert.equal(snapshot.snapshotVersion, "0.159.3");
+  assert.equal(snapshot.surfaces.clientRequests.reviewed, 170);
   assert.equal(snapshot.surfaces.serverRequests.reviewed, 11);
-  assert.equal(snapshot.surfaces.serverNotifications.reviewed, 83);
+  assert.equal(snapshot.surfaces.serverNotifications.reviewed, 85);
   assert.equal(snapshot.surfaces.clientNotifications.reviewed, 1);
   assert.equal(snapshot.coverage.clientRequests.counts.planned, 0);
   assert.equal(snapshot.runtimeCapabilities.conversationSections, true);
@@ -53,7 +53,7 @@ test("Codex compatibility snapshot identifies added, removed, and unreviewed met
     .filter((method) => method !== "thread/read")
     .concat("thread/newMethod");
   const snapshot = buildCodexProtocolCompatibility({
-    installedVersion: "codex-cli 0.153.4",
+    installedVersion: "codex-cli 0.159.3",
     reviewedSurface,
     detectedSurface: detected,
     generatedAt: manifest.generatedAt,
@@ -71,7 +71,7 @@ test("Codex compatibility snapshot identifies added, removed, and unreviewed met
 
 test("a newer CLI remains partially compatible when its current method names match", () => {
   const snapshot = buildCodexProtocolCompatibility({
-    installedVersion: "codex-cli 0.154.0",
+    installedVersion: "codex-cli 0.160.0",
     reviewedSurface,
     detectedSurface: reviewedSurface,
     generatedAt: manifest.generatedAt,
@@ -129,7 +129,7 @@ test("non-core method removal reports the limited feature without forcing rollba
   const detected = structuredClone(reviewedSurface);
   detected.clientRequests = detected.clientRequests.filter((method) => method !== "app/list");
   const snapshot = buildCodexProtocolCompatibility({
-    installedVersion: "codex-cli 0.154.0",
+    installedVersion: "codex-cli 0.160.0",
     reviewedSurface,
     detectedSurface: detected,
     generatedAt: manifest.generatedAt,
@@ -177,8 +177,12 @@ test("the real retained 0.146 CLI exposes core chat but not 0.147-only capabilit
 
 test("installed Codex lightweight TypeScript probe matches the reviewed snapshot", { timeout: 20_000 }, async () => {
   const snapshot = await inspectCodexProtocolCompatibility();
-  assert.equal(snapshot.installedVersion, "codex-cli 0.153.4");
+  assert.equal(snapshot.installedVersion, "codex-cli 0.159.3");
   assert.equal(snapshot.compatible, true);
+  assert.equal(snapshot.runtimeCapabilities.memoryStatus, true);
+  assert.equal(snapshot.runtimeCapabilities.itemAnchors, true);
+  assert.equal(snapshot.runtimeCapabilities.mcpServerFilter, true);
+  assert.equal(snapshot.runtimeCapabilities.mcpResourceTarget, true);
   assert.ok(snapshot.checkedAt > 0);
 });
 

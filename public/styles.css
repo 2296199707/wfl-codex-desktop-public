@@ -12183,6 +12183,10 @@ dialog::backdrop {
   background: color-mix(in srgb, var(--surface-subtle) 86%, var(--surface));
 }
 
+.persistent-ssh-record[data-web-terminal="true"] {
+  grid-template-columns: 34px minmax(0, 1fr) auto 34px 34px 34px;
+}
+
 .persistent-ssh-record-toggle {
   min-width: 103px;
   justify-content: flex-end;
@@ -18922,6 +18926,10 @@ dialog::backdrop {
 
   .persistent-ssh-record {
     grid-template-columns: 34px minmax(0, 1fr) 34px 34px;
+  }
+
+  .persistent-ssh-record[data-web-terminal="true"] {
+    grid-template-columns: 34px minmax(0, 1fr) 34px 34px 34px;
   }
 
   .persistent-ssh-record-toggle {

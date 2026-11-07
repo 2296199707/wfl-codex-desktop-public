@@ -46,6 +46,12 @@ Apache-2.0, 8 ISC, 4 BSD-3-Clause, 2 LGPL-3.0-or-later, 2 OFL-1.1, 1 MPL-2.0,
 1 0BSD, 1 Unlicense, and 1 package declaring combined Apache-2.0/LGPL/MIT.
 A later lockfile change requires a fresh audit.
 
+The browser SSH tool added on 2026-09-30 uses @xterm/xterm 6.0.0 and
+@xterm/addon-fit 0.11.0 (MIT), from https://github.com/xtermjs/xterm.js.
+Both are served locally from their installed npm packages. Retain their
+LICENSE files when distributing the application with dependencies. These
+additions are not included in the historical 0.44.55 audit counts above.
+
 Playwright downloads browser binaries separately. This repository does not
 redistribute Chromium; a server operator that mirrors those binaries must
 also provide Chromium's BSD and third-party notices.

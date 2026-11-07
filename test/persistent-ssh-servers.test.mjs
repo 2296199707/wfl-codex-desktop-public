@@ -279,6 +279,64 @@ test("persistent SSH only stores an encrypted password after explicit compatibil
   }
 });
 
+test("browser SSH terminals are independent of AI profile and plugin switches", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-persistent-terminal-"));
+  const connector = new RejectingSshConnector();
+  const store = await new PersistentSshServerStore(directory, { connector, keyGenerator: algorithmKeyGenerator }).initialize();
+  t.after(async () => { await store.close(); await fs.rm(directory, { recursive: true, force: true }); });
+  const profile = await store.create({ name: "Terminal", host: "server.example.com", username: "deploy", password: "test-password", allowPasswordCompatibility: true });
+  const terminal = await store.connectTerminal(profile.id);
+  await store.execute(profile.id, "test-command");
+  const ai = connector.connections.at(-1).client;
+  assert.notEqual(terminal.client, ai);
+  await store.setEnabled(profile.id, false);
+  assert.equal(ai.ended, true);
+  assert.equal(terminal.client.ended, false);
+  const other = await store.connectTerminal(profile.id);
+  await store.disconnectAll();
+  assert.equal(other.client.ended, false);
+  await store.revoke(profile.id);
+  assert.equal(terminal.client.ended, true);
+  assert.equal(other.client.ended, true);
+  assert.equal(store.terminalConnections.size, 0);
+});
+
+test("deleting a persistent target during terminal authentication cannot leave a live connection", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-persistent-terminal-pending-"));
+  const connector = new RejectingSshConnector();
+  const store = await new PersistentSshServerStore(directory, { connector, keyGenerator: algorithmKeyGenerator }).initialize();
+  t.after(async () => { await store.close(); await fs.rm(directory, { recursive: true, force: true }); });
+  const profile = await store.create({ name: "Terminal", host: "server.example.com", username: "deploy", password: "test-password", allowPasswordCompatibility: true });
+  let resolveConnection;
+  connector.connect = () => new Promise((resolve) => { resolveConnection = resolve; });
+  const pending = store.connectTerminal(profile.id);
+  const rejected = assert.rejects(pending, { statusCode: 404 });
+  const deadline = Date.now() + 2_000;
+  while (!resolveConnection) {
+    assert.ok(Date.now() < deadline, "terminal connection did not start");
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  await store.revoke(profile.id);
+  const client = new FakeSshClient();
+  resolveConnection({ client });
+  await rejected;
+  assert.equal(client.ended, true);
+  assert.equal(store.terminalConnections.size, 0);
+});
+
+test("AI-only no-pty SSH keys are not silently repurposed for a browser terminal", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-persistent-terminal-key-"));
+  const connector = new FakeSshConnector();
+  const store = await new PersistentSshServerStore(directory, { connector, keyGenerator: fakeKeyGenerator }).initialize();
+  t.after(async () => { await store.close(); await fs.rm(directory, { recursive: true, force: true }); });
+  const profile = await store.create({ name: "AI", host: "server.example.com", username: "deploy", password: "test-password" });
+  assert.match(connector.installs[0].authorizedKeyLine, /no-pty/u);
+  await assert.rejects(store.connectTerminal(profile.id), { statusCode: 409 });
+  assert.equal(connector.connections.length, 0);
+  assert.equal(connector.installs.length, 1);
+  assert.equal(connector.removals.length, 0);
+});
+
 test("persistent SSH reuses one authenticated connection for sequential commands", async () => {
   const stateDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-persistent-ssh-pool-"));
   const connector = new FakeSshConnector();

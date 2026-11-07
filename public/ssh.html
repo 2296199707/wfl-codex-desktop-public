@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>网页 SSH · WFL</title>
+    <link rel="stylesheet" href="/vendor/xterm/css/xterm.css?v=0.45.6" />
+    <link rel="stylesheet" href="/web-ssh.css?v=0.45.6" />
+  </head>
+  <body data-mode="admin">
+    <main class="ssh-workspace">
+      <header class="page-header">
+        <div><span class="eyebrow">WFL WEB SSH</span><h1>网页 SSH</h1><p>本站中转连接服务器，生成直达链接后即可在其他设备打开终端。</p></div>
+        <a class="secondary" href="/">返回工作区</a>
+      </header>
+      <p id="pageStatus" class="page-status" role="status" aria-live="polite"></p>
+      <div class="workspace-grid">
+        <aside class="management">
+          <section class="card">
+            <h2>服务器</h2>
+            <label>选择服务器<select id="targetSelect" required></select></label>
+            <p id="targetDescription" class="muted"></p>
+            <p class="muted">持久 SSH 的加密密码配置可直接使用，与 AI 开关独立。AI 专用公钥禁用了终端，需要在本页另配密码或私钥。</p>
+            <div class="actions"><button id="connectButton" class="primary" type="button">打开终端</button><button id="refreshButton" class="secondary" type="button">刷新</button><button id="deleteTargetButton" class="danger" type="button" disabled>删除</button></div>
+          </section>
+          <details class="card" id="serverEditor">
+            <summary>添加服务器</summary>
+            <form id="targetForm" autocomplete="off">
+              <label>名称<input name="name" maxlength="120" required placeholder="例如：生产服务器" /></label>
+              <div class="fields-row"><label>IP 或域名<input name="host" maxlength="253" required placeholder="server.example.com" spellcheck="false" /></label><label class="port-field">SSH 端口<input name="port" type="number" min="1" max="65535" value="22" required /></label></div>
+              <label>SSH 用户名<input name="username" maxlength="128" value="root" autocomplete="off" required /></label>
+              <label>认证方式<select id="authMode"><option value="password">密码</option><option value="private-key">私钥</option></select></label>
+              <label id="passwordField">SSH 密码<input name="password" type="password" autocomplete="new-password" /></label>
+              <div id="privateKeyFields" hidden><label>SSH 私钥<textarea name="privateKey" rows="5" spellcheck="false" placeholder="粘贴完整私钥，不会返回浏览器"></textarea></label><label>私钥口令（可选）<input name="passphrase" type="password" autocomplete="new-password" /></label></div>
+              <p class="muted">保存前会读取主机指纹供你确认，并验证 SSH 登录。密码和私钥在本站加密保存，不修改远端授权文件。</p>
+              <button class="primary" id="saveTargetButton" type="submit">校验并保存</button>
+            </form>
+          </details>
+          <section class="card">
+            <h2>分享访问</h2>
+            <p class="muted">链接就是访问凭证，打开即连接。长期有效，可重复使用，拥有所选 SSH 账号的完整终端和文件权限。</p>
+            <form id="directGrantForm" autocomplete="off">
+              <label>链接名称（可选）<input name="name" maxlength="120" placeholder="例如：自己的手机" /></label>
+              <button class="primary" id="createDirectGrantButton" type="submit">生成直达链接</button>
+            </form>
+            <div class="grant-result" id="directGrantResult" hidden>
+              <label>直达链接<input id="directLink" type="text" readonly spellcheck="false" /></label>
+              <div class="actions"><button class="secondary" id="copyDirectLinkButton" type="button">复制链接</button><a class="secondary" id="openDirectLink" target="_blank" rel="noopener noreferrer">打开终端</a></div>
+              <p class="muted">打开此链接无需登录本站或输入密码。以后也可在下方列表重新复制。</p>
+            </div>
+            <details class="legacy-access">
+            <summary>访问密钥（原方式）</summary>
+            <form id="grantForm" autocomplete="off">
+              <label>用途名称<input name="name" maxlength="120" placeholder="例如：自己的笔记本" /></label>
+              <label>访问密钥<input name="accessKey" type="password" autocomplete="new-password" placeholder="留空自动生成安全随机密钥" /></label>
+              <label>有效期<select name="expiresInSeconds"><option value="3600">1 小时</option><option value="86400" selected>1 天</option><option value="604800">7 天</option><option value="0">长期有效，直到撤销</option></select></label>
+              <button class="primary" id="createGrantButton" type="submit">为所选服务器创建密钥</button>
+            </form>
+            <div class="grant-result" id="grantResult" hidden>
+              <label>SSH 登录页面<input id="shareLink" type="text" readonly /></label>
+              <label>新访问密钥<input id="newAccessKey" type="password" readonly autocomplete="off" /></label>
+              <label class="checkbox-label"><input id="showAccessKey" type="checkbox" />显示访问密钥</label>
+              <button class="secondary" id="copyInvitationButton" type="button">复制链接与访问密钥</button>
+              <p class="muted">密钥只在创建时显示，请保存。对方打开链接后只需输入这个密钥。</p>
+            </div>
+            </details>
+            <div class="grant-list" id="grantList"></div>
+          </section>
+        </aside>
+        <section class="terminal-panel card">
+          <header class="terminal-header"><div><h2 id="terminalTitle">终端</h2><span id="connectionStatus" role="status" aria-live="polite">尚未连接</span></div><button id="disconnectButton" class="secondary" type="button" disabled>断开</button></header>
+          <div id="terminal" aria-label="交互式 SSH 终端"></div>
+          <div class="terminal-keys" role="toolbar" aria-label="终端辅助按键"><button type="button" data-key="ctrl-c">Ctrl-C</button><button type="button" data-key="ctrl-d">Ctrl-D</button><button type="button" data-key="escape">Esc</button><button type="button" data-key="tab">Tab</button><button type="button" data-key="up">↑</button><button type="button" data-key="down">↓</button><button type="button" data-key="left">←</button><button type="button" data-key="right">→</button><button type="button" id="pasteButton">粘贴</button><button type="button" id="copySelectionButton">复制选中</button></div>
+          <p class="muted">短暂断网会自动恢复原终端，最多保留 5 分钟；恢复期间不会发送或重放命令。远端终端退出或主站重启后需重新登录。</p>
+          <details class="file-panel" id="filesPanel">
+            <summary>文件上传与下载</summary>
+            <fieldset id="fileControls" disabled>
+              <form id="directoryForm" class="file-path-form"><label>远程目录<input id="remoteDirectory" value="." spellcheck="false" required /></label><button type="submit">打开 / 刷新</button><button id="parentDirectoryButton" type="button">上一级</button></form>
+              <form id="uploadForm"><label>上传到上方目录<input id="uploadInput" type="file" multiple required /></label><label class="checkbox-label"><input id="overwriteFiles" type="checkbox" />允许覆盖同名文件</label><div class="actions"><button id="uploadButton" class="primary" type="submit">上传文件</button><button id="cancelUploadButton" class="secondary" type="button" hidden>取消上传</button></div></form>
+              <form id="downloadForm" class="file-path-form"><label>远程文件路径<input id="remoteDownloadPath" spellcheck="false" placeholder="输入完整文件路径，或从列表选择" required /></label><button type="submit">下载文件</button></form>
+              <div id="remoteFiles" class="remote-files" aria-label="远程目录内容"></div>
+            </fieldset>
+            <p id="fileStatus" class="file-status" role="status" aria-live="polite">连接终端后可传输文件。权限与 SSH 账号相同，取消传输不会关闭终端。</p>
+          </details>
+        </section>
+      </div>
+    </main>
+    <script src="/vendor/xterm/lib/xterm.js?v=0.45.6"></script>
+    <script src="/vendor/xterm-fit/addon-fit.js?v=0.45.6"></script>
+    <script type="module" src="/web-ssh.js?v=0.45.6"></script>
+  </body>
+</html>

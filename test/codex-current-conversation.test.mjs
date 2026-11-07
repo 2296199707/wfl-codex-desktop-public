@@ -11,7 +11,7 @@ import { createAuthRecord, writeAuth } from "../lib/auth.mjs";
 
 const repository = path.resolve(new URL("..", import.meta.url).pathname);
 
-test("installed Codex handles website GPT-6 tool turns, active reads, steer and interrupt", {
+test("installed Codex handles website GPT-6.1 Sol tool turns, item anchors, active reads, steer and interrupt", {
   timeout: 45_000,
 }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-codex-current-"));
@@ -31,7 +31,8 @@ test("installed Codex handles website GPT-6 tool turns, active reads, steer and 
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       requests.push(body);
       assert.ok(requests.length <= 5, "bounded local provider request count");
-      assert.equal(body.model, "gpt-6-astra");
+      assert.equal(body.model, "gpt-6.1-sol");
+      assert.equal(body.reasoning?.effort, 42, "Codex serializes a numeric effort as a JSON number");
       assert.equal(body.stream, true);
       response.writeHead(200, { "Content-Type": "text/event-stream" });
       const event = (data) => response.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -111,7 +112,7 @@ test("installed Codex handles website GPT-6 tool turns, active reads, steer and 
   await fs.mkdir(codexHome, { recursive: true });
   await fs.mkdir(runtime, { recursive: true });
   await fs.writeFile(path.join(codexHome, "config.toml"), [
-    'model = "gpt-6-astra"',
+    'model = "gpt-6.1-sol"',
     'model_provider = "compatibility"',
     'model_reasoning_effort = "low"',
     'approval_policy = "never"',
@@ -183,11 +184,11 @@ test("installed Codex handles website GPT-6 tool turns, active reads, steer and 
     assert.equal(reply.type, "rpc/result", `${method}: ${reply.message}`);
     return reply.result;
   };
-  const started = await rpc("thread/start", { cwd: project, model: "gpt-6-astra", approvalPolicy: "never", sandbox: "read-only" });
+  const started = await rpc("thread/start", { cwd: project, model: "gpt-6.1-sol", approvalPolicy: "never", sandbox: "read-only" });
   const threadId = started.thread.id;
-  await rpc("thread/settings/update", { threadId, model: "gpt-6-astra", effort: "low" });
+  await rpc("thread/settings/update", { threadId, model: "gpt-6.1-sol", effort: "42" });
   const startTurn = (text, id) => rpc("turn/start", {
-    threadId, cwd: project, model: "gpt-6-astra", effort: "low",
+    threadId, cwd: project, model: "gpt-6.1-sol", effort: "42",
     clientUserMessageId: id, _wflThreadLeaseOwnerId: "compatibility-window",
     input: [{ type: "text", text, text_elements: [] }],
   });
@@ -200,9 +201,27 @@ test("installed Codex handles website GPT-6 tool turns, active reads, steer and 
   const read = await rpc("thread/read", { threadId, includeTurns: true });
   assert.match(JSON.stringify(read.thread.turns), /WFL_COMPAT_OK/);
   assert.match(JSON.stringify(read.thread.turns), /commandExecution/);
+  const command = read.thread.turns.flatMap((turn) => turn.items || [])
+    .find((item) => item.type === "commandExecution");
+  assert.equal(command?.status, "completed");
+  assert.equal(command?.exitCode, 0);
+  const items = await rpc("thread/items/list", { threadId, turnId: first.turn.id, limit: 1, sortDirection: "desc" });
+  assert.equal(items.data.length, 1);
+  assert.ok(items.nextCursor);
+  const older = await rpc("thread/items/list", {
+    threadId, turnId: first.turn.id, cursor: { type: "item", itemId: items.data[0].item.id },
+    limit: 10, sortDirection: "desc",
+  });
+  assert.ok(older.data.length > 0);
+  assert.equal(older.data.some((entry) => entry.item.id === items.data[0].item.id), false);
+  const memories = await fetch(`${baseUrl}/api/codex/memories?threadId=${encodeURIComponent(threadId)}`, { headers: { Cookie: cookie } });
+  assert.equal(memories.status, 200);
+  const memorySnapshot = await memories.json();
+  assert.equal(typeof memorySnapshot.nativeStatus?.v2Ready, "boolean");
+  assert.ok(Number.isSafeInteger(memorySnapshot.nativeStatus?.v2ConsolidatedThreads));
   const active = await startTurn("Hold for a follow-up instruction.", "compatibility-second");
   await waitFor(() => requests.length >= 3, () => output);
-  const other = await rpc("thread/start", { cwd: project, model: "gpt-6-astra" });
+  const other = await rpc("thread/start", { cwd: project, model: "gpt-6.1-sol" });
   assert.notEqual(other.thread.id, threadId);
   const activeRead = await rpc("thread/read", { threadId, includeTurns: true });
   assert.equal(activeRead.thread.id, threadId);

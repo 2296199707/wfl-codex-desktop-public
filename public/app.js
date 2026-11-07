@@ -26,18 +26,18 @@ import {
   stripCollaborationPreference,
   terminalSubagentStatusForTurn,
   unifiedDiffStats,
-} from "./thread-state.js?v=0.45.1";
-import { imagePromptFromConversation } from "./image-intent.js?v=0.45.1";
+} from "./thread-state.js?v=0.45.6";
+import { imagePromptFromConversation } from "./image-intent.js?v=0.45.6";
 import {
   imageOutputConversationAttachment,
   imageOutputMetadataReference,
-} from "./image-context-policy.js?v=0.45.1";
+} from "./image-context-policy.js?v=0.45.6";
 import {
   bindConversationImageContext,
   commitConversationImageContext,
   imageContextKey,
   prepareConversationImageContext,
-} from "./image-attachment-context.js?v=0.45.1";
+} from "./image-attachment-context.js?v=0.45.6";
 import {
   GAME_WORK_MODE_ACK_TYPE,
   acceptGameWorkModeSignal,
@@ -45,16 +45,16 @@ import {
   gameWorkModeChannelName,
   gameWorkModeIsolationEnabled,
   pruneGameWorkModeLeases,
-} from "./game-work-mode.js?v=0.45.1";
+} from "./game-work-mode.js?v=0.45.6";
 import {
   createMapEditorTabSignal,
   parseMapEditorTabSignal,
-} from "./map-editor/map-tab-channel.js?v=0.45.1";
+} from "./map-editor/map-tab-channel.js?v=0.45.6";
 import {
   createMapConversationResult,
   createMapConversationSnapshot,
   parseMapConversationRequest,
-} from "./map-editor/map-conversation-channel.js?v=0.45.1";
+} from "./map-editor/map-conversation-channel.js?v=0.45.6";
 import {
   agentMessageDisplayText,
   createConversationState,
@@ -64,11 +64,11 @@ import {
   replaceConversationThread,
   selectConversationThread,
   turnHasRenderableAssistantMessage,
-} from "./conversation-state.js?v=0.45.1";
-import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.45.1";
+} from "./conversation-state.js?v=0.45.6";
+import { MapProjectWorkspaceClient } from "./map-project-session.js?v=0.45.6";
 
-const UI_VERSION = "0.45.1";
-const UI_VERSION_LABEL = "0.45.1";
+const UI_VERSION = "0.45.6";
+const UI_VERSION_LABEL = "0.45.6";
 const HISTORY_COLLAPSE_THRESHOLD = 12;
 const RECOVERY_TURNS_SHOWN = 4;
 const RECENT_TURNS_SHOWN = 8;
@@ -457,6 +457,10 @@ const state = {
     sectionPositionSort: false,
     pluginSearch: false,
     cursorMigration: false,
+    memoryStatus: false,
+    itemAnchors: false,
+    mcpServerFilter: false,
+    mcpResourceTarget: false,
   },
   bootstrapped: false,
   initialDataReady: false,
@@ -1926,6 +1930,7 @@ const elements = Object.fromEntries(
     "toolboxOpenGameResourcesButton",
     "toolboxOpenMobileAppButton",
     "toolboxOpenServerFilesButton",
+    "toolboxOpenWebSshButton",
     "mapWorkspaceCloseButton",
     "mapWorkspaceOpenEditorButton",
     "mapWorkspaceOpenCharacterButton",
@@ -2099,6 +2104,7 @@ const elements = Object.fromEntries(
     "collaborationSubagentEnabledInput",
     "collaborationSubagentModelInput",
     "collaborationSubagentEffortInput",
+    "collaborationSubagentEffortOptions",
     "collaborationThreadsInput",
     "collaborationDepthInput",
     "collaborationSettingsError",
@@ -10001,6 +10007,10 @@ function applyCodexRuntimeCapabilities(value) {
     sectionPositionSort: input.sectionPositionSort === true,
     pluginSearch: input.pluginSearch === true,
     cursorMigration: input.cursorMigration === true,
+    memoryStatus: input.memoryStatus === true,
+    itemAnchors: input.itemAnchors === true,
+    mcpServerFilter: input.mcpServerFilter === true,
+    mcpResourceTarget: input.mcpResourceTarget === true,
   };
   refreshCodexRuntimeFeatureControls();
 }
@@ -14464,6 +14474,11 @@ function collaborationConfigValue(config, key, fallback) {
   return value === undefined || value === null ? fallback : value;
 }
 
+function validCodexReasoningEffort(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 256
+    && !/[\s\u0000]/u.test(value);
+}
+
 function collaborationSettingsSnapshot(config = state.config) {
   const enabledValue = collaborationConfigValue(config, "enabled", true);
   const modelValue = collaborationConfigValue(config, "default_subagent_model", "");
@@ -14473,7 +14488,7 @@ function collaborationSettingsSnapshot(config = state.config) {
   return {
     subagentEnabled: enabledValue !== false,
     subagentModel: typeof modelValue === "string" && modelValue.length <= 256 ? modelValue : "",
-    subagentEffort: COLLABORATION_SUBAGENT_EFFORTS.has(effortValue) ? effortValue : "high",
+    subagentEffort: validCodexReasoningEffort(effortValue) ? effortValue : "high",
     maxThreads: COLLABORATION_THREAD_LIMITS.has(threadsValue) ? threadsValue : 4,
     maxDepth: COLLABORATION_DEPTH_LIMITS.has(depthValue) ? depthValue : 3,
   };
@@ -14507,6 +14522,18 @@ function renderCollaborationSettings() {
       : "当前 Codex 没有返回可用的官方协作预设。";
   populateSubagentModelSelect();
   elements.collaborationSubagentModelInput.value = settings.subagentModel;
+  const effortModel = state.models.find((model) => model.model === (settings.subagentModel || state.selectedModel));
+  const efforts = new Set([
+    ...COLLABORATION_SUBAGENT_EFFORTS,
+    ...(effortModel?.supportedReasoningEfforts || []).map((entry) => entry.reasoningEffort),
+    settings.subagentEffort,
+  ]);
+  elements.collaborationSubagentEffortOptions.replaceChildren();
+  for (const effort of efforts) {
+    if (validCodexReasoningEffort(effort)) {
+      elements.collaborationSubagentEffortOptions.append(dataOption(effortLabels[effort] || effort, effort));
+    }
+  }
   elements.collaborationSubagentEffortInput.value = settings.subagentEffort;
   elements.collaborationThreadsInput.value = String(settings.maxThreads);
   elements.collaborationDepthInput.value = String(settings.maxDepth);
@@ -14561,7 +14588,7 @@ function renderIntelligenceControl() {
     button.title = effort.description || `推理强度：${effortLabels[value] || value}`;
     button.innerHTML = '<span></span><i data-lucide="check"></i>';
     button.querySelector("span").textContent = value === "ultra"
-      ? "Ultra（最高，主动多代理）"
+      ? "Ultra（最高）"
       : intelligenceEffortLabels[value] || effortLabels[value] || value;
     button.querySelector("svg, i").hidden = value !== state.selectedEffort;
     button.addEventListener("click", () => selectIntelligenceEffort(value));
@@ -16211,11 +16238,10 @@ async function saveCollaborationSettings() {
   const maxDepth = Number(elements.collaborationDepthInput.value);
   const presetName = elements.collaborationPresetInput.value;
   if (
-    !COLLABORATION_SUBAGENT_EFFORTS.has(subagentEffort)
+    !validCodexReasoningEffort(subagentEffort)
     || (subagentModel && !state.models.some((model) => model.model === subagentModel))
     || !COLLABORATION_THREAD_LIMITS.has(maxThreads)
     || !COLLABORATION_DEPTH_LIMITS.has(maxDepth)
-    || !COLLABORATION_STRATEGIES.has(strategy)
     || (
       presetName
       && !state.codexPolicy.collaborationModes.some(
@@ -20274,6 +20300,7 @@ async function hydrateThreadItemSummaries(
       state.threadItemPages.set(key, {
         nextCursor: typeof cachedPage.nextCursor === "string" ? cachedPage.nextCursor : null,
         backwardsCursor: typeof cachedPage.backwardsCursor === "string" ? cachedPage.backwardsCursor : null,
+        oldestItemId: typeof cachedPage.oldestItemId === "string" ? cachedPage.oldestItemId : null,
         loaded: Number.isSafeInteger(cachedPage.loaded) ? cachedPage.loaded : (turn.items || []).length,
         loadedApproxBytes: Math.max(0, Number(cachedPage.loadedApproxBytes) || 0),
         loading: false,
@@ -20335,8 +20362,12 @@ async function loadTurnItemsPage(
   const key = threadItemPageKey(threadId, turnId);
   const previous = state.threadItemPages.get(key);
   if (previous?.loading) return false;
-  const cursor = initial ? null : previous?.nextCursor;
+  let cursor = initial ? null : previous?.nextCursor;
   if (!initial && !cursor) return false;
+  if (!initial && previous?.oldestItemId && !state.activeThread.imported
+    && codexRuntimeFeatureAvailable("itemAnchors")) {
+    cursor = { type: "item", itemId: previous.oldestItemId };
+  }
   state.threadItemPages.set(key, {
     ...(previous || {}),
     loading: true,
@@ -20386,6 +20417,7 @@ async function loadTurnItemsPage(
     const pageState = {
       nextCursor: typeof page?.nextCursor === "string" ? page.nextCursor : null,
       backwardsCursor: typeof page?.backwardsCursor === "string" ? page.backwardsCursor : null,
+      oldestItemId: entries[0]?.item?.id || (initial ? null : previous?.oldestItemId) || null,
       loaded: turn.items.length,
       loadedApproxBytes: Math.max(0, Number(previous?.loadedApproxBytes) || 0) + responseApproxBytes,
       loading: false,
@@ -32115,13 +32147,31 @@ async function startCodexMcpOAuth(server) {
   }
 }
 
-function openCodexMcpInspector(name) {
+async function openCodexMcpInspector(name) {
   state.selectedCodexMcpName = name;
   elements.codexMcpInspector.hidden = false;
   elements.codexMcpResourceOutput.textContent = "尚未读取资源";
   elements.codexMcpToolOutput.textContent = "尚未调用工具";
   renderCodexMcpInspector();
   refreshIcons();
+  if (!codexRuntimeFeatureAvailable("mcpServerFilter")) return;
+  const contextThreadId = state.activeThread?.id || null;
+  const threadId = state.activeThread?.imported ? null : contextThreadId;
+  try {
+    const result = await rpc("mcpServerStatus/list", { serverName: name, threadId, detail: "full" });
+    if (state.selectedCodexMcpName !== name || (state.activeThread?.id || null) !== contextThreadId) return;
+    const inventory = result?.data?.find((entry) => entry.name === name);
+    if (!inventory) return;
+    state.codexExtensions.mcpStatuses = [
+      ...(state.codexExtensions.mcpStatuses || []).filter((entry) => entry.name !== name),
+      inventory,
+    ];
+    renderCodexMcpInspector();
+  } catch (error) {
+    if (state.selectedCodexMcpName === name && (state.activeThread?.id || null) === contextThreadId) {
+      elements.codexMcpInspectorStatus.textContent = error.message;
+    }
+  }
 }
 
 function closeCodexMcpInspector() {
@@ -32137,7 +32187,10 @@ function renderCodexMcpInspector() {
     return;
   }
   elements.codexMcpInspectorTitle.textContent = name;
-  elements.codexMcpInspectorStatus.textContent = codexMcpAuthLabel(inventory.authStatus);
+  elements.codexMcpInspectorStatus.textContent = [
+    codexMcpAuthLabel(inventory.authStatus),
+    inventory.toolsError ? `工具目录：${inventory.toolsError}` : null,
+  ].filter(Boolean).join(" · ");
   elements.codexMcpResourceInput.replaceChildren();
   const resources = Array.isArray(inventory.resources) ? inventory.resources : [];
   for (const resource of resources) {
@@ -34118,6 +34171,18 @@ function renderPersistentSshServers() {
     testButton.disabled = !server.enabled;
     testButton.addEventListener("click", () => testPersistentSshServer(server));
     row.querySelector(".persistent-ssh-revoke-button").addEventListener("click", () => revokePersistentSshServer(server));
+    if (isAccountAdmin()) {
+      row.dataset.webTerminal = "true";
+      const terminalButton = document.createElement("a");
+      terminalButton.className = "icon-button";
+      terminalButton.href = `/ssh.html?server=${encodeURIComponent(server.id)}`;
+      terminalButton.target = "_blank";
+      terminalButton.rel = "noopener noreferrer";
+      terminalButton.title = server.authMode === "password" ? "打开网页终端" : "网页终端（需要单独配置凭据）";
+      terminalButton.setAttribute("aria-label", terminalButton.title);
+      terminalButton.innerHTML = '<i data-lucide="terminal"></i>';
+      row.append(terminalButton);
+    }
     elements.persistentSshRecords.append(row);
   }
   refreshIcons();
@@ -37540,7 +37605,7 @@ async function connectOfficialBrowserVnc({ manual = false } = {}) {
   elements.officialBrowserRefreshButton.disabled = true;
   elements.officialBrowserStatus.textContent = "正在连接服务器";
   try {
-    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.45.1");
+    const { default: RFB } = await import("/vendor/novnc-1.7.0/core/rfb.js?v=0.45.6");
     if (generation !== state.officialBrowserConnectGeneration || !elements.officialBrowserDialog.open) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const rfb = new RFB(
@@ -42788,6 +42853,11 @@ function renderCodexMemorySettings({ syncInputs = true } = {}) {
   elements.codexMemoryStatus.textContent = loading
     ? "正在同步"
     : snapshot.error ? "读取失败" : enabled ? "已启用" : "已关闭";
+  if (!loading && !snapshot.error && enabled && snapshot.nativeStatus) {
+    elements.codexMemoryStatus.textContent += snapshot.nativeStatus.v2Ready
+      ? ` · 记忆已就绪（${snapshot.nativeStatus.v2ConsolidatedThreads} 个对话已整合）`
+      : " · 记忆尚在准备";
+  }
   elements.codexMemoryStatus.dataset.enabled = String(enabled && !snapshot.error);
   elements.codexMemoryUseInput.disabled = loading || !enabled;
   elements.codexMemoryGenerateInput.disabled = loading || !enabled;

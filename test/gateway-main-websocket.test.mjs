@@ -68,19 +68,67 @@ test("main gateway preserves window identity through an upstream switch", async 
   assert.equal(socket.readyState, WebSocket.OPEN);
 });
 
+test("SSH gateway forwards terminal frames but closes on a switch without reconnecting or replaying input", { timeout: 10_000 }, async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "wfl-ssh-gateway-"));
+  const [firstPort, secondPort, gatewayPort, unusedPortA, unusedPortB] = await Promise.all(Array.from({ length: 5 }, () => reservePort()));
+  const activePortFile = path.join(directory, "active-port");
+  await fs.writeFile(activePortFile, `${firstPort}\n`);
+  const first = await startUpstream(firstPort, "first");
+  const second = await startUpstream(secondPort, "second");
+  const gateway = spawn(process.execPath, [new URL("../gateway.mjs", import.meta.url).pathname], {
+    cwd: new URL("..", import.meta.url).pathname,
+    env: {
+      ...process.env, HOST: "127.0.0.1", PORT: String(gatewayPort),
+      CODEX_DESKTOP_UPSTREAM_PORTS: `${firstPort},${secondPort}`,
+      CODEX_DESKTOP_UPSTREAM_PORT: String(firstPort), CODEX_DESKTOP_ACTIVE_PORT_FILE: activePortFile,
+      CODEX_DESKTOP_RESCUE_PORTS: `${unusedPortA},${unusedPortB}`, CODEX_DESKTOP_RESCUE_PORT: String(unusedPortA),
+      CODEX_DESKTOP_GATEWAY_TEST_MODE: "1", CODEX_DESKTOP_RESCUE_ACTIVE_PORT_FILE: path.join(directory, "unused-rescue-port"),
+    }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  let socket;
+  t.after(async () => {
+    socket?.terminate();
+    gateway.kill("SIGTERM");
+    await Promise.race([new Promise((resolve) => gateway.once("exit", resolve)), new Promise((resolve) => setTimeout(resolve, 2_000))]);
+    await Promise.all([first.stop(), second.stop()]);
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  await waitForOutput(gateway, "WFL Codex Gateway:");
+  socket = new WebSocket(`ws://127.0.0.1:${gatewayPort}/ssh/ws`, { headers: { Origin: `http://127.0.0.1:${gatewayPort}` } });
+  const ready = waitForMessage(socket, (message) => message.backend === "first");
+  await new Promise((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
+  assert.equal((await ready).path, "/ssh/ws");
+  const input = JSON.stringify({ type: "input", data: "one-terminal-command\n" });
+  const binary = Buffer.from([0, 255, 3, 27]);
+  const received = new Promise((resolve) => first.clients.values().next().value.once("message", (data) => resolve(data.toString())));
+  socket.send(input);
+  assert.equal(await received, input);
+  const output = new Promise((resolve) => socket.once("message", (raw, isBinary) => resolve({ raw, isBinary })));
+  first.clients.values().next().value.send(binary);
+  assert.deepEqual(await output, { raw: binary, isBinary: true });
+  const closed = new Promise((resolve) => socket.once("close", (code) => resolve(code)));
+  await fs.writeFile(activePortFile, `${secondPort}\n`);
+  assert.equal(await closed, 1012);
+  assert.equal(second.clients.size, 0);
+  assert.deepEqual(first.messages.map(({ data }) => data.toString()), [input]);
+});
+
 async function startUpstream(port, backend) {
   const server = http.createServer((_request, response) => response.writeHead(404).end());
   const webSocketServer = new WebSocketServer({ noServer: true });
   const clients = new Set();
+  const messages = [];
   server.on("upgrade", (request, socket, head) => {
     webSocketServer.handleUpgrade(request, socket, head, (client) => {
       clients.add(client);
       client.once("close", () => clients.delete(client));
+      client.on("message", (data, binary) => messages.push({ data, binary }));
       client.send(JSON.stringify({ backend, path: request.url }));
     });
   });
   await new Promise((resolve, reject) => server.listen(port, "127.0.0.1", resolve).once("error", reject));
   return {
+    clients, messages,
     async stop() {
       for (const client of clients) client.terminate();
       await Promise.all([
